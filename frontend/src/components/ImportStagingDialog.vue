@@ -29,16 +29,28 @@
       <input ref="replacePageInput" class="d-none" type="file" accept="application/pdf" @change="replaceSelectedPageFromFile" />
       <input ref="fileInput" class="d-none" type="file" accept="application/pdf" multiple @change="onFileInputChange" />
 
-      <!-- Left column: page grid + bottom toolbar -->
+      <!-- Seitenliste und dauerhafte Vorschau mit Werkzeugen im Kopfbereich. -->
       <div class="isd-left">
+        <div v-if="!isEmpty" class="isd-pages-header">
+          <strong>Seiten</strong>
+          <span class="isd-page-count" :aria-label="`${totalPages} ${totalPages === 1 ? 'Seite' : 'Seiten'}`">{{ totalPages }}</span>
+          <!-- Auswahlwerkzeuge gehören zur Seitenliste. -->
+          <v-btn
+            icon
+            size="x-small"
+            :variant="isSelectMode ? 'flat' : 'text'"
+            :color="isSelectMode ? 'primary' : undefined"
+            :title="isSelectMode ? 'Auswahl beenden' : 'Seiten auswählen'"
+            class="isd-toolbar-select-btn"
+            :class="{ 'isd-toolbar-select-btn--active': isSelectMode }"
+            @click="toggleSelectMode"
+          >
+            <v-icon size="20">mdi-checkbox-multiple-outline</v-icon>
+          </v-btn>
+        </div>
         <div
-          v-if="aiAnalysis.kind === 'busy' && !isEmpty && settingsStore.scanLineAnimationEnabled"
-          class="isd-ai-scan-line"
-          aria-hidden="true"
-        />
-        <div
-          class="isd-grid-scroll"
-          :style="{ ...gridScrollStyle, paddingBottom: isEmpty ? undefined : '82px' }"
+          class="isd-grid-scroll import-staging-scroll"
+          :aria-label="isEmpty ? undefined : 'Dokumentseiten'"
           @dragenter.prevent="onMiniatureDragEnter"
           @dragover.prevent="onMiniatureDragOver"
           @dragleave="onMiniatureDragLeave"
@@ -196,7 +208,7 @@
             </div>
           </div>
 
-          <!-- Page grid -->
+          <!-- Einspaltige, unabhängig scrollende Seitenliste -->
           <div
             v-else
             class="isd-page-grid import-staging-pages"
@@ -209,7 +221,8 @@
               :ref="el => setPageThumbRef(page.id, el)"
               class="isd-page-card import-staging-page"
               :data-page-id="page.id"
-              role="button" tabindex="0" :aria-label="`Seite ${globalIndex + 1}, ${doc.title}`"
+              role="button" :tabindex="isPageSelected(doc.id, page.id) || (!selected?.pageId && globalIndex === 0) ? 0 : -1" :aria-label="`Seite ${globalIndex + 1}, ${doc.title}`"
+              :aria-pressed="isSelectMode ? isPageMultiSelected(page.id) : isPageSelected(doc.id, page.id) || isPageMultiSelected(page.id)"
               @keydown.enter.prevent="onPageGridClick($event, doc, page, globalIndex)"
               @keydown.space.prevent="onPageGridClick($event, doc, page, globalIndex)"
               :data-page-index="pageIndexInDoc"
@@ -381,30 +394,17 @@
           </div>
 
         </div>
-        <div v-if="primaryDocument?.meta?.commitError" class="isd-import-error" role="alert">
+        <div v-if="primaryDocument?.meta?.commitError" class="isd-import-error isd-workspace-error" role="alert">
           {{ primaryDocument.meta.commitError.message }}
           <button v-if="primaryDocument.meta.commitError.existing_doc_id" type="button" @click="minimizeDialog(); emit('open-document', primaryDocument.meta.commitError.existing_doc_id)">Vorhandenes Dokument öffnen</button>
         </div>
-        <div v-show="!isEmpty || stagingStore.history.length" class="isd-toolbar">
+        <div v-show="!isEmpty || stagingStore.history.length" class="isd-toolbar" role="toolbar" aria-label="Seitenwerkzeuge">
+          <span class="isd-preview-title">{{ selectedPreviewLabel }}</span>
 
-          <!-- Linke Gruppe: Modus-Toggle + Seitenaktionen -->
-          <v-btn icon="mdi-undo" size="x-small" variant="text" aria-label="Seitenänderung rückgängig machen"
+          <!-- Direkte Werkzeuge für die ausgewählte Seite. -->
+          <v-btn icon="mdi-undo" size="x-small" variant="text" class="isd-toolbar-undo" aria-label="Seitenänderung rückgängig machen"
             :disabled="!stagingStore.history.length || isCommitting || Boolean(stagingStore.pendingCommit)" @click="stagingStore.undo()" />
           <div class="isd-toolbar-left">
-            <v-btn
-              icon
-              size="x-small"
-              :variant="isSelectMode ? 'flat' : 'text'"
-              :color="isSelectMode ? 'primary' : undefined"
-              :title="isSelectMode ? 'Auswahl beenden' : 'Seiten auswählen'"
-              class="isd-toolbar-select-btn"
-              :class="{ 'isd-toolbar-select-btn--active': isSelectMode }"
-              @click="toggleSelectMode"
-            >
-              <v-icon size="20">mdi-checkbox-multiple-outline</v-icon>
-            </v-btn>
-
-            <div class="isd-toolbar-divider" />
 
             <div class="isd-rotate-group">
               <v-btn
@@ -486,7 +486,7 @@
 
           <!-- Vorbereitung und KI teilen sich einen kompakten Statusknopf. -->
           <div class="isd-toolbar-center">
-            <v-menu location="top">
+            <v-menu location="bottom end" :max-height="560">
               <template #activator="{ props: menuProps }">
                 <v-btn v-bind="menuProps" icon="mdi-dots-horizontal" size="x-small" variant="text" aria-label="Weitere Aktionen" :disabled="isCommitting" />
               </template>
@@ -497,13 +497,21 @@
                 <v-list-item v-if="hasMultiSelection || selected?.pageId" title="Ausgewählte Seiten analysieren" :disabled="isScanCleanupRunning || isRetryingAnalysis" @click="analyzeSelectedPages" />
                 <v-list-item title="Texterkennung wiederholen" :disabled="isScanCleanupRunning || isRetryingAnalysis" @click="retryAnalysis(true)" />
                 <v-divider />
+                <div class="isd-compact-color-actions">
+                  <v-list-subheader>Farbmodus</v-list-subheader>
+                  <v-list-item title="Originalfarbe des Scans" prepend-icon="mdi-image-outline" :active="selectedPageColorChoice === 'color'" :disabled="!hasAnySelectedPage" @click="setAnySelectedPageColorMode('color')" />
+                  <v-list-item title="Graustufen" prepend-icon="mdi-circle-half-full" :active="selectedPageColorChoice === 'grayscale'" :disabled="!hasAnySelectedPage" @click="setAnySelectedPageColorMode('grayscale')" />
+                  <v-list-item title="Automatische Scanbereinigung beibehalten" prepend-icon="mdi-palette-outline" :active="selectedPageColorChoice === 'auto'" :disabled="!hasAnySelectedPage" @click="setAnySelectedPageColorMode('auto')" />
+                  <v-divider />
+                </div>
                 <v-list-subheader>Seiten</v-list-subheader>
+                <v-list-item class="isd-compact-undo" title="Seitenänderung rückgängig machen" prepend-icon="mdi-undo" :disabled="!stagingStore.history.length || Boolean(stagingStore.pendingCommit)" @click="stagingStore.undo()" />
                 <v-list-item title="Ausgewählte Seite als neues Dokument" prepend-icon="mdi-call-split" :disabled="!selected?.pageId || Boolean(stagingStore.pendingCommit)" @click="stagingStore.splitPageToNewDocument(selected.pageId)" />
                 <v-list-item title="Seite ersetzen" prepend-icon="mdi-file-pdf-box" :disabled="!selected?.pageId || Boolean(stagingStore.pendingCommit)" @click="replacePageInput?.click()" />
               </v-list>
             </v-menu>
             <div class="isd-toolbar-divider" />
-            <v-tooltip v-if="prepStatus.busy" v-model="preparationHintOpen" location="top" :max-width="280" open-on-focus>
+            <v-tooltip v-if="prepStatus.busy" v-model="preparationHintOpen" location="bottom" :max-width="280" open-on-focus>
               <template #activator="{ props: tooltipProps }">
                 <v-btn
                   v-bind="tooltipProps"
@@ -530,7 +538,7 @@
               :class="`isd-ai-status-btn--${prepStatus.kind}`"
               :title="aiStatusTitle"
               :disabled="isScanCleanupRunning || isRetryingAnalysis || isUploadingSources || totalPages === 0"
-              @click="retryAnalysis(false)"
+              @click="aiAnalysis.kind === 'interrupted' ? requestScanTitleSuggestion(primaryDocument.id, 'all_pages', { silent: true }) : retryAnalysis(false)"
             >
               <v-icon v-if="['success', 'partial'].includes(aiAnalysis.kind)" size="20">
                 mdi-auto-fix
@@ -543,54 +551,44 @@
             <span class="isd-status-announcement" role="status" aria-live="polite">{{ prepStatus.busy ? prepStatus.label : '' }}</span>
           </div>
 
-          <!-- Rechte Gruppe: Miniaturgröße + Seitenanzahl -->
-          <div class="isd-toolbar-right">
-            <v-menu location="top" :offset="8" :close-on-content-click="false">
-              <template #activator="{ props: menuProps }">
-                <v-btn
-                  icon
-                  size="x-small"
-                  variant="text"
-                  class="isd-zoom-trigger"
-                  title="Miniaturgröße"
-                  v-bind="menuProps"
-                >
-                  <v-icon size="20">mdi-view-grid-outline</v-icon>
-                </v-btn>
-              </template>
-              <v-list density="compact" min-width="184" class="isd-zoom-menu">
-                <v-list-subheader>Miniaturgröße</v-list-subheader>
-                <v-list-item
-                  v-for="opt in gridZoomOptions"
-                  :key="opt.index"
-                  :active="gridZoomIndex === opt.index"
-                  @click="gridZoomIndex = opt.index"
-                >
-                  <template #prepend>
-                    <span
-                      class="isd-zoom-swatch"
-                      :style="{
-                        display: 'inline-block',
-                        width: opt.dot + 'px',
-                        height: opt.dot + 'px',
-                        marginRight: '12px',
-                        borderRadius: '3px',
-                        background: gridZoomIndex === opt.index
-                          ? 'rgb(var(--v-theme-primary))'
-                          : 'rgba(var(--v-theme-on-surface), 0.5)'
-                      }"
-                    />
-                  </template>
-                  <v-list-item-title>{{ opt.label }}</v-list-item-title>
-                  <template #append>
-                    <v-icon v-if="gridZoomIndex === opt.index" size="16">mdi-check</v-icon>
-                  </template>
-                </v-list-item>
-              </v-list>
-            </v-menu>
-            <span class="isd-page-count">{{ totalPages }} {{ totalPages === 1 ? 'Seite' : 'Seiten' }}</span>
-          </div>
 
+        </div>
+        <div v-if="!isEmpty" role="region" aria-label="Seitenvorschau" class="isd-preview-panel">
+          <div
+            class="isd-preview-stage"
+            :class="{ 'isd-preview-stage--empty': !hasSelectedPreview }"
+          >
+            <div v-if="aiAnalysis.kind === 'busy' && settingsStore.scanLineAnimationEnabled" class="isd-ai-scan-line" aria-hidden="true" />
+            <template v-if="hasSelectedPreview">
+              <div v-if="previewImageLoading" class="isd-preview-loading">
+                <v-progress-circular indeterminate size="26" width="3" color="primary" />
+              </div>
+              <img
+                v-if="previewImageSrc"
+                :src="previewImageSrc"
+                :style="previewFallbackStyle"
+                class="isd-preview-image"
+                :alt="selectedPreviewLabel"
+                draggable="false"
+                @pointermove="onPreviewPointerMove"
+                @pointerleave="hidePreviewMagnifier"
+              />
+              <div
+                v-if="previewMagnifier.visible"
+                class="isd-preview-magnifier"
+                :style="previewMagnifierStyle"
+                aria-hidden="true"
+              />
+              <div v-if="!previewImageSrc" class="isd-preview-empty">
+                <v-icon size="40">mdi-file-document-outline</v-icon>
+                <span>Vorschau wird vorbereitet</span>
+              </div>
+            </template>
+            <div v-else class="isd-preview-empty">
+              <v-icon size="40">mdi-file-document-outline</v-icon>
+              <span>Keine Seite ausgewählt</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -599,30 +597,8 @@
            sobald mindestens eine Seite hinzugefügt wurde. -->
       <Transition name="isd-props-reveal">
       <div v-if="!isEmpty" class="isd-props">
-        <div class="isd-props-mode" role="tablist" aria-label="Rechte Ansicht">
-          <button
-            type="button"
-            class="isd-props-mode__button"
-            :class="{ 'isd-props-mode__button--active': rightPanelMode === 'details' }"
-            role="tab"
-            :aria-selected="rightPanelMode === 'details'"
-            @click="rightPanelMode = 'details'"
-          >
-            Details
-          </button>
-          <button
-            type="button"
-            class="isd-props-mode__button"
-            :class="{ 'isd-props-mode__button--active': rightPanelMode === 'preview' }"
-            role="tab"
-            :aria-selected="rightPanelMode === 'preview'"
-            @click="showPreviewPanel"
-          >
-            Vorschau
-          </button>
-        </div>
-
-       <div v-show="rightPanelMode === 'details'" class="isd-props-scroll">
+        <div class="isd-props-heading"><h3>Dokumentdetails</h3><p>Nur Notizen sind optional.</p></div>
+        <div class="isd-props-scroll">
 
         <RetentionStatusBar v-if="isRetentionEnabled" :model-value="docRetention" :document-date-iso="docDateIso || ''"
           :allow-suggest="false" :saving="isCommitting" :menu-props="{ maxHeight: 240, attach: 'body', zIndex: 6000 }"
@@ -630,11 +606,10 @@
 
         <v-select v-if="documents.length > 1" :model-value="primaryDocument?.id"
           :items="documents.map(doc => ({ title: doc.title || 'Ohne Namen', value: doc.id }))" label="Dokument bearbeiten"
-          density="compact" variant="outlined" @update:model-value="activeDocumentId = $event; selected = null" />
+          density="compact" variant="outlined" @update:model-value="selectDocumentForEditing" />
         <DocumentMetadataFields :name="primaryDocTitle" :date="docDate" :category="docCategory"
           :correspondent="docCorrespondentId" :note="docNote" :categories="categoryItems" :correspondents="correspondentItems"
-          :errors="{ ...fieldErrors, name: fieldErrors.title }" :sources="metadataSources" required-name manage :disabled="isCommitting || Boolean(stagingStore.pendingCommit)"
-          @manage-category="minimizeDialog(); emit('manage-category')" @manage-correspondent="minimizeDialog(); emit('manage-correspondent')"
+          :errors="{ ...fieldErrors, name: fieldErrors.title }" :sources="metadataSources" :pending="pendingMetadataFields" required-fields :disabled="isCommitting || Boolean(stagingStore.pendingCommit)"
           @update:name="onPrimaryDocTitleInput({ target: { value: $event } })"
           @update:date="docDate = $event; docDateTouched = true; docDateAiFilled = false"
           @update:category="docCategory = $event; docCategoryTouched = true; docCategoryAiFilled = false"
@@ -643,9 +618,10 @@
           @text-blur="onPrimaryDocTitleBlur" @date-blur="normalizeImportDate"
           @date-keydown="handleShortcut($event, SHORTCUT_ACTIONS.PRIMARY, normalizeImportDate, { ignoreEditable: false })"
           @correspondent-focus="correspondentStore.ensureLoaded()">
-          <template #tags>
+          <template #tags="{ inputId, required, error, errorId }">
             <TagInlineEditor :model-value="primaryDocTagNames" v-model:search="tagInlineValue"
-              :items="allTagNamesForPool" :disabled="isCommitting" :loading="isCreatingTags"
+              :input-id="inputId" :required="required" :error="error" :error-id="errorId"
+              :items="allTagNamesForPool" :disabled="isCommitting" :loading="isCreatingTags" :add-label="pendingMetadataFields.tags ? 'Wird ermittelt…' : 'Tag'"
               @update:model-value="onTagNamesChange" @remove="onTagNamesChange(primaryDocTagNames.filter(name => name !== $event))"
               @keydown="onImportTagKeydown" @focus="ensureStageTagsLoaded()" />
           </template>
@@ -686,44 +662,7 @@
 
        </div>
 
-        <div v-show="rightPanelMode === 'preview'" class="isd-preview-panel">
-          <div
-            class="isd-preview-stage"
-            :class="{ 'isd-preview-stage--empty': !hasSelectedPreview }"
-          >
-            <template v-if="hasSelectedPreview">
-              <div v-if="previewImageLoading" class="isd-preview-loading">
-                <v-progress-circular indeterminate size="26" width="3" color="primary" />
-              </div>
-              <img
-                v-if="previewImageSrc"
-                :src="previewImageSrc"
-                class="isd-preview-image"
-                :alt="selectedPreviewLabel"
-                draggable="false"
-                @pointermove="onPreviewPointerMove"
-                @pointerleave="hidePreviewMagnifier"
-              />
-              <div
-                v-if="previewMagnifier.visible"
-                class="isd-preview-magnifier"
-                :style="previewMagnifierStyle"
-                aria-hidden="true"
-              />
-              <div v-if="!previewImageSrc" class="isd-preview-empty">
-                <v-icon size="40">mdi-file-document-outline</v-icon>
-                <span>Vorschau wird vorbereitet</span>
-              </div>
-            </template>
-            <div v-else class="isd-preview-empty">
-              <v-icon size="40">mdi-file-document-outline</v-icon>
-              <span>Keine Seite ausgewählt</span>
-            </div>
-          </div>
-          <div v-if="hasSelectedPreview" class="isd-preview-meta">
-            {{ selectedPreviewLabel }}
-          </div>
-        </div>
+
 
       </div>
       </Transition>
@@ -761,7 +700,7 @@
             :disabled="isImportActionDisabled"
             @click="commitImport()"
           >
-            {{ isCommitting ? 'Verarbeitung läuft…' : stagingStore.pendingCommit ? 'Importstatus prüfen' : (isEmpty ? 'Importieren' : `Importieren (${importCount} Seiten)`) }}
+            {{ isCommitting ? 'Verarbeitung läuft…' : stagingStore.pendingCommit ? 'Importstatus prüfen' : 'Importieren' }}
           </v-btn>
         </div>
       </div>
@@ -812,7 +751,8 @@ import { parseDocumentDateInput } from '../utils/dates.js';
 import { apiFetch } from '../api/client.js';
 import { scanImageQuality } from '../utils/scanImageQuality.js';
 import { useImportDraftPersistence } from '../composables/useImportDraftPersistence.js';
-import { suggestImportStageTitle } from '../api/importStaging';
+import { suggestImportStageTitle, readImportStageAnalysis } from '../api/importStaging';
+import { analysisPending, acceptAnalysisSnapshot, transientAnalysisError } from '../utils/importAnalysis.js';
 import { isIOS } from '../utils/platform';
 import { mapApiError, useNotifications } from '../stores/notifications';
 import { useImportStagingStore } from '../stores/importStaging';
@@ -848,7 +788,7 @@ const props = defineProps({
   scanCancelPending: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'minimize', 'scan', 'open-document', 'manage-category', 'manage-correspondent']);
+const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'minimize', 'scan', 'open-document']);
 
 // Im Live-Modus erzeugt jede Seite sofort ein eigenes Dokument -> kein "Fertig".
 // Im Batch-Modus sammelt der Scanner und braucht ein explizites Abschließen.
@@ -934,6 +874,7 @@ const sourceRefreshCount = ref(0);
 const remoteSourceStageBySession = new Map();
 const titleSuggestJobByStage = new Map();
 let analysisChain = Promise.resolve();
+let analysisDisposed = false;
 const importTimingBySource = new Map();
 const IMPORT_ANALYSIS_RETRY_DELAY_MS = 1500;
 const IMPORT_ANALYSIS_MAX_TRANSIENT_RETRIES = 3;
@@ -943,7 +884,7 @@ const IMPORT_ANALYSIS_MAX_TRANSIENT_RETRIES = 3;
 const IMPORT_ANALYSIS_MAX_PENDING_RETRIES = 160;
 const previewImageSrc = ref('');
 const previewImageLoading = ref(false);
-const rightPanelMode = ref('details');
+const previewIsThumbnail = ref(false);
 const discardImportConfirmOpen = ref(false);
 const PREVIEW_MAGNIFIER_WIDTH = 220;
 const PREVIEW_MAGNIFIER_HEIGHT = 132;
@@ -1132,15 +1073,6 @@ const tagSearchInput = ref('');
 const tagDropdownOpen = ref(false);
 const tagInlineValue = ref('');
 const isCreatingTags = ref(false);
-const gridZoomIndex = ref(1);
-// Stufen der Miniaturgröße (Index → Grid-Mindestbreite in gridScrollStyle). Das
-// Quadrat (dot) wächst mit der Stufe und zeigt die Größe direkt im Menü.
-const gridZoomOptions = [
-  { index: 0, label: 'Sehr klein', dot: 8 },
-  { index: 1, label: 'Klein', dot: 11 },
-  { index: 2, label: 'Mittel', dot: 14 },
-  { index: 3, label: 'Groß', dot: 17 }
-];
 
 const isOpen = computed({
   get: () => props.modelValue,
@@ -1417,11 +1349,22 @@ const selectedPageEntry = computed(() => {
 });
 const hasSelectedPreview = computed(() => Boolean(selectedPageEntry.value));
 const selectedPreviewLabel = computed(() => {
-  const pageIndex = Number(selected.value?.pageIndex);
-  if (!Number.isFinite(pageIndex)) {
-    return 'Ausgewählte Seite';
-  }
-  return `Seite ${pageIndex + 1}`;
+  const index = allPagesFlat.value.findIndex(({ page }) => page.id === selected.value?.pageId);
+  return index >= 0 ? `Seite ${index + 1} von ${totalPages.value}` : 'Seitenvorschau';
+});
+const previewFallbackStyle = computed(() => {
+  if (!previewIsThumbnail.value || !selectedPageEntry.value) return undefined;
+  const page = selectedPageEntry.value;
+  const quarterTurn = [90, 270].includes(((Number(page.rotation || 0) % 360) + 360) % 360);
+  return {
+    transform: page.rotation ? `rotate(${page.rotation}deg)` : undefined,
+    width: quarterTurn ? '100cqh' : undefined,
+    height: quarterTurn ? '100cqw' : undefined,
+    maxWidth: quarterTurn ? 'none' : undefined,
+    maxHeight: quarterTurn ? 'none' : undefined,
+    filter: page.colorMode === 'grayscale' ? 'grayscale(1)'
+      : page.colorMode === 'bw' ? 'grayscale(1) contrast(4)' : undefined,
+  };
 });
 const previewMagnifierStyle = computed(() => ({
   width: `${PREVIEW_MAGNIFIER_WIDTH}px`,
@@ -1431,7 +1374,7 @@ const previewMagnifierStyle = computed(() => ({
   backgroundSize: `${Math.round(previewMagnifier.value.bgWidth)}px ${Math.round(previewMagnifier.value.bgHeight)}px`,
   backgroundPosition: `${Math.round(previewMagnifier.value.bgX)}px ${Math.round(previewMagnifier.value.bgY)}px`
 }));
-const MODAL_WORK_WIDTH_SPLIT = 1180;
+const MODAL_WORK_WIDTH_SPLIT = 1360;
 const peekStyle = computed(() => ({
   left: `${Math.round(peek.value.x)}px`,
   top: `${Math.round(peek.value.y)}px`
@@ -1441,7 +1384,6 @@ const pageDropMarkerStyle = computed(() => ({
   top: `${Math.round(pageDropMarker.value.top)}px`,
   height: `${Math.round(pageDropMarker.value.height)}px`
 }));
-const importCount = computed(() => totalPages.value);
 const footerSummary = computed(() => `${documentCount.value} Dokumente • ${totalPages.value} Seiten`);
 const emptyHint = computed(() => (emptyDocuments.value.length > 0 ? 'Leere Dokumente werden nicht importiert.' : ''));
 const primaryDocTitle = computed(() => primaryDocument.value?.title || '');
@@ -1517,9 +1459,6 @@ function pageThumbnailFormatStyle(page) {
   }
   return { paddingTop: `${(height / width) * 100}%` };
 }
-const gridScrollStyle = computed(() => ({
-  '--pm-grid-min': ['100px', '140px', '185px', '240px'][gridZoomIndex.value] || '140px'
-}));
 // Die KI-Analyse gilt als abgeschlossen, sobald nichts mehr vorbereitet wird
 // und der Analyse-Status nicht mehr "busy" (läuft) ist. Ein fehlgeschlagener
 // Lauf zählt ebenfalls als abgeschlossen – die Felder lassen sich dann manuell
@@ -1528,12 +1467,10 @@ const isAnalysisComplete = computed(() =>
   !isUploadingSources.value && aiAnalysis.value.kind !== 'busy'
 );
 
-// Alle Pflichtfelder müssen befüllt sein. Korrespondent bleibt bewusst optional:
-// Seed/Backfill sind noch im Aufbau, daher darf ein fehlender Match den Import
-// nicht blockieren.
+// Notizen sind optional; alle übrigen Metadaten werden vor dem Import geprüft.
 const areRequiredFieldsFilled = computed(() => documents.value.every(doc => Object.keys(validateImportDocument(doc)).length === 0));
 const footerValidationHint = computed(() => {
-  if (!areRequiredFieldsFilled.value) return 'Bitte Dokumentname und markierte Eingaben prüfen. Datum, Typ und Tags sind optional.';
+  if (validationAttempted.value && !areRequiredFieldsFilled.value) return 'Bitte die markierten Pflichtfelder vervollständigen.';
   return '';
 });
 const isImportActionDisabled = computed(() => totalPages.value <= 0 || isCommitting.value || props.scannerActive || isScanCleanupRunning.value || isUploadingSources.value || sourceRefreshCount.value > 0);
@@ -1575,15 +1512,11 @@ function toggleSelectMode() {
   }
 }
 
-function showPreviewPanel() {
-  if (!selected.value?.pageId) {
-    const firstPage = allPagesFlat.value[0];
-    if (firstPage) {
-      clearMultiSelection();
-      selectPage(firstPage.doc.id, firstPage.page.id, firstPage.globalIndex);
-    }
-  }
-  rightPanelMode.value = 'preview';
+function selectDocumentForEditing(documentId) {
+  activeDocumentId.value = documentId;
+  clearMultiSelection();
+  const firstPage = allPagesFlat.value.find(({ doc }) => doc.id === documentId);
+  if (firstPage) selectPage(documentId, firstPage.page.id, firstPage.globalIndex);
 }
 
 function hidePreviewMagnifier() {
@@ -1596,23 +1529,31 @@ function hidePreviewMagnifier() {
 }
 
 function onPreviewPointerMove(event) {
-  if (!previewImageSrc.value || event.pointerType === 'touch') {
+  if (!previewImageSrc.value || previewIsThumbnail.value || event.pointerType === 'touch') {
     hidePreviewMagnifier();
     return;
   }
   const imageEl = event.currentTarget;
   const stageEl = imageEl?.parentElement;
-  if (!(imageEl instanceof HTMLImageElement) || !(stageEl instanceof HTMLElement)) {
+  if (!(imageEl instanceof HTMLImageElement) || !(stageEl instanceof HTMLElement) || !imageEl.complete || !imageEl.naturalWidth) {
+    hidePreviewMagnifier();
     return;
   }
   const imageRect = imageEl.getBoundingClientRect();
   const stageRect = stageEl.getBoundingClientRect();
-  const imageX = Math.min(Math.max(event.clientX - imageRect.left, 0), imageRect.width);
-  const imageY = Math.min(Math.max(event.clientY - imageRect.top, 0), imageRect.height);
+  const scale = Math.min(imageRect.width / imageEl.naturalWidth, imageRect.height / imageEl.naturalHeight);
+  const renderedWidth = imageEl.naturalWidth * scale;
+  const renderedHeight = imageEl.naturalHeight * scale;
+  const imageX = event.clientX - imageRect.left - (imageRect.width - renderedWidth) / 2;
+  const imageY = event.clientY - imageRect.top - (imageRect.height - renderedHeight) / 2;
+  if (imageX < 0 || imageX > renderedWidth || imageY < 0 || imageY > renderedHeight) {
+    hidePreviewMagnifier();
+    return;
+  }
   const stageX = event.clientX - stageRect.left + stageEl.scrollLeft;
   const stageY = event.clientY - stageRect.top + stageEl.scrollTop;
-  const zoomedWidth = imageRect.width * PREVIEW_MAGNIFIER_ZOOM;
-  const zoomedHeight = imageRect.height * PREVIEW_MAGNIFIER_ZOOM;
+  const zoomedWidth = renderedWidth * PREVIEW_MAGNIFIER_ZOOM;
+  const zoomedHeight = renderedHeight * PREVIEW_MAGNIFIER_ZOOM;
 
   previewMagnifier.value = {
     visible: true,
@@ -1649,6 +1590,7 @@ function onPageGridClick(event, doc, page, globalIndex) {
       next.add(page.id);
     }
     multiSelectedPageIds.value = next;
+    selectPage(doc.id, page.id, globalIndex);
     return;
   }
   if (event.metaKey || event.ctrlKey) {
@@ -1811,12 +1753,16 @@ const aiAnalysis = computed(() => {
     return { kind: 'busy', fields: [] };
   }
   if (status === 'error') {
-    return { kind: 'failed', fields: [] };
+    return { kind: fields.length ? 'partial' : 'failed', fields };
+  }
+  if (status === 'interrupted') {
+    return { kind: 'interrupted', fields };
   }
   if (status === 'pending_ocr' && exhausted) {
     return { kind: 'partial', fields: [] };
   }
   if (status === 'ready' || status === 'applied') {
+    if (doc.meta?.titleSuggestionMeta?.refinement_failed) return { kind: 'partial', fields };
     return { kind: fields.length ? 'success' : 'partial', fields };
   }
   return { kind: 'idle', fields: [] };
@@ -1839,7 +1785,15 @@ const prepStatus = computed(() => {
     return { busy: true, label: preparationProgressLabel.value || 'Dateien werden vorbereitet', description: 'Die Seiten werden für die Vorschau und den Import vorbereitet.', kind: 'busy' };
   }
   if (isRetryingAnalysis.value || aiAnalysis.value.kind === 'busy') {
-    return { busy: true, label: isRetryingAnalysis.value ? 'Analyse läuft erneut' : 'KI analysiert Dokument', description: 'Dokumentname, Datum und weitere Angaben werden ermittelt. Du kannst die Formularfelder bereits bearbeiten.', kind: 'busy' };
+    const meta = primaryDocument.value?.meta || {};
+    const label = meta.analysisReconnecting ? 'Status wird aktualisiert' : ({ queued: 'Wartet auf Erkennung', ocr: 'Text wird erkannt', llm: 'KI analysiert Dokument' })[meta.analysisPhase] || 'KI analysiert Dokument';
+    const description = meta.analysisReconnecting ? 'Die Verbindung wird erneut geprüft. Bereits erkannte Angaben bleiben erhalten.'
+      : meta.analysisSlow ? 'Die Erkennung dauert etwas länger und läuft im Hintergrund weiter. Du kannst die Formularfelder bereits bearbeiten.'
+        : 'Verfügbare Angaben erscheinen nach und nach. Du kannst die Formularfelder bereits bearbeiten.';
+    return { busy: true, label, description, kind: 'busy' };
+  }
+  if (primaryDocument.value?.meta?.analysisLookupPending) {
+    return { busy: true, label: 'Absender wird zugeordnet', description: 'Die erkannten Angaben sind bereits verfügbar. Der passende Korrespondent wird noch zugeordnet.', kind: 'busy', lookupOnly: true };
   }
   return { busy: false, label: '', kind: aiAnalysis.value.kind };
 });
@@ -1847,13 +1801,25 @@ const preparationHintOpen = ref(false);
 watch(() => [prepStatus.value.busy, props.modelValue], ([busy, open]) => {
   if (!busy || !open) preparationHintOpen.value = false;
 });
+const pendingMetadataFields = computed(() => {
+  if (!prepStatus.value.busy) return {};
+  const form = importForm.value;
+  const values = { name: primaryDocTitle.value, date: form.date, category: form.category,
+    correspondent: form.correspondentId, note: form.note, tags: primaryDocTagNames.value.length };
+  return Object.fromEntries(Object.entries(values).map(([field, value]) => [field,
+    !value && !form.touched[field === 'name' ? 'title' : field] && (!prepStatus.value.lookupOnly || field === 'correspondent')]));
+});
 
 const aiStatusTitle = computed(() => {
   const kind = aiAnalysis.value.kind;
+  if (kind === 'interrupted') {
+    return 'Der aktuelle Status ist nicht verfügbar — Klicken, um vorhandene Ergebnisse erneut abzufragen';
+  }
   if (kind === 'success') {
     return `Automatisch erkannt: ${aiAnalysis.value.fields.join(', ')} — Klicken, um die Analyse erneut zu starten`;
   }
   if (kind === 'partial') {
+    if (aiAnalysis.value.fields.length) return `Teilweise erkannt: ${aiAnalysis.value.fields.join(', ')} — Klicken, um die Analyse erneut zu starten`;
     if (String(primaryDocument.value?.meta?.titleSuggestionStatus || '') === 'pending_ocr') {
       return 'Analyse wird im Hintergrund vorbereitet — Klicken, um sie erneut abzufragen';
     }
@@ -2124,7 +2090,8 @@ watch(
 
 watch(
   isEmpty,
-  () => {
+  (empty) => {
+    if (empty) validationAttempted.value = false;
     if (typeof window === 'undefined') {
       return;
     }
@@ -2262,32 +2229,24 @@ watch(canTriggerScan, (enabled) => {
 });
 
 watch(
-  documents,
+  () => allPagesFlat.value.map(({ doc, page }) => `${doc.id}:${page.id}`).join('|'),
   () => {
-    if (!selected.value) {
-      return;
-    }
-    const documentEntry = documents.value.find((entry) => entry.id === selected.value?.stageId);
-    if (!documentEntry || documentEntry.collapsed) {
+    const flat = allPagesFlat.value;
+    const currentIndex = flat.findIndex(({ page }) => page.id === selected.value?.pageId);
+    const current = flat[currentIndex];
+    if (current) {
+      if (selected.value.stageId !== current.doc.id || selected.value.pageIndex !== currentIndex) {
+        selectPage(current.doc.id, current.page.id, currentIndex);
+      }
+      if (peek.value.open) schedulePeekReposition();
+    } else if (flat.length) {
+      const next = flat[Math.min(selected.value?.pageIndex || 0, flat.length - 1)];
+      selectPage(next.doc.id, next.page.id, next.globalIndex);
+    } else {
       clearActiveSelection();
-      return;
-    }
-    const pageIndex = documentEntry.pages.findIndex((page) => page.id === selected.value?.pageId);
-    if (pageIndex < 0) {
-      clearActiveSelection();
-      return;
-    }
-    if (selected.value.pageIndex !== pageIndex) {
-      selected.value = {
-        ...selected.value,
-        pageIndex
-      };
-    }
-    if (peek.value.open) {
-      schedulePeekReposition();
     }
   },
-  { deep: true }
+  { immediate: true }
 );
 
 const selectedPreviewRenderKey = computed(() => {
@@ -2300,17 +2259,20 @@ const selectedPreviewRenderKey = computed(() => {
     pageEntry.sourceFileId,
     Number(pageEntry.pageIndex || 0),
     Number(pageEntry.rotation || 0),
-    String(pageEntry.colorMode || 'auto')
+    String(pageEntry.colorMode || 'auto'),
+    pageEntry.thumbUrl,
+    stagingStore.sourceMetaById.get(pageEntry.sourceFileId)?.sourceRevision,
+    scannerThumbnailFallback.value?.pageId === pageEntry.id ? scannerThumbnailFallback.value.url : ''
   ].join(':');
 });
 
 watch(
   selectedPreviewRenderKey,
-  async (renderKey) => {
+  async (renderKey, _previous, onCleanup) => {
     hidePreviewMagnifier();
     previewRenderNonce += 1;
     const nonce = previewRenderNonce;
-    const pageEntry = selectedPageEntry.value;
+    const pageEntry = selectedPageEntry.value ? { ...selectedPageEntry.value } : null;
 
     if (!renderKey || !pageEntry) {
       previewImageSrc.value = '';
@@ -2319,36 +2281,46 @@ watch(
     }
 
     const colorMode = String(pageEntry.colorMode || 'auto');
-    const cacheKey = `${pageEntry.sourceFileId}:${pageEntry.pageIndex}:r${Number(pageEntry.rotation || 0)}:m${colorMode}:lg`;
+    const sourceRevision = stagingStore.sourceMetaById.get(pageEntry.sourceFileId)?.sourceRevision || '';
+    const cacheKey = `${pageEntry.sourceFileId}:${pageEntry.pageIndex}:r${Number(pageEntry.rotation || 0)}:m${colorMode}:${sourceRevision}:lg`;
     const cached = previewImageCache.get(cacheKey);
-    if (cached) {
-      previewImageSrc.value = cached;
+    if (cached && cached.thumbnail === pageEntry.thumbUrl) {
+      previewImageSrc.value = cached.image;
+      previewIsThumbnail.value = false;
       previewImageLoading.value = false;
       return;
     }
 
-    previewImageSrc.value = pageEntry.thumbUrl || '';
+    previewImageSrc.value = pageEntry.thumbUrl || (scannerThumbnailFallback.value?.pageId === pageEntry.id ? scannerThumbnailFallback.value.url : '');
+    previewIsThumbnail.value = true;
     previewImageLoading.value = true;
-
-    const rendered = await renderServerColorPreview(pageEntry, colorMode)
-      || await renderLargePreview(pageEntry, 1400, Number(pageEntry.rotation || 0));
-    if (nonce !== previewRenderNonce) {
-      return;
+    const request = new AbortController();
+    onCleanup(() => request.abort());
+    try {
+      const serverPreview = await renderServerColorPreview(pageEntry, colorMode, request.signal);
+      if (request.signal.aborted) return;
+      const rendered = serverPreview
+        || await renderLargePreview(pageEntry, 1400, Number(pageEntry.rotation || 0));
+      if (nonce !== previewRenderNonce) return;
+      if (rendered) {
+        if (previewImageCache.size >= 24) previewImageCache.delete(previewImageCache.keys().next().value);
+        previewImageCache.set(cacheKey, { image: rendered, thumbnail: pageEntry.thumbUrl });
+        previewImageSrc.value = rendered;
+        previewIsThumbnail.value = false;
+      }
+    } catch {
+      // Die Miniatur bleibt sichtbar, wenn die große Vorschau nicht verfügbar ist.
+    } finally {
+      if (nonce === previewRenderNonce) previewImageLoading.value = false;
     }
-    if (rendered) {
-      if (previewImageCache.size >= 24) previewImageCache.delete(previewImageCache.keys().next().value);
-      previewImageCache.set(cacheKey, rendered);
-      previewImageSrc.value = rendered;
-    }
-    previewImageLoading.value = false;
-  }
+  },
+  { immediate: true }
 );
 
 watch(
   isOpen,
   (open) => {
     if (open) {
-      rightPanelMode.value = 'details';
       return;
     }
     detachPeekGlobalListeners();
@@ -2757,7 +2729,7 @@ async function renderLargePreview(pageEntry, targetLongEdge = 1400, rotation = 0
   }
 }
 
-async function renderServerColorPreview(pageEntry, colorMode) {
+async function renderServerColorPreview(pageEntry, colorMode, signal) {
   const sourceFileId = normalizeSourceFileId(pageEntry?.sourceFileId);
   if (!sourceFileId) return '';
   const query = new URLSearchParams({
@@ -2767,10 +2739,11 @@ async function renderServerColorPreview(pageEntry, colorMode) {
   try {
     const response = await fetch(
       `${props.apiBaseUrl}/api/import/source/${encodeURIComponent(sourceFileId)}/color-preview?${query}`,
-      { cache: 'no-store', headers: { ...authHeaders() } }
+      { cache: 'no-store', headers: { ...authHeaders() }, signal }
     );
     if (!response.ok) return '';
     const blob = await response.blob();
+    if (!blob.type.startsWith('image/')) return '';
     return await new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
@@ -3182,9 +3155,10 @@ function getImportAnalysisCacheKey(analysis) {
   const meta = analysis.meta && typeof analysis.meta === 'object' ? analysis.meta : {};
   return [
     String(meta.result_revision || meta.cached_at || ''),
+    String(meta.analysis_job_id || ''), String(meta.analysis_sequence || ''),
     String(meta.analysis_phase || ''),
     String(analysis.status || ''),
-    String(analysis.suggestion || '')
+    String(analysis.suggestion || ''), String(analysisPending(analysis))
   ].join('|');
 }
 
@@ -3210,14 +3184,19 @@ function findStageIdsForSourceFile(sourceFileId) {
 
 async function applyImportAnalysisPayload(stageId, payload, options = {}) {
   const doc = getDocumentById(stageId);
-  if (!doc || !payload) return false;
+  if (!doc || !payload || payload.status === 'unknown') return false;
   const meta = ensureScanMeta(doc);
   const resultMeta = payload.meta || {};
+  const revision = documentRevision(doc, stagingStore.sourceMetaById);
   const expected = options.documentRevision || resultMeta.document_revision;
-  if (expected && expected !== documentRevision(doc, stagingStore.sourceMetaById)) return false;
+  if (expected && expected !== revision || !acceptAnalysisSnapshot(meta, payload, revision)) return false;
+  const pending = analysisPending(payload);
+  meta.analysisPending = pending;
+  meta.analysisPhase = resultMeta.progress_phase || (pending ? resultMeta.refinement_pending ? 'llm' : 'ocr' : 'complete');
+  meta.analysisReconnecting = false;
   const status = String(payload.status || 'ready');
   if (['error', 'failed'].includes(status)) {
-    meta.titleSuggestionStatus = 'error';
+    meta.titleSuggestionStatus = pending ? 'working' : 'error';
     return false;
   }
   if (status === 'pending_ocr') {
@@ -3226,30 +3205,30 @@ async function applyImportAnalysisPayload(stageId, payload, options = {}) {
   }
   const form = ensureImportForm(doc);
   const revisions = options.fieldRevisions || { ...form.revisions };
-  await Promise.allSettled([correspondentStore.ensureLoaded(), ensureStageTagsLoaded()]);
-  if (!getDocumentById(stageId) || expected && expected !== documentRevision(doc, stagingStore.sourceMetaById)) return false;
+  const token = getImportAnalysisCacheKey(payload);
+  meta.analysisFieldsToken = token;
   meta.titleSuggestion = meaningfulSuggestion(payload.suggestion);
   meta.titleSuggestionUsedFallback = Boolean(payload.usedFallback ?? payload.used_fallback);
   meta.titleSuggestionMeta = resultMeta;
-  meta.titleSuggestionStatus = resultMeta.refinement_pending ? 'working' : 'ready';
-  meta.analysisRevision = documentRevision(doc, stagingStore.sourceMetaById);
-  const origin = resultMeta.analysis_phase === 'llm' ? 'KI' : 'Regeln';
-  const apply = (field, value, read, write) => applyFieldProposal(doc, field, value, revisions[field] || 0, read, write, origin);
+  meta.titleSuggestionStatus = pending ? 'working' : 'ready';
+  meta.analysisRevision = revision;
+  const origin = field => resultMeta.field_origins?.[field] || (resultMeta.analysis_phase === 'llm' ? 'KI' : 'Regeln');
+  let changed = false;
+  const apply = (field, value, read, write) => {
+    const applied = applyFieldProposal(doc, field, value, revisions[field] || 0, read, write, origin(field));
+    changed ||= applied;
+    return applied;
+  };
   if (meta.titleSuggestion && !meta.titleSuggestionUsedFallback) {
-    if (apply('title', meta.titleSuggestion, () => doc.title, value => stagingStore.renameDocument(stageId, value))) {
-      meta.titleSuggestionStatus = resultMeta.refinement_pending ? 'working' : 'applied';
-    }
+    apply('title', meta.titleSuggestion, () => doc.title, value => stagingStore.renameDocument(stageId, value));
   }
   const parsedDate = isoToGermanDate(resultMeta.date);
   if (parsedDate && parseDocumentDateInput(parsedDate).ok) apply('date', parsedDate, () => form.date, value => { form.date = value; });
   const category = meaningfulSuggestion(resultMeta.document_type || resultMeta.category);
   if (category) {
     if (categoryStore.categoryNames.includes(category)) apply('category', category, () => form.category, value => { form.category = value; });
-    else if (form.dismissed.category !== category) form.proposals.category = { value: category, origin };
+    else if (form.dismissed.category !== category) form.proposals.category = { value: category, origin: origin('category') };
   }
-  const correspondent = resultMeta.correspondent?.id;
-  if (correspondent && correspondentStore.findById(correspondent)) apply('correspondent', correspondent, () => form.correspondentId, value => { form.correspondentId = value; });
-  else if (meaningfulSuggestion(resultMeta.sender_raw || resultMeta.correspondent?.name) && form.dismissed.correspondent !== (resultMeta.sender_raw || resultMeta.correspondent?.name)) form.proposals.correspondent = { value: resultMeta.sender_raw || resultMeta.correspondent.name, origin };
   const note = String(resultMeta.note || '').trim().slice(0, 10000);
   if (note) apply('note', note, () => form.note, value => { form.note = value; });
   if (isRetentionEnabled.value && resultMeta.retention) apply('retention', resultMeta.retention, () => form.retention, value => { form.retention = value; });
@@ -3259,7 +3238,31 @@ async function applyImportAnalysisPayload(stageId, payload, options = {}) {
     stagingStore.setDocumentTags(stageId, ids);
     meta.pendingTagNames = names.filter(name => !findStageTagIdByName(name));
   });
-  triggerAiFieldGlow();
+  // Vocabulary requests must never hold back title, date, note or tag names.
+  const applyCorrespondent = () => {
+    const correspondent = resultMeta.correspondent?.id;
+    if (correspondent && correspondentStore.findById(correspondent)) {
+      apply('correspondent', correspondent, () => form.correspondentId, value => { form.correspondentId = value; });
+    } else {
+      const sender = meaningfulSuggestion(resultMeta.sender_raw || resultMeta.correspondent?.name);
+      if (sender && form.dismissed.correspondent !== sender) form.proposals.correspondent = { value: sender, origin: origin('correspondent') };
+    }
+  };
+  meta.analysisLookupPending = !correspondentStore.isLoaded && Boolean(resultMeta.correspondent?.id || resultMeta.sender_raw);
+  if (correspondentStore.isLoaded) applyCorrespondent();
+  else if (meta.analysisLookupPending) {
+    let timeout;
+    void Promise.race([correspondentStore.ensureLoaded(), new Promise((_, reject) => {
+      timeout = window.setTimeout(() => reject(new Error('lookup timeout')), 10000);
+    })]).then(() => {
+      if (!analysisDisposed && getDocumentById(stageId) === doc && meta.analysisFieldsToken === token && revision === documentRevision(doc, stagingStore.sourceMetaById)) applyCorrespondent();
+    }).catch(() => {}).finally(() => {
+      window.clearTimeout(timeout);
+      if (meta.analysisFieldsToken === token) meta.analysisLookupPending = false;
+    });
+  }
+  void ensureStageTagsLoaded().catch(() => {});
+  if (changed) triggerAiFieldGlow();
   return true;
 }
 
@@ -3277,6 +3280,9 @@ async function applyCachedImportAnalysis(stageId, analysis) {
   const applied = await applyImportAnalysisPayload(stageId, analysis, { silent: true, documentRevision: documentRevision(documentEntry, stagingStore.sourceMetaById) });
   if (applied && cacheKey) {
     meta.appliedImportAnalysisKey = cacheKey;
+  }
+  if (analysisPending(analysis) && !titleSuggestJobByStage.has(stageId)) {
+    void requestScanTitleSuggestion(stageId, 'all_pages', { silent: true });
   }
   return applied;
 }
@@ -3299,10 +3305,7 @@ async function applySourceAnalysisToExistingStages(sourceFileId, analysis) {
 async function requestScanTitleSuggestion(stageId, pageScope = 'all_pages', options = {}) {
   const doc = getDocumentById(stageId);
   if (!doc?.pages?.length || props.scannerActive || isCommitting.value) return;
-  if (titleSuggestJobByStage.has(stageId)) {
-    const running = titleSuggestJobByStage.get(stageId);
-    return options.force ? running.then(() => requestScanTitleSuggestion(stageId, pageScope, options)) : running;
-  }
+  if (titleSuggestJobByStage.has(stageId)) return titleSuggestJobByStage.get(stageId);
   const revision = documentRevision(doc, stagingStore.sourceMetaById);
   const analysisPages = options.analysisPageIds ? doc.pages.filter(page => options.analysisPageIds.has(page.id)) : doc.pages;
   const pages = sourcePages({ ...doc, pages: analysisPages }, stagingStore.sourceMetaById);
@@ -3310,36 +3313,81 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'all_pages', opti
   const sourceFileIds = [...new Set(pages.map(page => page.source_file_id))];
   const meta = ensureScanMeta(doc);
   const fieldRevisions = { ...ensureImportForm(doc).revisions };
+  if (options.force) meta.analysisSnapshot = null;
   meta.titleSuggestionStatus = 'working';
   meta.titleSuggestionPollExhausted = false;
+  if (!meta.analysisPending) meta.analysisPhase = 'queued';
+  meta.analysisPending = true;
+  meta.analysisSlow = false;
   const job = analysisChain.catch(() => {}).then(async () => {
-    let attempts = 0;
+    const controller = new AbortController();
+    const current = () => !analysisDisposed && getDocumentById(stageId) === doc
+      && titleSuggestJobByStage.get(stageId) === job && documentRevision(doc, stagingStore.sourceMetaById) === revision;
+    const slowTimer = window.setTimeout(() => { if (current()) meta.analysisSlow = true; }, 20000);
+    let response = null;
+    let responseError = null;
+    let settled = false;
+    let consumed = false;
+    let misses = 0;
+    const start = () => {
+      const oneOriginalPage = pages.length === 1 && pages[0].page_index === 0 && !pages[0].rotation;
+      return suggestImportStageTitle(props.apiBaseUrl, stageId, {
+        sourceFileIds, pageScope: oneOriginalPage ? 'first_page' : 'all_pages',
+        pages: oneOriginalPage && !options.force && !options.repeatOcr ? [] : pages,
+        documentRevision: revision, force: Boolean(options.force), repeatOcr: Boolean(options.repeatOcr), signal: controller.signal,
+      }).then(payload => { response = payload; settled = true; }, error => { responseError = error; settled = true; });
+    };
+    const request = start();
     try {
-      while (getDocumentById(stageId) && documentRevision(doc, stagingStore.sourceMetaById) === revision) {
-        const oneOriginalPage = pages.length === 1 && pages[0].page_index === 0 && !pages[0].rotation;
-        const payload = await suggestImportStageTitle(props.apiBaseUrl, stageId, {
-          sourceFileIds, pageScope: oneOriginalPage ? 'first_page' : 'all_pages',
-          pages: oneOriginalPage && !options.force && !options.repeatOcr ? [] : pages,
-          documentRevision: revision, force: Boolean(options.force), repeatOcr: Boolean(options.repeatOcr),
-        });
-        if (options.analysisPageIds) payload.meta = { ...payload.meta, analysis_selection: true };
-        if (revision !== documentRevision(doc, stagingStore.sourceMetaById)) return;
-        const applied = await applyImportAnalysisPayload(stageId, payload, { ...options, documentRevision: revision, fieldRevisions });
-        if (payload.status !== 'pending_ocr') return applied;
-        if (++attempts >= 45) {
-          meta.titleSuggestionPollExhausted = true;
-          return;
+      // Observe progress while the original request is still running. Its HTTP
+      // timeout does not cancel the server job or discard earlier results.
+      await Promise.race([request, new Promise(resolve => window.setTimeout(resolve, 1200))]);
+      for (let attempts = 0; attempts < 100 && current(); attempts++) {
+        let payload;
+        if (settled && !consumed) {
+          consumed = true;
+          if (responseError) {
+            if (!transientAnalysisError(responseError)) throw responseError;
+            meta.analysisReconnecting = true;
+          } else payload = response;
         }
-        await new Promise(resolve => window.setTimeout(resolve, Math.min(10000, 1500 * (1 + attempts / 3))));
+        if (!payload) {
+          try {
+            payload = await readImportStageAnalysis(stageId, { sourceFileIds, documentRevision: revision, signal: controller.signal });
+          } catch (error) {
+            if (!transientAnalysisError(error)) throw error;
+            meta.analysisReconnecting = true;
+          }
+        }
+        if (!current()) return;
+        if (!payload || !['ready', 'pending_ocr', 'error', 'failed'].includes(payload.status)) {
+          if (++misses >= 4) break;
+        } else {
+          misses = 0;
+          if (options.analysisPageIds) payload.meta = { ...payload.meta, analysis_selection: true };
+          await applyImportAnalysisPayload(stageId, payload, { ...options, documentRevision: revision, fieldRevisions });
+          if (!analysisPending(payload) && !meta.analysisPending) return;
+          if (payload.meta?.restart_after_cleanup && !isScanCleanupRunning.value) {
+            // The previous request only observed cleanup and did no analysis.
+            response = null; responseError = null; settled = false; consumed = false;
+            void start();
+          }
+        }
+        await new Promise(resolve => window.setTimeout(resolve, Math.min(10000, 1500 + attempts * 500)));
       }
-    } catch {
-      if (getDocumentById(stageId) && revision === documentRevision(doc, stagingStore.sourceMetaById)) {
-        meta.titleSuggestionStatus = 'error';
+      if (current()) { meta.titleSuggestionStatus = 'interrupted'; meta.analysisPending = false; }
+    } catch (error) {
+      if (current()) {
+        meta.titleSuggestionStatus = transientAnalysisError(error) ? 'interrupted' : 'error';
+        meta.analysisPending = false;
       }
     } finally {
-      titleSuggestJobByStage.delete(stageId);
-      if (getDocumentById(stageId) && revision !== documentRevision(doc, stagingStore.sourceMetaById)) {
+      controller.abort();
+      window.clearTimeout(slowTimer);
+      if (titleSuggestJobByStage.get(stageId) === job) titleSuggestJobByStage.delete(stageId);
+      if (getDocumentById(stageId) === doc && revision !== documentRevision(doc, stagingStore.sourceMetaById)) {
         meta.titleSuggestionStatus = 'idle';
+        meta.analysisPending = false;
         scheduleDocumentAnalysis();
       }
     }
@@ -3436,7 +3484,6 @@ async function retryAnalysis(repeatOcr = false) {
   const docs = documents.value || [];
   let started = 0;
   const jobs = [];
-  resetPrimaryAiFillState();
   isRetryingAnalysis.value = true;
   for (const doc of docs) {
     const id = String(doc?.id || '').trim();
@@ -4000,7 +4047,6 @@ async function refreshImportInboxSourceFile(sourceFileId, pageCount, metaPatch =
 async function removePage(pageId) {
   if (isCommitting.value || stagingStore.pendingCommit) return;
   stagingStore.removePage(pageId);
-  if (selected.value?.pageId === pageId) clearActiveSelection();
 }
 
 async function removeSelectedPage(documentId) {
@@ -4014,7 +4060,6 @@ async function removeSelectedPage(documentId) {
 function deleteDocument(documentId) {
   stagingStore.checkpoint();
   stagingStore.deleteDocument(documentId);
-  if (selected.value?.stageId === documentId) clearActiveSelection();
 }
 
 async function retryThumbnail(page) {
@@ -4348,24 +4393,17 @@ function onStageBodyAfterLeave(element) {
 }
 
 function shiftSelection(step) {
-  const documentEntry = selectedDocumentEntry.value;
-  const pageEntry = selectedPageEntry.value;
-  if (!documentEntry || !pageEntry) {
-    return;
-  }
-  const currentIndex = documentEntry.pages.findIndex((page) => page.id === pageEntry.id);
-  if (currentIndex < 0) {
-    return;
-  }
-  const nextIndex = Math.max(0, Math.min(documentEntry.pages.length - 1, currentIndex + step));
-  if (nextIndex === currentIndex) {
-    return;
-  }
-  const nextPage = documentEntry.pages[nextIndex];
-  if (!nextPage) {
-    return;
-  }
-  selectPage(documentEntry.id, nextPage.id, nextIndex, { anchorEl: pageThumbRefs.get(nextPage.id) || null });
+  const flat = allPagesFlat.value;
+  const currentIndex = flat.findIndex(({ page }) => page.id === selected.value?.pageId);
+  const nextIndex = Math.max(0, Math.min(flat.length - 1, currentIndex + step));
+  const next = flat[nextIndex];
+  if (!next || nextIndex === currentIndex) return;
+  selectPage(next.doc.id, next.page.id, nextIndex, { anchorEl: pageThumbRefs.get(next.page.id) || null });
+  void nextTick(() => {
+    const element = pageThumbRefs.get(next.page.id);
+    element?.focus({ preventScroll: true });
+    element?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
 }
 
 function onGlobalPointerDown(event) {
@@ -4573,7 +4611,7 @@ function resolveAutoScrollContainer(startElement) {
   ) {
     return pagesContainer;
   }
-  const docsContainer = startElement?.closest?.('.import-staging-scroll');
+  const docsContainer = startElement?.closest?.('.isd-grid-scroll, .import-staging-scroll');
   if (docsContainer instanceof HTMLElement) {
     return docsContainer;
   }
@@ -4898,7 +4936,7 @@ function updatePageDropTargetFromElement(event, targetDocId, targetPageId, targe
   if (!containerRect) {
     return;
   }
-  const before = event.clientX < itemRect.left + itemRect.width / 2;
+  const before = event.clientY < itemRect.top + itemRect.height / 2;
   const insertionIndex = before ? targetPageIndex : targetPageIndex + 1;
   const lineRect = {
     left: before ? itemRect.left : itemRect.right,
@@ -4919,7 +4957,8 @@ function updatePageDropTargetFromContainer(event, targetDocId) {
   }
   const nearestIndex = Number(nearest.element.dataset.pageIndex || 0);
   const nearestPageId = String(nearest.element.dataset.pageId || '');
-  updatePageDropTargetFromElement(event, targetDocId, nearestPageId, nearestIndex, nearest.element);
+  const nearestDocument = allPagesFlat.value.find(({ page }) => page.id === nearestPageId)?.doc;
+  updatePageDropTargetFromElement(event, nearestDocument?.id || targetDocId, nearestPageId, nearestIndex, nearest.element);
 }
 
 function getResolvedDropIndex(targetDocId, fallbackIndex) {
@@ -5020,10 +5059,11 @@ async function onPagesContainerDrop(event, targetDocId) {
   if (!draggedPageId) {
     return;
   }
-  const targetDoc = documents.value.find((entry) => entry.id === targetDocId);
+  const resolvedDocId = pageDragState.value.overDocId || targetDocId;
+  const targetDoc = documents.value.find((entry) => entry.id === resolvedDocId);
   const fallbackIndex = targetDoc?.pages?.length ?? 0;
-  const insertionIndex = getResolvedDropIndex(targetDocId, fallbackIndex);
-  stagingStore.movePage(draggedPageId, targetDocId, insertionIndex);
+  const insertionIndex = getResolvedDropIndex(resolvedDocId, fallbackIndex);
+  stagingStore.movePage(draggedPageId, resolvedDocId, insertionIndex);
   markSettledPage(draggedPageId);
   resetPageDragState();
 }
@@ -5115,10 +5155,11 @@ async function commitImport(selectedPageIds = null) {
   const invalid = entries.find(({ document, pages }) => Object.keys(validateImportDocument({ ...document, pages })).length);
   if (invalid && !stagingStore.pendingCommit) {
     activeDocumentId.value = invalid.document.id;
-    selected.value = null;
-    rightPanelMode.value = 'details';
+    const page = invalid.pages[0];
+    selectPage(invalid.document.id, page.id, allPagesFlat.value.findIndex(entry => entry.page.id === page.id));
     await nextTick();
-    document.querySelector('.isd-props [aria-invalid="true"], .isd-props input')?.focus();
+    const invalidInput = document.querySelector('.isd-props input[aria-invalid="true"], .isd-props textarea[aria-invalid="true"]');
+    (invalidInput || document.querySelector('.isd-props input'))?.focus();
     return;
   }
   isCommitting.value = true;
@@ -5307,6 +5348,7 @@ defineExpose({
 });
 
 onBeforeUnmount(() => {
+  analysisDisposed = true;
   if (typeof window !== 'undefined' && closeResetTimer) {
     window.clearTimeout(closeResetTimer);
     closeResetTimer = 0;
@@ -5357,9 +5399,9 @@ onBeforeUnmount(() => {
   max-height: min(820px, 90vh) !important;
   /* Volle Arbeitsbreite (Split). Im Leerzustand kleiner (siehe --empty).
      Die Breitenänderung wird animiert, wenn die erste Seite hinzukommt. */
-  width: 1180px;
+  width: 1360px;
   max-width: 100%;
-  /* Der Overlay-Container (.v-overlay__content) ist ein 1180px-Flexbox mit
+  /* Der Overlay-Container (.v-overlay__content) ist ein 1360px-Flexbox mit
      justify:flex-start; das schmale Leer-Fenster bliebe sonst linksbündig.
      auto-Ränder zentrieren die Karte und halten sie beim Aufziehen mittig. */
   margin-inline: auto;
@@ -5454,40 +5496,60 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped>
-/* ── Body split layout ── */
+/* ── Seitenliste, Arbeitsvorschau und Dokumentdetails ── */
 .isd-body {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-  /* Gemeinsame, feste Höhe für Toolbar (links) und Statusleiste (rechts), damit
-   * ihre border-top-Linien exakt fluchten. Bei box-sizing:border-box ist die
-   * linke Toolbar tatsächlich 49px hoch: 32px Icon-Button (x-small + default
-   * density) + 2×8px Padding + 1px border-top. Die rechte Leiste übernimmt
-   * exakt denselben Wert. */
   --isd-bar-height: 49px;
 }
 
 .isd-left {
-  /* Wächst auf volle Breite, solange die rechte Leiste (isd-props) fehlt
-     (Leerzustand); mit sichtbarer Leiste bleiben es effektiv 65 %. */
+  --isd-rail-width: 144px;
   flex: 1 1 auto;
   min-width: 0;
   position: relative;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: var(--isd-rail-width) minmax(0, 1fr);
+  grid-template-rows: var(--isd-bar-height) minmax(0, 1fr) auto;
+  grid-template-areas: 'pages-header tools' 'pages preview' 'error error';
   min-height: 0;
   overflow: hidden;
   border-right: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
 }
 
+.isd-card--empty .isd-left { display: flex; flex-direction: column; border-right: 0; }
+
+.isd-pages-header {
+  grid-area: pages-header;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
+  border-right: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
+}
+.isd-pages-header strong { font-size: 12px; font-weight: 650; }
+.isd-pages-header .isd-toolbar-select-btn { margin-left: auto; }
+.isd-pages-header .isd-page-count { padding: 2px 6px; }
+
 .isd-grid-scroll {
+  grid-area: pages;
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
-  padding: 40px;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 16px;
+  border-right: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
+  background: rgba(var(--v-theme-on-surface), .018);
 }
-
+.isd-card--empty .isd-grid-scroll { padding: 40px; border-right: 0; background: transparent; }
+.isd-workspace-error { grid-area: error; }
 
 /* ── Dropzone ── */
 @keyframes isd-dz-scene-enter {
@@ -6163,10 +6225,10 @@ button.isd-dropzone__action--supplemental:focus-visible {
   transform: scale(0.97);
 }
 
-/* ── Page grid ── */
+/* ── Einspaltige Seitenliste ── */
 .isd-page-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--pm-grid-min, 164px), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   margin-bottom: 10px;
 }
@@ -6193,11 +6255,11 @@ button.isd-dropzone__action--supplemental:focus-visible {
 }
 
 .isd-page-card--drop-before .isd-page-thumb-wrap {
-  border-left: 3px solid rgb(var(--v-theme-primary));
+  border-top: 3px solid rgb(var(--v-theme-primary));
 }
 
 .isd-page-card--drop-after .isd-page-thumb-wrap {
-  border-right: 3px solid rgb(var(--v-theme-primary));
+  border-bottom: 3px solid rgb(var(--v-theme-primary));
 }
 
 .isd-page-card--multi .isd-page-thumb-wrap {
@@ -6337,6 +6399,9 @@ button.isd-dropzone__action--supplemental:focus-visible {
   font-weight: 500;
   text-align: center;
   color: rgba(var(--v-theme-on-surface), 0.5);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* ── Add-files placeholder card ── */
@@ -6535,48 +6600,37 @@ button.isd-dropzone__action--supplemental:focus-visible {
 }
 
 .isd-toolbar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  grid-area: tools;
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 0;
+  min-width: 0;
+  gap: 4px;
   padding: 8px 12px;
-  border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
+  border-bottom: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
   box-sizing: border-box;
   height: var(--isd-bar-height, 49px);
-  background: rgba(var(--v-theme-surface), 0.82);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  /* Responsive nach der TATSÄCHLICHEN Toolbar-Breite, nicht nach dem Viewport:
-     der Dialog ist oft deutlich schmaler als das Fenster (Split-Screen, kleine
-     Laptops), eine Viewport-Media-Query würde zu spät greifen. */
+  background: rgb(var(--v-theme-surface));
   container: isd-toolbar / inline-size;
 }
-
-.isd-toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-/* Mehr-Menü und KI-Status behalten beide ihren Platz, auch bei schmalen Dialogen. */
-.isd-toolbar-center {
-  display: flex;
-  align-items: center;
+.isd-preview-title {
+  min-width: 0;
   flex: 1 1 auto;
-  min-width: 64px;
+  margin-right: 8px;
+  color: rgba(var(--v-theme-on-surface), .6);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
-
-.isd-toolbar-right {
+.isd-toolbar-left, .isd-toolbar-center {
   display: flex;
   align-items: center;
-  gap: 14px;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  gap: 4px;
 }
+.isd-toolbar-center { margin-left: auto; min-width: 64px; }
 
 .isd-toolbar-divider {
   width: 1px;
@@ -6674,10 +6728,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
   white-space: nowrap;
 }
 
-.isd-zoom-trigger {
-  flex-shrink: 0;
-}
-
 .isd-page-count {
   font-size: 11px;
   font-weight: 500;
@@ -6689,37 +6739,19 @@ button.isd-dropzone__action--supplemental:focus-visible {
   flex-shrink: 0;
 }
 
-/* Enge Toolbar: Trenner-Abstände straffen und die rechte Gruppe zusammenrücken,
-   damit die festen Gruppen kompakt bleiben. Container-Query = reagiert auf die
-   Toolbar-, nicht die Fensterbreite (der Dialog ist oft schmaler als das
-   Fenster). */
+/* Die KI bleibt direkt erreichbar; Farboptionen stehen bei wenig Platz im Mehr-Menü. */
 @container isd-toolbar (max-width: 560px) {
-  .isd-toolbar-divider {
-    display: none;
-  }
-
-  .isd-toolbar-left {
-    gap: 0;
-  }
-
-  .isd-rotate-group,
-  .isd-color-group {
-    gap: 0;
-  }
-
-  .isd-toolbar-right {
-    gap: 4px;
-  }
-
-  .isd-page-count {
-    display: none;
-  }
+  .isd-toolbar-divider, .isd-preview-title, .isd-color-group { display: none; }
+  .isd-toolbar-left, .isd-toolbar-center, .isd-rotate-group { gap: 0; }
+}
+@container isd-toolbar (max-width: 260px) {
+  .isd-toolbar-undo { display: none; }
 }
 
-/* Rechte Spalte mit fixer Höhe: Tabs oben, scrollender Inhalt in der Mitte,
- * Statusleiste unten. */
+/* Rechts bleiben die Formulare unabhängig von der Seitenliste scrollbar. */
 .isd-props {
-  flex: 0 0 35%;
+  flex: 0 0 360px;
+  max-width: 36%;
   min-width: 0;
   position: relative;
   display: flex;
@@ -6786,7 +6818,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
   left: 0;
   right: 0;
   top: 0;
-  bottom: var(--isd-bar-height, 49px);
+  bottom: 0;
   pointer-events: none;
   overflow: hidden;
 }
@@ -6812,33 +6844,19 @@ button.isd-dropzone__action--supplemental:focus-visible {
   animation: isd-ai-scan 1.9s ease-in-out infinite;
 }
 
-.isd-props-mode {
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-  margin: 14px 16px 0;
-  padding: 3px;
-  border-radius: 8px;
-  background: rgba(var(--v-theme-on-surface), 0.06);
-}
-
-.isd-props-mode__button {
-  min-width: 0;
-  height: 30px;
-  border-radius: 6px;
-  color: rgba(var(--v-theme-on-surface), 0.58);
+.isd-props-heading {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 0 0 var(--isd-bar-height);
+  margin: 0;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
   font-size: 12px;
   font-weight: 650;
-  line-height: 1;
-  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
 }
-
-.isd-props-mode__button--active {
-  color: rgb(var(--v-theme-on-surface));
-  background: rgb(var(--v-theme-surface));
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
-}
+.isd-props-heading h3 { margin: 0; font-size: inherit; font-weight: inherit; }
+.isd-props-heading p { margin: 2px 0 0; color: var(--pm-muted, #687076); font-size: 11px; font-weight: 400; }
 
 .isd-props-scroll {
   flex: 1 1 auto;
@@ -6856,8 +6874,11 @@ button.isd-dropzone__action--supplemental:focus-visible {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 16px;
-  gap: 10px;
+  grid-area: preview;
+  min-width: 0;
+  overflow: hidden;
+  padding: 20px;
+  background: rgba(var(--v-theme-on-surface), .035);
 }
 
 .isd-preview-stage {
@@ -6867,17 +6888,9 @@ button.isd-dropzone__action--supplemental:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: auto;
-  padding: 16px;
-  border-radius: 8px;
-  background:
-    linear-gradient(45deg, rgba(var(--v-theme-on-surface), 0.035) 25%, transparent 25%),
-    linear-gradient(-45deg, rgba(var(--v-theme-on-surface), 0.035) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, rgba(var(--v-theme-on-surface), 0.035) 75%),
-    linear-gradient(-45deg, transparent 75%, rgba(var(--v-theme-on-surface), 0.035) 75%);
-  background-color: rgba(var(--v-theme-on-surface), 0.04);
-  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
-  background-size: 16px 16px;
+  overflow: hidden;
+  padding: 0;
+  container-type: size;
 }
 
 .isd-preview-stage:has(.isd-preview-image:hover) {
@@ -6890,12 +6903,13 @@ button.isd-dropzone__action--supplemental:focus-visible {
 
 .isd-preview-image {
   display: block;
+  flex: 0 0 auto;
+  width: 100%;
+  height: 100%;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: 4px;
-  background: #fff;
-  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.18);
+  filter: drop-shadow(0 4px 12px rgba(15, 23, 42, .12));
 }
 
 .isd-preview-magnifier {
@@ -6939,14 +6953,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
   color: rgba(var(--v-theme-on-surface), 0.45);
   font-size: 13px;
   font-weight: 600;
-  text-align: center;
-}
-
-.isd-preview-meta {
-  flex: 0 0 auto;
-  color: rgba(var(--v-theme-on-surface), 0.55);
-  font-size: 12px;
-  font-weight: 650;
   text-align: center;
 }
 
@@ -7227,7 +7233,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
 }
 
 @media (max-height: 760px) and (min-width: 601px) {
-  .isd-grid-scroll {
+  .isd-card--empty .isd-grid-scroll {
     padding: 24px;
   }
 
@@ -7255,7 +7261,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
 }
 
 @media (max-width: 600px) {
-  .isd-grid-scroll {
+  .isd-card--empty .isd-grid-scroll {
     padding: 16px;
   }
 
@@ -7351,20 +7357,32 @@ button.isd-dropzone__action--supplemental:focus-visible {
 .isd-suggestion-dismiss { font-size:12px; color:var(--pm-muted,#687076); }
 .isd-card .isd-props { container-type:inline-size; }
 .isd-review-hint button { margin-left:8px; text-decoration:underline; }
-@media (max-width:760px) {
-  .isd-card .isd-body { flex-direction:column; }
-  .isd-card .isd-left { flex:0 0 208px; width:100%; border-right:0; border-bottom:1px solid rgba(var(--v-theme-on-surface),.1); }
-  .isd-card--empty .isd-left { flex:1 1 auto; }
-  .isd-card:not(.isd-card--empty) .isd-grid-scroll { padding:12px 12px 58px !important; overflow-x:auto; overflow-y:hidden; }
-  .isd-card .isd-page-grid { display:flex; gap:12px; min-width:max-content; align-items:flex-start; }
-  .isd-card .isd-page-card, .isd-card .isd-add-page-card, .isd-card .isd-scanning-page-card { width:82px; flex:0 0 82px; }
-  .isd-card .isd-props { flex:1 1 auto; width:100%; min-height:0; }
+@media (max-width:1100px) and (min-width:961px) {
+  .isd-card .isd-left { --isd-rail-width: 128px; }
+  .isd-card .isd-props { flex-basis: 330px; }
+}
+@media (max-width:960px) {
+  .isd-card:not(.isd-card--empty) .isd-body { flex-direction:column; overflow-y:auto; }
+  .isd-card:not(.isd-card--empty) .isd-left { --isd-rail-width:112px; flex:0 0 clamp(280px, 45vh, 420px); width:100%; border-right:0; border-bottom:1px solid rgba(var(--v-theme-on-surface),.1); }
+  .isd-card .isd-props { flex:0 0 auto; width:100%; max-width:none; min-height:0; overflow:visible; }
+  .isd-card .isd-props-scroll { overflow:visible; padding:16px 20px; }
+  .isd-card .isd-props-heading { min-height:42px; }
+}
+@media (max-width:600px) {
+  .isd-card:not(.isd-card--empty) .isd-left { --isd-rail-width:88px; flex-basis:clamp(260px, 40vh, 340px); }
+  .isd-card .isd-grid-scroll { padding:12px; }
+  .isd-card .isd-pages-header { justify-content:center; gap:4px; padding:0 6px; }
+  .isd-card .isd-pages-header strong { display:none; }
+  .isd-card .isd-pages-header .isd-toolbar-select-btn { margin-left:0; }
+  .isd-card .isd-toolbar { padding-inline:8px; gap:0; }
+  .isd-card .isd-preview-panel { padding:12px; }
   .isd-card .isd-props-scroll { padding:12px 16px; }
-  .isd-card .isd-toolbar { overflow-x:auto; justify-content:flex-start; gap:0; }
-  .isd-card .isd-toolbar-left, .isd-card .isd-toolbar-center, .isd-card .isd-toolbar-right { flex:0 0 auto; }
-  .isd-card .isd-toolbar-center { order:-1; }
   .isd-card .isd-footer { flex-wrap:wrap; gap:4px; }
   .isd-card .isd-footer-end { margin-left:auto; min-width:0; flex-wrap:wrap; }
   .isd-card .isd-footer-start { min-width:0; }
+}
+@media (max-width:400px) {
+  .isd-card:not(.isd-card--empty) .isd-left { --isd-rail-width:76px; }
+  .isd-card .isd-grid-scroll { padding-inline:10px; }
 }
 </style>

@@ -118,6 +118,13 @@ def _verify_inbox_api_key(
     )
 
 
+@router.get("/stages/{stage_id}/analysis", summary="Read analysis progress without starting work")
+def get_import_stage_analysis(stage_id: str, documentRevision: str,
+    sourceFileIds: list[uuid.UUID] = Query(..., min_length=1, max_length=100),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> dict:
+    return ImportStagingService(db, user.id).get_stage_analysis(stage_id, documentRevision, [str(value) for value in sourceFileIds])
+
+
 @router.post(
     "/source",
     response_model=ImportSourceUploadResponse,
@@ -457,6 +464,6 @@ def suggest_import_stage_title(
         suggestion=str(result.get("suggestion") or "").strip(),
         status=str(result.get("status") or "ready").strip() or "ready",
         pageScope=payload.pageScope,
-        usedFallback=bool(result.get("used_fallback", False)),
+        usedFallback=bool(result.get("used_fallback", result.get("usedFallback", False))),
         meta=dict(result.get("meta") or {}),
     )

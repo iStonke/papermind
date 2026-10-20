@@ -25,6 +25,7 @@ from app.models.document import Document
 from app.models.tag import Tag
 from app.models.document_tag import document_tags
 from app.services.import_analysis_quality import meaningful_value, text_quality, evidence_for, date_supported, grounded_summary, amount_supported
+from app.services.import_analysis_job import ImportAnalysisJob
 from app.services.document_dates import extract_document_date_candidates
 from app.schemas.import_analysis import ImportAnalysisFields
 from app.schemas.import_staging import (
@@ -270,7 +271,7 @@ class ImportStagingService:
             types = [] if self.db is None else [tuple(row) for row in self.db.execute(select(
                 DocumentType.name, DocumentType.naming_template, DocumentType.prompt_hint, DocumentType.is_active,
             ).where(DocumentType.owner_id == self.owner_id).order_by(DocumentType.name)).all()]
-            self._recipe_signature = hashlib.sha256(json.dumps({"version": 2, "ollama": configuration.get("ollama"),
+            self._recipe_signature = hashlib.sha256(json.dumps({"version": 3, "ollama": configuration.get("ollama"),
                 "retention": configuration.get("retention"), "document_types": types}, sort_keys=True, default=str).encode()).hexdigest()
         return self._recipe_signature
 
@@ -278,7 +279,7 @@ class ImportStagingService:
         source_path = self._source_pdf_path(source_file_id)
         return source_path.with_name(f"{source_path.stem}.preanalysis.json")
 
-    def mark_source_preanalysis_pending(self, source_file_ids: list[str]) -> None:
+    def mark_source_preanalysis_pending(self, source_file_ids: list[str], *, phase="queued") -> None:
         """Advertise that the worker owns the expensive first analysis.
 
         Scanner imports arrive in the dialog before cleanup and OCR-lite finish.
@@ -294,6 +295,7 @@ class ImportStagingService:
                 "preanalysis_version": _STAGING_PREANALYSIS_STATE_VERSION,
                 "source_file_id": source_file_id,
                 "status": "pending",
+                "progress_phase": phase,
                 "updated_at": self._utc_timestamp(),
             }
             temp_path = destination.with_name(f"{destination.name}.{uuid.uuid4().hex}.tmp")
@@ -370,7 +372,47 @@ class ImportStagingService:
         return None
 
     def get_source_analysis_response(self, source_file_id: str) -> dict[str, object] | None:
-        return self._source_analysis_response_payload(self.get_source_analysis(source_file_id))
+        result = self._source_analysis_response_payload(self.get_source_analysis(source_file_id))
+        pending = self.is_source_preanalysis_pending(source_file_id)
+        if result is None:
+            if not pending:
+                return None
+            result = {"status": "pending_ocr", "suggestion": "", "meta": {}}
+        meta = result.setdefault("meta", {})
+        meta["analysis_pending"] = pending
+        meta["refinement_pending"] = pending and bool(meta.get("refinement_pending"))
+        phase = "llm" if meta.get("refinement_pending") else "ocr"
+        if pending:
+            try:
+                phase = json.loads(self._source_preanalysis_state_path(source_file_id).read_text(encoding="utf-8")).get("progress_phase", phase)
+            except (OSError, ValueError, TypeError):
+                pass
+        meta["progress_phase"] = phase if pending else "complete"
+        if pending and result.get("status") in {"error", "failed"}:
+            result["status"] = "pending_ocr"
+        return result
+
+    def _stage_analysis_job(self, stage_id, revision, source_ids):
+        # Ownership and source versions are checked on every read as well as POST.
+        paths = [self.get_source_pdf_path(source_id) for source_id in source_ids]
+        signature = json.dumps([stage_id, revision, self._analysis_recipe(),
+            [self._source_file_signature(path) for path in paths]], sort_keys=True)
+        key = hashlib.sha256(signature.encode()).hexdigest()
+        path = paths[0].with_name(f"{paths[0].stem}.analysis.{self._analysis_owner_key(self.owner_id)}.stage-{key}.json")
+        return ImportAnalysisJob(path)
+
+    def get_stage_analysis(self, stage_id, revision, source_ids):
+        job = self._stage_analysis_job(stage_id, revision, source_ids)
+        snapshot = job.read()
+        if not snapshot:
+            return {"status": "unknown", "suggestion": "", "meta": {"analysis_pending": False}}
+        result = snapshot["result"]
+        if snapshot.get("worker_owned"):
+            source_result = self.get_source_analysis_response(source_ids[0])
+            if source_result:
+                return {**source_result, "meta": {**source_result.get("meta", {}), "document_revision": revision}}
+            return {"status": "error", "suggestion": "", "meta": {"analysis_pending": False, "document_revision": revision}}
+        return result
 
     def store_source_analysis(
         self,
@@ -417,7 +459,8 @@ class ImportStagingService:
 
     def _delete_source_analyses(self, source_file_id: str) -> None:
         try:
-            paths = self._source_analysis_paths(source_file_id)
+            source_path = self._source_pdf_path(source_file_id)
+            paths = list(source_path.parent.glob(f"{source_path.stem}.analysis.*"))
         except BadRequestError:
             return
         for path in paths:
@@ -1877,7 +1920,8 @@ class ImportStagingService:
                     deduped.append(canonical)
             final_tags = deduped
 
-        final_note = grounded_summary(rich.get("summary"), extracted_text) or self._build_note_from_metadata(
+        summary_note = grounded_summary(rich.get("summary"), extracted_text)
+        final_note = summary_note or self._build_note_from_metadata(
             issuer=issuer,
             subject=subject,
             doc_type=normalized_doc_type,
@@ -1924,6 +1968,16 @@ class ImportStagingService:
                 retention_meta = None
 
         analysis_phase = "llm" if ollama_rich else "rule"
+        model = ollama_rich or {}
+        field_origins = {
+            "title": "KI" if subject and subject == self._normalize_subject(model.get("subject") or "") else "Regeln",
+            "date": "KI" if final_date and final_date == model.get("date") else "Regeln",
+            "category": "KI" if model.get("doc_type") and self._normalize_doc_type(model.get("doc_type"), active_doc_type_names) == normalized_doc_type else "Regeln",
+            "correspondent": "KI" if meaningful_value(model.get("issuer")) and self._normalize_issuer(model["issuer"]) == issuer else "Regeln",
+            "tags": "KI" if model.get("tags") else "Regeln",
+            "note": "KI" if model.get("summary") and grounded_summary(model["summary"], extracted_text) == final_note else "Regeln",
+            "retention": "Regeln",
+        }
         return {
             "status": "ready",
             "suggestion": suggestion,
@@ -1941,10 +1995,11 @@ class ImportStagingService:
                 "sender_raw": sender_raw,
                 "correspondent": correspondent_info,
                 "tags": final_tags,
-                "note": final_note,
+                "note": None if not use_ollama and ollama_cfg.get("enabled") and not summary_note else final_note,
                 "retention": retention_meta,
                 "analysis_status": "ready",
                 "analysis_phase": analysis_phase,
+                "field_origins": field_origins,
                 "refinement_pending": bool(not use_ollama and ollama_cfg.get("enabled")),
                 "ocr": public_ocr,
                 "evidence": {key: evidence for key, value in {"title": subject, "correspondent": issuer_raw, "date": final_date}.items() if (evidence := evidence_for(value, extracted_text))},
@@ -1952,7 +2007,52 @@ class ImportStagingService:
             },
         }
 
-    def suggest_stage_title(
+    def suggest_stage_title(self, source_file_ids, *, page_scope="first_page", stage_id=None,
+        pages=None, document_revision=None, force=False, repeat_ocr=False):
+        arguments = dict(page_scope=page_scope, stage_id=stage_id, pages=pages,
+            document_revision=document_revision, force=force, repeat_ocr=repeat_ocr)
+        if not stage_id or not document_revision:
+            return self._suggest_stage_title(source_file_ids, **arguments)
+        source_ids = self._normalize_source_file_ids(source_file_ids)
+        if not source_ids:
+            raise BadRequestError("sourceFileIds is required")
+        job = self._stage_analysis_job(stage_id, document_revision, source_ids)
+        if not job.acquire():
+            return self.get_stage_analysis(stage_id, document_revision, source_ids)
+        try:
+            existing = job.read()
+            if existing and not force and not repeat_ocr and (existing.get("worker_owned") or not existing["result"]["meta"].get("analysis_pending")):
+                return self.get_stage_analysis(stage_id, document_revision, source_ids)
+            def publish(result, pending=True, phase="llm", worker_owned=False):
+                result = {**result, "meta": {**result.get("meta", {}), "document_revision": document_revision}}
+                return job.publish(result, pending=pending, phase=phase, worker_owned=worker_owned)
+            self._publish_analysis_progress = publish
+            publish({"status": "pending_ocr", "suggestion": "", "meta": {}}, phase="ocr")
+            original_page = not pages or len(pages) == 1 and pages[0].page_index == 0 and not pages[0].rotation and pages[0].color_mode == "auto"
+            worker_owned = original_page and len(source_ids) == 1 and self.is_source_preanalysis_pending(source_ids[0])
+            if worker_owned:
+                result = self.get_source_analysis_response(source_ids[0]) or {"status": "pending_ocr", "suggestion": "", "meta": {}}
+            else:
+                result = self._suggest_stage_title(source_ids, **arguments)
+            pending = worker_owned or result.get("status") == "pending_ocr"
+            # A cleanup-only wait has no long-running API task; another POST may
+            # start it once the source revision has caught up.
+            if pending and not worker_owned:
+                result.setdefault("meta", {})["restart_after_cleanup"] = True
+            return publish(result, pending=pending, phase=(result.get("meta", {}).get("progress_phase") or "ocr") if pending else "complete", worker_owned=worker_owned)
+        except Exception:
+            previous = (job.read() or {}).get("result", {})
+            if previous.get("status") == "ready":
+                previous["meta"] = {**previous.get("meta", {}), "refinement_pending": False, "refinement_failed": True}
+                job.publish(previous, pending=False, phase="complete")
+            else:
+                job.publish({"status": "error", "suggestion": "", "meta": {"document_revision": document_revision}}, pending=False, phase="complete")
+            raise
+        finally:
+            self._publish_analysis_progress = None
+            job.close()
+
+    def _suggest_stage_title(
         self,
         source_file_ids: list[str],
         *,
@@ -1977,7 +2077,7 @@ class ImportStagingService:
             len(normalized_ids) == 1 and
             self._is_valid_source_file_id(normalized_ids[0])
         )
-        if is_cacheable_single_source and not force and not repeat_ocr:
+        if is_cacheable_single_source and (not force and not repeat_ocr or self.is_source_preanalysis_pending(normalized_ids[0])):
             cached = self.get_source_analysis(normalized_ids[0])
             # Der Worker legt zuerst eine schnelle regelbasierte Analyse ab und
             # verfeinert sie danach mit Ollama. Sie ist bereits ein brauchbares
@@ -1991,7 +2091,7 @@ class ImportStagingService:
                     phase=str((cached.get("meta") if isinstance(cached, dict) else {}).get("analysis_phase") or ""),
                     total_ms=elapsed_ms(request_started),
                 )
-                return cached
+                return self.get_source_analysis_response(normalized_ids[0]) if document_revision else cached
             if self.is_source_preanalysis_pending(normalized_ids[0]):
                 return {
                     "status": "pending_ocr",
@@ -2043,6 +2143,10 @@ class ImportStagingService:
             )
 
         build_started = now_perf()
+        if getattr(self, "_publish_analysis_progress", None):
+            early = self._build_stage_title_result(extracted_text=extracted_text, normalized_scope=normalized_scope,
+                page_refs=page_refs, ocr_pending=ocr_pending, ocr_diagnostics=ocr_diagnostics, stage_id=stage_id, use_ollama=False)
+            self._publish_analysis_progress(early, phase="llm")
         result = self._build_stage_title_result(
             extracted_text=extracted_text,
             normalized_scope=normalized_scope,
@@ -2102,6 +2206,7 @@ class ImportStagingService:
             )
             return cached
 
+        self.mark_source_preanalysis_pending([source_id], phase="ocr")
         embedded_started = now_perf()
         extracted_text, _pages_scanned, page_refs = self._extract_text_for_title_suggestion(
             normalized_ids,
@@ -2173,6 +2278,7 @@ class ImportStagingService:
             return rule_result
 
         llm_started = now_perf()
+        self.mark_source_preanalysis_pending([source_id], phase="llm")
         llm_result = self._build_stage_title_result(
             extracted_text=extracted_text,
             normalized_scope=normalized_scope,
@@ -2244,6 +2350,11 @@ class ImportStagingService:
                             break
                 texts.append(best)
             extracted = "\n\n".join(texts)[:12000]
+            if getattr(self, "_publish_analysis_progress", None):
+                early = self._build_stage_title_result(extracted_text=extracted, normalized_scope=scope,
+                    page_refs=[f"{page.source_file_id}:{page.page_index}" for page in selected_pages],
+                    ocr_pending=not bool(extracted.strip()), ocr_diagnostics=diagnostics, stage_id=stage_id, use_ollama=False)
+                self._publish_analysis_progress(early, phase="llm")
             result = self._build_stage_title_result(
                 extracted_text=extracted, normalized_scope=scope,
                 page_refs=[f"{page.source_file_id}:{page.page_index}" for page in selected_pages],
@@ -2644,6 +2755,17 @@ class ImportStagingService:
                         continue
                 if not title or not staging_doc.pages:
                     raise BadRequestError("Dokumentname und mindestens eine Seite sind erforderlich.")
+                missing_metadata = []
+                if staging_doc.date is None:
+                    missing_metadata.append("Dokumentdatum")
+                if not staging_doc.document_type:
+                    missing_metadata.append("Dokumenttyp")
+                if staging_doc.correspondent_id is None:
+                    missing_metadata.append("Korrespondent")
+                if not staging_doc.tag_ids and not staging_doc.tag_names:
+                    missing_metadata.append("mindestens ein Tag")
+                if missing_metadata:
+                    raise BadRequestError("Bitte die Pflichtangaben ergänzen: " + ", ".join(missing_metadata) + ".")
                 single_request = ImportCommitRequest(documents=[staging_doc])
                 self._validate_requested_tags(single_request)
                 self._validate_requested_correspondents(single_request)

@@ -111,8 +111,6 @@
         @minimize="onImportMinimized"
         @committed="onImportCommitted"
         @open-document="openDocumentFromImport"
-        @manage-category="openDocumentTypeSettings"
-        @manage-correspondent="openCorrespondentSettings"
         @discarded-sources="onImportSourcesDiscarded"
       />
       <input

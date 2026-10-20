@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 import uuid
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +13,7 @@ from sqlalchemy import select, delete
 from app.db.session import SessionLocal
 from app.models.user import User
 from app.models.document import Document
+from app.models.correspondent import Correspondent
 from app.schemas.import_staging import ImportCommitRequest
 from app.services import import_staging
 from app.services.import_staging import ImportStagingService
@@ -28,6 +30,9 @@ class ImportCommitIntegrationTest(unittest.TestCase):
         self.user = User(username=f'import-test-{uuid.uuid4().hex}', password_hash='test', is_active=True, is_admin=False)
         self.db.add(self.user)
         self.db.commit()
+        self.correspondent = Correspondent(owner_id=self.user.id, name='Synthetischer Absender')
+        self.db.add(self.correspondent)
+        self.db.commit()
         self.service = ImportStagingService(self.db, self.user.id)
         self.source_id = str(uuid.uuid4())
         self.service._authorized_sources.add(self.source_id)
@@ -37,6 +42,7 @@ class ImportCommitIntegrationTest(unittest.TestCase):
         source.with_suffix('.owner.json').write_text(json.dumps({'owner_id': str(self.user.id)}))
         self.request = ImportCommitRequest.model_validate({'request_id': str(uuid.uuid4()), 'options': {'auto_ocr': False},
             'documents': [{'client_document_id': 'draft-1', 'title': 'Synthetischer Import', 'document_type': 'Brief', 'tag_names': ['Synthetisches Tag'],
+                'date': '2026-10-20', 'correspondent_id': str(self.correspondent.id),
                 'pages': [{'source_file_id': self.source_id, 'page_index': 0}]}]})
 
     def tearDown(self):
@@ -58,8 +64,25 @@ class ImportCommitIntegrationTest(unittest.TestCase):
         docs = self.db.scalars(select(Document).where(Document.owner_id == self.user.id)).all()
         self.assertEqual(len(docs), 1)
         self.assertEqual(docs[0].document_type, 'Brief')
-        self.assertIsNone(docs[0].document_date)
+        self.assertEqual(docs[0].document_date, date(2026, 10, 20))
+        self.assertEqual(docs[0].correspondent_id, self.correspondent.id)
+        self.assertIsNone(docs[0].notes)
         self.assertEqual([tag.name for tag in docs[0].tags], ['Synthetisches Tag'])
+
+    def test_missing_required_metadata_preserves_sources_without_creating_documents(self):
+        for field, label in [('date', 'Dokumentdatum'), ('document_type', 'Dokumenttyp'),
+                             ('correspondent_id', 'Korrespondent'), ('tag_names', 'Tag')]:
+            with self.subTest(field=field):
+                request = self.request.model_copy(deep=True)
+                setattr(request.documents[0], field, [] if field == 'tag_names' else None)
+                with patch.object(self.service, '_build_document_pdf') as build:
+                    response = self.service.commit(request)
+                self.assertFalse(response.created)
+                self.assertEqual(response.errors[0].code, 'BAD_REQUEST')
+                self.assertIn(label, response.errors[0].message)
+                build.assert_not_called()
+                self.assertFalse(self.db.scalars(select(Document).where(Document.owner_id == self.user.id)).all())
+                self.assertTrue(self.service._source_pdf_path(self.source_id).exists())
 
     def test_metadata_failure_rolls_back_the_document_and_preserves_source(self):
         original_finalize = self.service.document_service.upload_document

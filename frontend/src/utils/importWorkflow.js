@@ -43,7 +43,14 @@ export function validateImportDocument(document) {
   const errors = {};
   if (!String(document.title || '').trim()) errors.title = 'Bitte einen Dokumentnamen eingeben.';
   else if (document.title.length > 200) errors.title = 'Der Dokumentname darf höchstens 200 Zeichen enthalten.';
-  if (!parseDocumentDateInput(form.date).ok) errors.date = 'Bitte ein gültiges Datum eingeben, z. B. 15.10.2026.';
+  if (!String(form.date || '').trim()) errors.date = 'Bitte ein Dokumentdatum eingeben.';
+  else if (!parseDocumentDateInput(form.date).ok) errors.date = 'Bitte ein gültiges Datum eingeben, z. B. 15.10.2026.';
+  if (!String(form.category || '').trim()) errors.category = 'Bitte einen Dokumenttyp wählen.';
+  const correspondent = typeof form.correspondentId === 'object' && form.correspondentId
+    ? form.correspondentId.value || form.correspondentId.id || form.correspondentId.name || form.correspondentId.title : form.correspondentId;
+  if (!String(correspondent || '').trim()) errors.correspondent = 'Bitte einen Korrespondenten wählen.';
+  const hasTag = [...(document.tags || []), ...(document.meta?.pendingTagNames || [])].some(tag => String(tag || '').trim());
+  if (!hasTag) errors.tags = 'Bitte mindestens einen Tag hinzufügen.';
   if (String(form.note || '').length > 10000) errors.note = 'Die Notiz darf höchstens 10.000 Zeichen enthalten.';
   if (!document.pages?.length) errors.pages = 'Bitte mindestens eine Seite hinzufügen.';
   return errors;
@@ -51,15 +58,26 @@ export function validateImportDocument(document) {
 export function applyFieldProposal(document, field, value, expectedRevision, read, write, origin = 'KI') {
   const form = ensureImportForm(document);
   const current = read();
-  if (JSON.stringify(value) === JSON.stringify(current)) return false;
+  if (JSON.stringify(value) === JSON.stringify(current)) {
+    if (!form.touched[field] && form.aiFilled[field] && origin === 'KI') form.aiFilled[field] = origin;
+    delete form.proposals[field];
+    return false;
+  }
   if (JSON.stringify(value) === JSON.stringify(form.dismissed[field])) return false;
-  if ((form.revisions[field] || 0) !== expectedRevision || form.touched[field]) {
+  const words = text => String(text || '').toLocaleLowerCase('de-DE').match(/[\p{L}\p{N}]{3,}/gu) || [];
+  const clearerTitle = field === 'title' && origin === 'KI' && form.aiFilled[field] === 'Regeln'
+    && words(current).length > 0 && String(value).length > String(current).length && words(current).every(word => words(value).includes(word));
+  const expandedTags = field === 'tags' && Array.isArray(value) && Array.isArray(current) && current.every(tag => value.includes(tag));
+  const replacesAutomaticValue = form.aiFilled[field] && current != null && current !== ''
+    && !clearerTitle && !expandedTags;
+  if ((form.revisions[field] || 0) !== expectedRevision || form.touched[field] || replacesAutomaticValue) {
     if (value != null && value !== '') form.proposals[field] = { value, origin };
     return false;
   }
-  form.previousValues[field] = current;
+  if (!(field in form.previousValues)) form.previousValues[field] = current;
   write(value);
   form.aiFilled[field] = origin;
+  delete form.proposals[field];
   return true;
 }
 export function commitSubset(documents, selectedPageIds = null) {

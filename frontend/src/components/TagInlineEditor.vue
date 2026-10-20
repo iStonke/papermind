@@ -24,7 +24,13 @@
     </TransitionGroup>
 
     <v-combobox
+      :id="inputId"
       aria-label="Tag hinzufügen"
+      :aria-required="required || undefined"
+      :aria-describedby="errorId"
+      :required="required && !normalizedNames.length"
+      :error="error"
+      :aria-invalid="error"
       :model-value="normalizedNames"
       :search="search"
       :items="items"
@@ -56,7 +62,7 @@
       <template #prepend-inner>
         <span class="pm-tags-input__add">
           <v-icon size="14" class="pm-tags-input__plus">mdi-plus</v-icon>
-          <span class="pm-tags-input__add-label">Tag</span>
+          <span class="pm-tags-input__add-label">{{ addLabel }}</span>
         </span>
       </template>
     </v-combobox>
@@ -71,7 +77,12 @@ const props = defineProps({
   search: { type: String, default: '' },
   items: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
+  addLabel: { type: String, default: 'Tag' },
   disabled: { type: Boolean, default: false },
+  inputId: String,
+  required: Boolean,
+  error: Boolean,
+  errorId: String,
   singleLine: { type: Boolean, default: false },
   menuProps: { type: Object, default: () => ({}) },
   isItemActive: { type: Function, default: null },

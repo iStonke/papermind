@@ -3,6 +3,7 @@ import unittest
 import uuid
 import shutil
 import json
+import hashlib
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -135,7 +136,7 @@ class ImportWorkflowRobustnessTest(unittest.TestCase):
 
     def test_committed_request_is_replayed_without_reading_deleted_sources(self):
         source_id = str(uuid.uuid4())
-        request = ImportCommitRequest.model_validate({'request_id': 'attempt', 'documents': [{'client_document_id': 'draft-1', 'title': 'Brief', 'pages': [{'source_file_id': source_id, 'page_index': 0}]}]})
+        request = ImportCommitRequest.model_validate({'request_id': 'attempt', 'documents': [{'client_document_id': 'draft-1', 'title': 'Brief', 'date': '2026-10-20', 'document_type': 'Brief', 'correspondent_id': str(uuid.uuid4()), 'tag_ids': [str(uuid.uuid4())], 'pages': [{'source_file_id': source_id, 'page_index': 0}]}]})
         service = ImportStagingService(MagicMock(), uuid.uuid4())
         service._validate_requested_tags = MagicMock()
         service._validate_requested_correspondents = MagicMock()
@@ -168,12 +169,32 @@ class ImportWorkflowRobustnessTest(unittest.TestCase):
         service._validate_requested_tags = MagicMock()
         service._validate_requested_correspondents = MagicMock()
         service.document_service.upload_document = MagicMock()
-        request = ImportCommitRequest.model_validate({'documents': [{'title': 'Brief', 'pages': [{'source_file_id': source_id, 'page_index': 0, 'source_revision': 'old'}]}]})
+        request = ImportCommitRequest.model_validate({'documents': [{'title': 'Brief', 'date': '2026-10-20', 'document_type': 'Brief', 'correspondent_id': str(uuid.uuid4()), 'tag_ids': [str(uuid.uuid4())], 'pages': [{'source_file_id': source_id, 'page_index': 0, 'source_revision': 'old'}]}]})
         with patch('app.services.storage_owner.lock_storage_owner'):
             result = service.commit(request)
         self.assertEqual(result.errors[0].code, 'CONFLICT')
         service.document_service.upload_document.assert_not_called()
         self.assertTrue(source.exists())
+
+    def test_legacy_receipt_can_be_replayed_without_the_new_required_metadata(self):
+        request = ImportCommitRequest.model_validate({'request_id': 'legacy', 'documents': [{
+            'client_document_id': 'old-draft', 'title': 'Altbestand',
+            'pages': [{'source_file_id': str(uuid.uuid4()), 'page_index': 0}]}]})
+        fingerprint = hashlib.sha256(json.dumps({
+            'document': request.documents[0].model_dump(mode='json'),
+            'options': request.options.model_dump(mode='json'),
+        }, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        document = SimpleNamespace(id=uuid.uuid4(), flags={'import_commit': {'fingerprint': fingerprint}},
+                                   display_name='Altbestand', original_filename='Altbestand.pdf', page_count=1)
+        service = ImportStagingService(MagicMock(), uuid.uuid4())
+        service._committed_import = MagicMock(return_value=document)
+        service._build_document_pdf = MagicMock()
+        service._cleanup_source_files = MagicMock()
+        with patch('app.services.storage_owner.lock_storage_owner'):
+            response = service.commit(request)
+        self.assertFalse(response.errors)
+        self.assertTrue(response.created[0].replayed)
+        service._build_document_pdf.assert_not_called()
 
     def test_selection_analysis_reads_selected_page_not_source_first_page(self):
         source_id, _ = self.source(100, 100, pages=3)

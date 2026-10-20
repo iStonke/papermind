@@ -6,6 +6,42 @@ import { useImportStagingStore } from '../src/stores/importStaging.js';
 import { useImportDocumentForm } from '../src/composables/useImportDocumentForm.js';
 import { meaningfulSuggestion, canOfferTitle, documentRevision, ensureImportForm, validateImportDocument, applyFieldProposal, commitSubset } from '../src/utils/importWorkflow.js';
 import { scanImageQuality } from '../src/utils/scanImageQuality.js';
+import { analysisPending, acceptAnalysisSnapshot, transientAnalysisError } from '../src/utils/importAnalysis.js';
+
+test('progress snapshots cannot regress from newer results to older rules or failures', () => {
+  const meta = {};
+  const ready = { status: 'ready', meta: { analysis_phase: 'llm', analysis_job_id: 'job', analysis_sequence: 3, analysis_pending: false, analysis_started_at: 20 } };
+  assert.equal(acceptAnalysisSnapshot(meta, ready, 'revision'), true);
+  assert.equal(acceptAnalysisSnapshot(meta, { status: 'error', meta: { analysis_job_id: 'job', analysis_sequence: 2 } }, 'revision'), false);
+  assert.equal(acceptAnalysisSnapshot(meta, { status: 'ready', meta: { analysis_phase: 'rule' } }, 'revision'), false);
+  assert.equal(acceptAnalysisSnapshot(meta, { status: 'error', meta: {} }, 'revision'), false);
+  assert.equal(acceptAnalysisSnapshot(meta, { status: 'error', meta: { analysis_job_id: 'old-job', analysis_started_at: 10 } }, 'revision'), false);
+  assert.equal(acceptAnalysisSnapshot(meta, { status: 'pending_ocr', meta: { analysis_job_id: 'job', analysis_sequence: 3, analysis_pending: true } }, 'revision'), false);
+  assert.equal(acceptAnalysisSnapshot(meta, { status: 'ready', meta: { analysis_phase: 'rule', analysis_job_id: 'new-job', analysis_started_at: 30, analysis_sequence: 1, analysis_pending: true } }, 'revision'), true);
+  assert.equal(acceptAnalysisSnapshot(meta, { status: 'error', meta: { analysis_job_id: 'job', analysis_started_at: 20, analysis_sequence: 4 } }, 'revision'), false);
+  assert.equal(acceptAnalysisSnapshot(meta, { status: 'ready', meta: { analysis_phase: 'rule' } }, 'new-revision'), true);
+  assert.equal(analysisPending({ status: 'ready', meta: { refinement_pending: true } }), true);
+  assert.equal(analysisPending({ status: 'ready', meta: { refinement_pending: true, analysis_pending: false } }), false);
+  assert.equal(transientAnalysisError({ name: 'AbortError' }), true);
+  assert.equal(transientAnalysisError({ status: 503 }), true);
+  assert.equal(transientAnalysisError({ status: 400 }), false);
+});
+
+test('progressive refinement keeps stable values, upgrades provenance and offers real changes', () => {
+  const { doc } = fixture();
+  const form = ensureImportForm(doc);
+  applyFieldProposal(doc, 'date', '15.10.2026', 0, () => form.date, value => { form.date = value; }, 'Regeln');
+  applyFieldProposal(doc, 'date', '16.10.2026', 0, () => form.date, value => { form.date = value; }, 'KI');
+  assert.equal(form.date, '15.10.2026');
+  assert.equal(form.proposals.date.value, '16.10.2026');
+  applyFieldProposal(doc, 'date', '15.10.2026', 0, () => form.date, value => { form.date = value; }, 'KI');
+  assert.equal(form.aiFilled.date, 'KI');
+  assert.equal(form.proposals.date, undefined);
+  applyFieldProposal(doc, 'title', 'Kündigung', 0, () => doc.title, value => { doc.title = value; }, 'Regeln');
+  applyFieldProposal(doc, 'title', 'TSV Flintbek Kündigung', 0, () => doc.title, value => { doc.title = value; }, 'KI');
+  assert.equal(doc.title, 'TSV Flintbek Kündigung');
+  assert.equal(form.previousValues.title, 'Arbeitsstätte');
+});
 
 function fixture() {
   setActivePinia(createPinia());
@@ -85,13 +121,28 @@ test('document revision changes on selection, order, rotation, colour and source
     previous = next;
   }
 });
-test('optional metadata does not force invented dates, categories or tags', () => {
+test('every import metadata field except notes is required, including at least one tag', () => {
   const { doc } = fixture();
+  const form = ensureImportForm(doc);
+  assert.deepEqual(Object.keys(validateImportDocument(doc)), ['date', 'category', 'correspondent', 'tags']);
+  Object.assign(form, { date: '1.2.2026', category: 'Brief', correspondentId: 'sender', note: '' });
+  doc.meta.pendingTagNames = ['Unterlagen'];
   assert.deepEqual(validateImportDocument(doc), {});
-  ensureImportForm(doc).date = '31.2.2026';
+  for (const [field, key] of [['date', 'date'], ['category', 'category'], ['correspondentId', 'correspondent']]) {
+    const original = form[field];
+    form[field] = '  ';
+    assert.ok(validateImportDocument(doc)[key]);
+    form[field] = original;
+  }
+  form.date = '31.2.2026';
   assert.ok(validateImportDocument(doc).date);
-  ensureImportForm(doc).date = '1.2.2026';
+  form.date = '1.2.2026';
+  doc.meta.pendingTagNames = ['  '];
+  assert.ok(validateImportDocument(doc).tags);
+  doc.tags = ['existing-tag'];
   assert.deepEqual(validateImportDocument(doc), {});
+  doc.title = '  ';
+  assert.ok(validateImportDocument(doc).title);
 });
 test('undo restores page identity, order and selected colour without requiring a source deletion', () => {
   const { store, doc } = fixture();

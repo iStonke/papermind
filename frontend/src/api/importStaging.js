@@ -1,6 +1,12 @@
-import { apiFetch, getBaseUrl } from './client.js';
+import { apiFetch } from './client.js';
 
 const SUGGEST_TITLE_TIMEOUT_MS = 90_000;
+
+export function readImportStageAnalysis(stageId, { sourceFileIds, documentRevision, signal }) {
+  const query = new URLSearchParams({ documentRevision });
+  for (const sourceId of sourceFileIds) query.append('sourceFileIds', sourceId);
+  return apiFetch(`/api/import/stages/${encodeURIComponent(stageId)}/analysis?${query}`, { signal, timeoutMs: 10000 });
+}
 
 export async function suggestImportStageTitle(_apiBaseUrl, stageId, { sourceFileIds = [], pageScope = 'first_page', pages = [], documentRevision = null, force = false, repeatOcr = false, signal } = {}) {
   const normalizedStageId = String(stageId || '').trim();
