@@ -35,6 +35,23 @@ test('empty title suggestions are hidden and optional fields allow a normal impo
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
+for (const failure of ['analysis-result', 'http-error']) test(`internal OCR diagnostics stay hidden for legacy drafts and ${failure}`, async ({ page }) => {
+  await mount(page);
+  const diagnostic = 'source=5d5c3d0d-c509-4ada-ba18-56ebdfb329ba page=0 psm=6: Die PDF-Seite konnte nicht verarbeitet werden.';
+  await page.evaluate(diagnostic => { window.importFixture.store.documents[0].meta.analysisError = diagnostic; }, diagnostic);
+  await expect(page.locator('body')).not.toContainText(diagnostic);
+  await page.route('**/suggest-title', route => route.fulfill(failure === 'analysis-result'
+    ? { json: { status: 'error', suggestion: '', meta: { analysis_status: 'ocr_failed', analysis_error: diagnostic, ocr: { errors: [diagnostic] } } } }
+    : { status: 500, json: { error: { message: diagnostic } } }));
+  await page.getByRole('button', { name: 'Analyseaktionen' }).click();
+  await page.getByText('Metadaten neu analysieren', { exact: true }).click();
+  await expect(page.locator('.isd-ai-status-btn--failed')).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('source=');
+  await expect(page.locator('body')).not.toContainText('psm=');
+  await expect(page.getByTitle('Keine automatische Erkennung — Klicken, um die Analyse erneut zu starten')).toBeEnabled();
+  await expect(page.getByLabel('Dokumentname *', { exact: true })).toHaveValue('Arbeitsstätte');
+});
+
 test('date uses the drawer normalization and a visible inline error', async ({ page }) => {
   await mount(page);
   const date = page.getByLabel('Dokumentdatum', { exact: true });

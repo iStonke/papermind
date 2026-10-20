@@ -21,12 +21,6 @@
       />
     </template>
 
-    <div v-if="props.scannerActive || props.scanCancelPending" class="isd-scan-progress" role="status" aria-live="polite">
-      <span>{{ scannerFeedbackTitle }}</span>
-      <v-btn v-if="!props.scanner?.live_page_mode && !props.scanCancelPending" size="small" variant="text" :disabled="props.scanRequestPending" @click="emitScan('finish')">Scannen abschließen</v-btn>
-      <v-btn v-if="isScannerFeedbackPending && !props.scanCancelPending" size="small" variant="text" :disabled="props.scanRequestPending" @click="emitScan('page')">Weitere Seite</v-btn>
-      <v-btn size="small" variant="text" :disabled="props.scanCancelPending" @click="emitScan('cancel')">{{ props.scanCancelPending ? 'Abbruch angefordert' : 'Scan abbrechen' }}</v-btn>
-    </div>
     <div v-for="job in props.scannerJobs.filter(job => job.state === 'error' && job.error_kind !== 'cancelled' && Date.parse(job.created_at) > Math.max(stagingStore.createdAt || 0, Date.now() - 300000))" :key="job.id" class="isd-import-error" role="alert">
       {{ job.error || 'Scan fehlgeschlagen. Bereits erfasste Seiten bleiben erhalten.' }}
       <v-btn size="small" variant="text" :disabled="props.scannerActive" @click="emitScan('page')">Erneut scannen</v-btn>
@@ -34,7 +28,6 @@
     <div class="isd-body">
       <input ref="replacePageInput" class="d-none" type="file" accept="application/pdf" @change="replaceSelectedPageFromFile" />
       <input ref="fileInput" class="d-none" type="file" accept="application/pdf" multiple @change="onFileInputChange" />
-      <input v-if="!isIOSDevice" ref="folderInput" class="d-none" type="file" accept="application/pdf" multiple webkitdirectory directory @change="onFileInputChange" />
 
       <!-- Left column: page grid + bottom toolbar -->
       <div class="isd-left">
@@ -194,14 +187,11 @@
                   <v-icon :size="props.scannerActive ? 18 : 22">mdi-file-pdf-box</v-icon>
                 </span>
                 <span class="isd-dropzone__action-copy">
-                  <strong>{{ props.scannerActive ? 'PDFs zusätzlich hinzufügen' : dropzonePrimaryLabel }}</strong>
+                  <strong>{{ props.scannerActive ? 'PDFs zusätzlich hinzufügen' : 'PDFs auswählen' }}</strong>
                   <small v-if="!props.scannerActive">
                     {{ isIOSDevice ? 'Eine oder mehrere Dateien' : 'Eine oder mehrere PDF-Dateien' }}
                   </small>
                 </span>
-              </button>
-              <button v-if="!isIOSDevice" type="button" class="isd-dropzone__action" style="grid-column:1 / -1; min-height:40px" :disabled="isUploadingSources || isCommitting" @click="folderInput?.click()">
-                <v-icon size="18">mdi-folder-outline</v-icon><span>Ganzen Ordner hinzufügen</span>
               </button>
             </div>
           </div>
@@ -395,11 +385,9 @@
           {{ primaryDocument.meta.commitError.message }}
           <button v-if="primaryDocument.meta.commitError.existing_doc_id" type="button" @click="minimizeDialog(); emit('open-document', primaryDocument.meta.commitError.existing_doc_id)">Vorhandenes Dokument öffnen</button>
         </div>
-        <div v-if="primaryDocument?.meta?.analysisError" class="isd-review-hint" role="status">{{ primaryDocument.meta.analysisError }}</div>
         <div v-show="!isEmpty || stagingStore.history.length" class="isd-toolbar">
 
           <!-- Linke Gruppe: Modus-Toggle + Seitenaktionen -->
-          <v-btn v-if="!isIOSDevice" icon="mdi-folder-outline" size="x-small" variant="text" aria-label="Ordner hinzufügen" :disabled="isUploadingSources || isCommitting" @click="folderInput?.click()" />
           <v-btn icon="mdi-undo" size="x-small" variant="text" aria-label="Seitenänderung rückgängig machen"
             :disabled="!stagingStore.history.length || isCommitting || Boolean(stagingStore.pendingCommit)" @click="stagingStore.undo()" />
           <div class="isd-toolbar-left">
@@ -951,7 +939,6 @@ const previewMagnifier = ref({
 });
 const stageTagPool = ref([]);
 const fileInput = ref(null);
-const folderInput = ref(null);
 const replacePageInput = ref(null);
 const peekPanelRef = ref(null);
 const peekAnchorEl = ref(null);
@@ -1151,12 +1138,10 @@ const discardImportConfirmDescription = computed(() => {
   const verb = totalPages.value === 1 ? 'wurde' : 'wurden';
   return `${stagedPageCountLabel.value} ${verb} noch nicht importiert. Wenn du sie verwirfst, geht dieser Importentwurf verloren.`;
 });
-const dropzoneHeadline = computed(() => (isIOSDevice.value ? 'PDFs hier ablegen' : 'PDFs oder Ordner hier ablegen'));
-const dropzonePrimaryLabel = computed(() => (isIOSDevice.value ? 'PDF auswählen' : 'PDFs oder Ordner wählen'));
 const dropzoneSubtitle = computed(() => {
   if (isDropzoneDragOver.value) return 'Die neuen Seiten werden gleich für die Vorschau vorbereitet';
-  if (canTriggerScan.value) return `${dropzoneHeadline.value} oder direkt vom Scanner übernehmen`;
-  return dropzoneHeadline.value;
+  if (canTriggerScan.value) return 'PDFs hier ablegen oder direkt vom Scanner übernehmen';
+  return 'PDFs hier ablegen';
 });
 
 function importTimingNow() {
@@ -3214,7 +3199,6 @@ async function applyImportAnalysisPayload(stageId, payload, options = {}) {
   const status = String(payload.status || 'ready');
   if (['error', 'failed'].includes(status)) {
     meta.titleSuggestionStatus = 'error';
-    meta.analysisError = resultMeta.analysis_error || 'Die automatische Erkennung ist fehlgeschlagen. Eingaben bleiben erhalten.';
     return false;
   }
   if (status === 'pending_ocr') {
@@ -3223,16 +3207,13 @@ async function applyImportAnalysisPayload(stageId, payload, options = {}) {
   }
   const form = ensureImportForm(doc);
   const revisions = options.fieldRevisions || { ...form.revisions };
-  const lookupResults = await Promise.allSettled([correspondentStore.ensureLoaded(), ensureStageTagsLoaded()]);
+  await Promise.allSettled([correspondentStore.ensureLoaded(), ensureStageTagsLoaded()]);
   if (!getDocumentById(stageId) || expected && expected !== documentRevision(doc, stagingStore.sourceMetaById)) return false;
   meta.titleSuggestion = meaningfulSuggestion(payload.suggestion);
   meta.titleSuggestionUsedFallback = Boolean(payload.usedFallback ?? payload.used_fallback);
   meta.titleSuggestionMeta = resultMeta;
   meta.titleSuggestionStatus = resultMeta.refinement_pending ? 'working' : 'ready';
   meta.analysisRevision = documentRevision(doc, stagingStore.sourceMetaById);
-  meta.analysisError = ({ no_text: 'Kein lesbarer Text erkannt. Bitte Scanqualität prüfen oder Texterkennung wiederholen. Du kannst die Angaben auch manuell ergänzen.',
-    low_text: 'Es wurde nur wenig Text erkannt. Bitte die Vorschläge und die Scanqualität prüfen.' })[resultMeta.analysis_status] || '';
-  if (lookupResults.some(result => result.status === 'rejected')) meta.analysisError = 'Die Erkennung ist verfügbar; einige Auswahllisten konnten noch nicht geladen werden.';
   const origin = resultMeta.analysis_phase === 'llm' ? 'KI' : 'Regeln';
   const apply = (field, value, read, write) => applyFieldProposal(doc, field, value, revisions[field] || 0, read, write, origin);
   if (meta.titleSuggestion && !meta.titleSuggestionUsedFallback) {
@@ -3332,10 +3313,9 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'all_pages', opti
         }
         await new Promise(resolve => window.setTimeout(resolve, Math.min(10000, 1500 * (1 + attempts / 3))));
       }
-    } catch (error) {
+    } catch {
       if (getDocumentById(stageId) && revision === documentRevision(doc, stagingStore.sourceMetaById)) {
         meta.titleSuggestionStatus = 'error';
-        meta.analysisError = mapApiError(error, 'Analyse konnte nicht abgeschlossen werden. Bitte erneut versuchen.');
       }
     } finally {
       titleSuggestJobByStage.delete(stageId);
@@ -7327,7 +7307,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
 </style>
 
 <style>
-.isd-scan-progress { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 24px; border-bottom:1px solid rgba(var(--v-theme-on-surface),.1); }
 .isd-import-error { padding:10px 16px; color:rgb(var(--v-theme-error)); background:rgba(var(--v-theme-error),.06); }
 .isd-review-hint, .isd-page-review { font-size:12px; color:var(--pm-muted,#687076); margin:8px 0; }
 .isd-page-review { display:block; text-align:center; }

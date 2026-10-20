@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import uuid
 import shutil
+import json
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -53,6 +54,32 @@ class ImportWorkflowRobustnessTest(unittest.TestCase):
     def test_non_finite_model_amounts_are_rejected(self):
         for value in ['NaN', 'Infinity', '-inf']:
             self.assertIsNone(safe_float(value))
+
+    def test_ocr_failures_never_publish_internal_diagnostic_strings(self):
+        diagnostic = 'source=5d5c3d0d-c509-4ada-ba18-56ebdfb329ba page=0 psm=6: Die PDF-Seite konnte nicht verarbeitet werden.'
+        for status in ['ocr_failed', 'ocr_unavailable', 'low_text']:
+            with self.subTest(status=status):
+                diagnostics = {'status': status, 'errors': [diagnostic], 'attempts': [], 'chars': 0}
+                result = self.service._build_stage_title_result(extracted_text='', normalized_scope='first_page',
+                    page_refs=[], ocr_pending=True, ocr_diagnostics=diagnostics, use_ollama=False)
+                self.assertNotIn('analysis_error', result['meta'])
+                self.assertNotIn('errors', result['meta']['ocr'])
+                self.assertEqual(result['meta']['ocr']['error_count'], 1)
+                self.assertNotIn(diagnostic, json.dumps(result))
+                self.assertEqual(diagnostics['errors'], [diagnostic])
+
+    def test_success_after_an_ocr_retry_does_not_publish_previous_errors(self):
+        diagnostics = {'status': 'ready', 'errors': ['source=internal page=0 psm=6: private diagnostic'], 'chars': 150}
+        self.service.settings_service.get_settings = MagicMock(return_value=SimpleNamespace(model_dump=lambda **kwargs: {'ollama': {'enabled': False}}))
+        self.service._load_existing_tag_names = MagicMock(return_value=[])
+        self.service._resolve_correspondent = MagicMock(return_value=None)
+        with patch.object(import_staging, 'load_active_document_type_vocab', return_value=[]):
+            result = self.service._build_stage_title_result(extracted_text='Dies ist ein ausreichend langer synthetischer Brief mit einer lesbaren Betreffzeile und einem erfolgreichen OCR-Ergebnis.',
+                normalized_scope='first_page', page_refs=[], ocr_pending=False, ocr_diagnostics=diagnostics, use_ollama=False)
+        self.assertEqual(result['status'], 'ready')
+        self.assertNotIn('errors', result['meta']['ocr'])
+        self.assertEqual(result['meta']['ocr']['error_count'], 1)
+        self.assertNotIn('private diagnostic', json.dumps(result))
 
     def test_model_dates_and_summary_numbers_need_document_evidence(self):
         self.assertTrue(date_supported('2026-10-15', 'Hamburg, 15. Oktober 2026'))

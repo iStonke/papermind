@@ -1710,6 +1710,9 @@ class ImportStagingService:
         stage_id: str | None = None,
         use_ollama: bool = True,
     ) -> dict[str, object]:
+        public_ocr = {key: value for key, value in ocr_diagnostics.items() if key != "errors"}
+        if ocr_diagnostics.get("errors"):
+            public_ocr["error_count"] = len(ocr_diagnostics["errors"])
         logger.info(
             "SuggestTitle: stage=%s scope=%s pages=%s ocr_len=%d pending_ocr=%s",
             str(stage_id or "").strip() or "-",
@@ -1737,9 +1740,8 @@ class ImportStagingService:
                         "category": None,
                         "tags": [],
                         "analysis_status": diagnostic_status,
-                        "analysis_error": "; ".join(str(e) for e in ocr_diagnostics.get("errors", []) if e)[:500] or None,
                         "analysis_phase": "rule",
-                        "ocr": ocr_diagnostics,
+                        "ocr": public_ocr,
                     },
                 }
             return {
@@ -1758,7 +1760,7 @@ class ImportStagingService:
                     "tags": [],
                     "analysis_status": "no_text",
                     "analysis_phase": "rule",
-                    "ocr": ocr_diagnostics,
+                    "ocr": public_ocr,
                 },
             }
 
@@ -1779,7 +1781,7 @@ class ImportStagingService:
                     "tags": [],
                     "analysis_status": "low_text",
                     "analysis_phase": "rule",
-                    "ocr": ocr_diagnostics,
+                    "ocr": public_ocr,
                 },
             }
 
@@ -1944,7 +1946,7 @@ class ImportStagingService:
                 "analysis_status": "ready",
                 "analysis_phase": analysis_phase,
                 "refinement_pending": bool(not use_ollama and ollama_cfg.get("enabled")),
-                "ocr": ocr_diagnostics,
+                "ocr": public_ocr,
                 "evidence": {key: evidence for key, value in {"title": subject, "correspondent": issuer_raw, "date": final_date}.items() if (evidence := evidence_for(value, extracted_text))},
                 "review_fields": ["date"] if final_date and (final_date > date.today().isoformat() or int(final_date[:4]) < 1900) else [],
             },
