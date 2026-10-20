@@ -26,28 +26,10 @@
       <v-btn size="small" variant="text" :disabled="props.scannerActive" @click="emitScan('page')">Erneut scannen</v-btn>
     </div>
     <div class="isd-body">
-      <input ref="replacePageInput" class="d-none" type="file" accept="application/pdf" @change="replaceSelectedPageFromFile" />
       <input ref="fileInput" class="d-none" type="file" accept="application/pdf" multiple @change="onFileInputChange" />
 
-      <!-- Seitenliste und dauerhafte Vorschau mit Werkzeugen im Kopfbereich. -->
+      <!-- Seitenliste und dauerhafte Vorschau mit schwebenden Werkzeugen. -->
       <div class="isd-left">
-        <div v-if="!isEmpty" class="isd-pages-header">
-          <strong>Seiten</strong>
-          <span class="isd-page-count" :aria-label="`${totalPages} ${totalPages === 1 ? 'Seite' : 'Seiten'}`">{{ totalPages }}</span>
-          <!-- Auswahlwerkzeuge gehören zur Seitenliste. -->
-          <v-btn
-            icon
-            size="x-small"
-            :variant="isSelectMode ? 'flat' : 'text'"
-            :color="isSelectMode ? 'primary' : undefined"
-            :title="isSelectMode ? 'Auswahl beenden' : 'Seiten auswählen'"
-            class="isd-toolbar-select-btn"
-            :class="{ 'isd-toolbar-select-btn--active': isSelectMode }"
-            @click="toggleSelectMode"
-          >
-            <v-icon size="20">mdi-checkbox-multiple-outline</v-icon>
-          </v-btn>
-        </div>
         <div
           class="isd-grid-scroll import-staging-scroll"
           :aria-label="isEmpty ? undefined : 'Dokumentseiten'"
@@ -252,14 +234,7 @@
                     v-if="page.thumbUrl"
                     :src="page.thumbUrl"
                     class="isd-page-thumb import-staging-page__thumb"
-                    :style="{
-                      transform: page.rotation ? `rotate(${page.rotation}deg)` : undefined,
-                      filter: page.colorMode === 'grayscale'
-                        ? 'grayscale(1)'
-                        : page.colorMode === 'bw'
-                          ? 'grayscale(1) contrast(4)'
-                          : undefined
-                    }"
+                    :style="pageThumbnailImageStyle(page)"
                     draggable="false" loading="lazy" decoding="async"
                     @load="page.previewError = false; onScannerThumbnailLoaded(page.id, $event.target)"
                     @error="page.previewError = true"
@@ -270,6 +245,7 @@
                     <img
                       v-if="scannerThumbnailFallback?.pageId === page.id"
                       :src="scannerThumbnailFallback.url"
+                      :style="pageThumbnailImageStyle(page)"
                       class="isd-scan-thumbnail-fallback"
                       draggable="false" alt=""
                     />
@@ -287,13 +263,6 @@
               <div class="isd-page-num">{{ globalIndex + 1 }}<span v-if="documents.length > 1"> · {{ doc.title }}</span></div>
               <span v-if="stagingStore.sourceMetaById.get(page.sourceFileId)?.pageQuality?.[page.pageIndex]" class="isd-page-review">{{ stagingStore.sourceMetaById.get(page.sourceFileId).pageQuality[page.pageIndex] }}</span>
               <button v-if="page.previewError" type="button" class="isd-page-review" @click.stop="retryThumbnail(page)">Vorschau erneut laden</button>
-              <div
-                v-if="page.colorMode !== 'auto'"
-                class="isd-page-mode-badge"
-                :title="`Farbmodus: ${pageColorModeLabel(page.colorMode)}`"
-              >
-                {{ pageColorModeLabel(page.colorMode) }}
-              </div>
             </div>
 
             <!-- Scan-in-progress placeholder: zeigt, wo die nächste Seite gleich auftaucht -->
@@ -306,6 +275,7 @@
                   v-if="scannerLivePreviewUrl"
                   :src="scannerLivePreviewUrl"
                   class="isd-scanning-page-preview"
+                  :style="{ filter: pageColorFilter(stagingStore.allPagesColorMode) }"
                   alt="Aktuelle Scanvorschau"
                 />
                 <v-icon v-else size="28" class="isd-scanning-page-icon">mdi-scanner</v-icon>
@@ -394,199 +364,85 @@
           </div>
 
         </div>
+        <div v-if="!isEmpty" class="isd-pages-footer">
+          <strong>Seiten</strong>
+          <span class="isd-page-count" :aria-label="`${totalPages} ${totalPages === 1 ? 'Seite' : 'Seiten'}`">{{ totalPages }}</span>
+          <!-- Auswahlwerkzeuge gehören zur Seitenliste. -->
+          <v-btn
+            icon
+            size="x-small"
+            :variant="isSelectMode ? 'flat' : 'text'"
+            :color="isSelectMode ? 'primary' : undefined"
+            :title="isSelectMode ? 'Auswahl beenden' : 'Seiten auswählen'"
+            :aria-label="isSelectMode ? 'Auswahl beenden' : 'Seiten auswählen'"
+            class="isd-toolbar-select-btn"
+            :class="{ 'isd-toolbar-select-btn--active': isSelectMode }"
+            @click="toggleSelectMode"
+          >
+            <v-icon size="20">mdi-checkbox-multiple-outline</v-icon>
+          </v-btn>
+        </div>
         <div v-if="primaryDocument?.meta?.commitError" class="isd-import-error isd-workspace-error" role="alert">
           {{ primaryDocument.meta.commitError.message }}
           <button v-if="primaryDocument.meta.commitError.existing_doc_id" type="button" @click="minimizeDialog(); emit('open-document', primaryDocument.meta.commitError.existing_doc_id)">Vorhandenes Dokument öffnen</button>
         </div>
-        <div v-show="!isEmpty || stagingStore.history.length" class="isd-toolbar" role="toolbar" aria-label="Seitenwerkzeuge">
-          <span class="isd-preview-title">{{ selectedPreviewLabel }}</span>
-
-          <!-- Direkte Werkzeuge für die ausgewählte Seite. -->
-          <v-btn icon="mdi-undo" size="x-small" variant="text" class="isd-toolbar-undo" aria-label="Seitenänderung rückgängig machen"
-            :disabled="!stagingStore.history.length || isCommitting || Boolean(stagingStore.pendingCommit)" @click="stagingStore.undo()" />
-          <div class="isd-toolbar-left">
-
-            <div class="isd-rotate-group">
-              <v-btn
-                icon
-                size="x-small"
-                variant="text"
-                title="Nach links drehen"
-                :disabled="!hasAnySelectedPage"
-                @click="rotateAnySelectedPage(-90)"
-              >
-                <v-icon size="20">mdi-rotate-left</v-icon>
-              </v-btn>
-              <v-btn
-                icon
-                size="x-small"
-                variant="text"
-                title="Nach rechts drehen"
-                :disabled="!hasAnySelectedPage"
-                @click="rotateAnySelectedPage(90)"
-              >
-                <v-icon size="20">mdi-rotate-right</v-icon>
-              </v-btn>
-            </div>
-
-            <v-btn
-              icon
-              size="x-small"
-              variant="text"
-              color="error"
-              title="Ausgewählte Seiten löschen"
-              :disabled="!isDeleteEnabled"
-              @click="deleteSelectedPages"
-            >
-              <v-icon size="20">mdi-trash-can-outline</v-icon>
-            </v-btn>
-
-            <div class="isd-toolbar-divider" />
-
-            <div class="isd-color-group">
-              <v-btn
-                icon
-                size="x-small"
-                variant="text"
-                title="Originalfarbe des Scans" aria-label="Originalfarbe des Scans"
-                :color="selectedPageColorChoice === 'color' ? 'primary' : undefined"
-                :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'color' }"
-                :disabled="!hasAnySelectedPage"
-                @click="setAnySelectedPageColorMode('color')"
-              >
-                <v-icon size="20">mdi-image-outline</v-icon>
-              </v-btn>
-              <v-btn
-                icon
-                size="x-small"
-                variant="text"
-                title="Graustufen" aria-label="Graustufen"
-                :color="selectedPageColorChoice === 'grayscale' ? 'primary' : undefined"
-                :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'grayscale' }"
-                :disabled="!hasAnySelectedPage"
-                @click="setAnySelectedPageColorMode('grayscale')"
-              >
-                <v-icon size="20">mdi-circle-half-full</v-icon>
-              </v-btn>
-              <v-btn
-                icon
-                size="x-small"
-                variant="text"
-                title="Automatische Scanbereinigung beibehalten" aria-label="Automatische Scanbereinigung beibehalten"
-                :color="selectedPageColorChoice === 'auto' ? 'primary' : undefined"
-                :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'auto' }"
-                :disabled="!hasAnySelectedPage"
-                @click="setAnySelectedPageColorMode('auto')"
-              >
-                <v-icon size="20">mdi-palette-outline</v-icon>
-              </v-btn>
-            </div>
-
-          </div>
-
-          <!-- Vorbereitung und KI teilen sich einen kompakten Statusknopf. -->
-          <div class="isd-toolbar-center">
-            <v-menu location="bottom end" :max-height="560">
-              <template #activator="{ props: menuProps }">
-                <v-btn v-bind="menuProps" icon="mdi-dots-horizontal" size="x-small" variant="text" aria-label="Weitere Aktionen" :disabled="isCommitting" />
-              </template>
-              <v-list density="compact">
-                <v-list-subheader>Analyse</v-list-subheader>
-                <v-list-item title="Vorhandene Ergebnisse aktualisieren" :disabled="isScanCleanupRunning || isRetryingAnalysis" @click="refreshImportAnalyses" />
-                <v-list-item title="Metadaten neu analysieren" :disabled="isScanCleanupRunning || isRetryingAnalysis" @click="retryAnalysis(false)" />
-                <v-list-item v-if="hasMultiSelection || selected?.pageId" title="Ausgewählte Seiten analysieren" :disabled="isScanCleanupRunning || isRetryingAnalysis" @click="analyzeSelectedPages" />
-                <v-list-item title="Texterkennung wiederholen" :disabled="isScanCleanupRunning || isRetryingAnalysis" @click="retryAnalysis(true)" />
-                <v-divider />
-                <div class="isd-compact-color-actions">
-                  <v-list-subheader>Farbmodus</v-list-subheader>
-                  <v-list-item title="Originalfarbe des Scans" prepend-icon="mdi-image-outline" :active="selectedPageColorChoice === 'color'" :disabled="!hasAnySelectedPage" @click="setAnySelectedPageColorMode('color')" />
-                  <v-list-item title="Graustufen" prepend-icon="mdi-circle-half-full" :active="selectedPageColorChoice === 'grayscale'" :disabled="!hasAnySelectedPage" @click="setAnySelectedPageColorMode('grayscale')" />
-                  <v-list-item title="Automatische Scanbereinigung beibehalten" prepend-icon="mdi-palette-outline" :active="selectedPageColorChoice === 'auto'" :disabled="!hasAnySelectedPage" @click="setAnySelectedPageColorMode('auto')" />
-                  <v-divider />
-                </div>
-                <v-list-subheader>Seiten</v-list-subheader>
-                <v-list-item class="isd-compact-undo" title="Seitenänderung rückgängig machen" prepend-icon="mdi-undo" :disabled="!stagingStore.history.length || Boolean(stagingStore.pendingCommit)" @click="stagingStore.undo()" />
-                <v-list-item title="Ausgewählte Seite als neues Dokument" prepend-icon="mdi-call-split" :disabled="!selected?.pageId || Boolean(stagingStore.pendingCommit)" @click="stagingStore.splitPageToNewDocument(selected.pageId)" />
-                <v-list-item title="Seite ersetzen" prepend-icon="mdi-file-pdf-box" :disabled="!selected?.pageId || Boolean(stagingStore.pendingCommit)" @click="replacePageInput?.click()" />
-              </v-list>
-            </v-menu>
-            <div class="isd-toolbar-divider" />
-            <v-tooltip v-if="prepStatus.busy" v-model="preparationHintOpen" location="bottom" :max-width="280" open-on-focus>
-              <template #activator="{ props: tooltipProps }">
-                <v-btn
-                  v-bind="tooltipProps"
-                  icon
-                  size="x-small"
-                  variant="text"
-                  class="isd-ai-status-btn isd-ai-status-btn--busy"
-                  :aria-label="`${prepStatus.label} – Details anzeigen`"
-                  @click.stop="preparationHintOpen = true"
-                >
-                  <v-progress-circular class="isd-ai-status-ring" indeterminate size="28" width="2" color="primary" aria-hidden="true" />
-                  <v-icon size="16" color="primary" aria-hidden="true">mdi-creation</v-icon>
-                </v-btn>
-              </template>
-              <strong class="isd-ai-status-heading">{{ prepStatus.label }}</strong>
-              <span>{{ prepStatus.description }}</span>
-            </v-tooltip>
-            <v-btn
-              v-else
-              icon
-              size="x-small"
-              variant="text"
-              class="isd-ai-status-btn"
-              :class="`isd-ai-status-btn--${prepStatus.kind}`"
-              :title="aiStatusTitle"
-              :disabled="isScanCleanupRunning || isRetryingAnalysis || isUploadingSources || totalPages === 0"
-              @click="aiAnalysis.kind === 'interrupted' ? requestScanTitleSuggestion(primaryDocument.id, 'all_pages', { silent: true }) : retryAnalysis(false)"
-            >
-              <v-icon v-if="['success', 'partial'].includes(aiAnalysis.kind)" size="20">
-                mdi-auto-fix
-              </v-icon>
-              <v-icon v-else-if="aiAnalysis.kind === 'failed'" size="20" color="warning">
-                mdi-alert-circle-outline
-              </v-icon>
-              <v-icon v-else size="20">mdi-creation</v-icon>
-            </v-btn>
-            <span class="isd-status-announcement" role="status" aria-live="polite">{{ prepStatus.busy ? prepStatus.label : '' }}</span>
-          </div>
-
-
-        </div>
         <div v-if="!isEmpty" role="region" aria-label="Seitenvorschau" class="isd-preview-panel">
+          <PreviewToolbar class="isd-toolbar" label="Seitenwerkzeuge" show-zoom :zoom="previewZoomPercent"
+            :default-zoom="Math.abs(previewZoom - 1) < .001" :can-zoom-in="canPreviewZoomIn" :can-zoom-out="canPreviewZoomOut"
+            reset-label="Seite einpassen"
+            @zoom-in="zoomPreviewIn" @zoom-out="zoomPreviewOut" @zoom-reset="resetPreviewZoom">
+            <button type="button" class="isd-tool-btn isd-magnifier-btn" :class="{ 'isd-tool-btn--active': previewMagnifierEnabled }"
+              aria-label="Lupe" title="Lupe (Ausschnitt vergrößern)" :aria-pressed="previewMagnifierEnabled" :disabled="!hasSelectedPreview" @click="togglePreviewMagnifier"><v-icon size="17">mdi-magnify</v-icon></button>
+            <div class="isd-direct-tools">
+              <span class="pm-preview-toolbar__divider" aria-hidden="true" />
+              <button type="button" class="isd-tool-btn" aria-label="Nach links drehen" title="Nach links drehen" :disabled="pageToolsDisabled" @click="rotateAnySelectedPage(-90)"><v-icon size="17">mdi-rotate-left</v-icon></button>
+              <button type="button" class="isd-tool-btn" aria-label="Nach rechts drehen" title="Nach rechts drehen" :disabled="pageToolsDisabled" @click="rotateAnySelectedPage(90)"><v-icon size="17">mdi-rotate-right</v-icon></button>
+              <button type="button" class="isd-tool-btn" aria-label="Ausgewählte Seiten löschen" title="Ausgewählte Seiten löschen" :disabled="!isDeleteEnabled || isCommitting || Boolean(stagingStore.pendingCommit)" @click="deleteSelectedPages"><v-icon size="17">mdi-trash-can-outline</v-icon></button>
+            </div>
+            <div class="isd-color-group" role="group" aria-label="Farbmodus für alle Seiten">
+              <span class="pm-preview-toolbar__divider" aria-hidden="true" />
+              <button v-for="option in pageColorOptions" :key="option.value" type="button" class="isd-tool-btn"
+                :class="{ 'isd-tool-btn--active': stagingStore.allPagesColorMode === option.value }" :aria-label="option.title" :title="`${option.title} – für alle Seiten`"
+                :aria-pressed="stagingStore.allPagesColorMode === option.value" :disabled="colorToolsDisabled" @click="setImportColorMode(option.value)"><v-icon size="17">{{ option.icon }}</v-icon></button>
+            </div>
+          </PreviewToolbar>
+
           <div
-            class="isd-preview-stage"
-            :class="{ 'isd-preview-stage--empty': !hasSelectedPreview }"
+            ref="previewViewport" class="isd-preview-stage"
+            :class="{ 'isd-preview-stage--empty': !hasSelectedPreview, 'isd-preview-stage--magnify': previewMagnifierEnabled }"
+            tabindex="0" aria-label="Dokumentseite" @wheel="onPreviewWheel" @keydown="onPreviewKeydown" @scroll="hidePreviewMagnifier"
           >
-            <div v-if="aiAnalysis.kind === 'busy' && settingsStore.scanLineAnimationEnabled" class="isd-ai-scan-line" aria-hidden="true" />
-            <template v-if="hasSelectedPreview">
-              <div v-if="previewImageLoading" class="isd-preview-loading">
-                <v-progress-circular indeterminate size="26" width="3" color="primary" />
-              </div>
-              <img
-                v-if="previewImageSrc"
-                :src="previewImageSrc"
-                :style="previewFallbackStyle"
-                class="isd-preview-image"
-                :alt="selectedPreviewLabel"
-                draggable="false"
-                @pointermove="onPreviewPointerMove"
-                @pointerleave="hidePreviewMagnifier"
-              />
-              <div
-                v-if="previewMagnifier.visible"
-                class="isd-preview-magnifier"
-                :style="previewMagnifierStyle"
-                aria-hidden="true"
-              />
-              <div v-if="!previewImageSrc" class="isd-preview-empty">
+            <div class="isd-preview-canvas" :style="previewCanvasStyle">
+              <div v-if="aiAnalysis.kind === 'busy' && settingsStore.scanLineAnimationEnabled" class="isd-ai-scan-line" aria-hidden="true" />
+              <template v-if="hasSelectedPreview">
+                <div v-if="previewImageLoading" class="isd-preview-loading">
+                  <v-progress-circular indeterminate size="26" width="3" color="primary" />
+                </div>
+                <img
+                  v-if="previewImageSrc"
+                  :src="previewImageSrc"
+                  ref="previewImageElement" :style="previewImageStyle" @load="onPreviewImageLoad"
+                  class="isd-preview-image"
+                  :alt="selectedPreviewLabel"
+                  draggable="false"
+                  @pointermove="onPreviewPointerMove"
+                  @pointerleave="hidePreviewMagnifier"
+                />
+                <div
+                  v-if="previewMagnifier"
+                  class="isd-preview-magnifier"
+                  :style="previewMagnifierStyle"
+                  aria-hidden="true"
+                />
+                <div v-if="!previewImageSrc" class="isd-preview-empty">
+                  <v-icon size="40">mdi-file-document-outline</v-icon>
+                  <span>Vorschau wird vorbereitet</span>
+                </div>
+              </template>
+              <div v-else class="isd-preview-empty">
                 <v-icon size="40">mdi-file-document-outline</v-icon>
-                <span>Vorschau wird vorbereitet</span>
+                <span>Keine Seite ausgewählt</span>
               </div>
-            </template>
-            <div v-else class="isd-preview-empty">
-              <v-icon size="40">mdi-file-document-outline</v-icon>
-              <span>Keine Seite ausgewählt</span>
             </div>
           </div>
         </div>
@@ -597,7 +453,30 @@
            sobald mindestens eine Seite hinzugefügt wurde. -->
       <Transition name="isd-props-reveal">
       <div v-if="!isEmpty" class="isd-props">
-        <div class="isd-props-heading"><h3>Dokumentdetails</h3><p>Nur Notizen sind optional.</p></div>
+        <div class="isd-props-heading">
+          <div class="isd-props-title">
+            <h3>Dokumentdetails</h3>
+            <p :class="{ 'isd-analysis-progress': prepStatus.busy }" role="status" aria-live="polite">{{ analysisHeaderStatus }}</p>
+          </div>
+          <v-tooltip v-model="preparationHintOpen" location="bottom end" :max-width="280"
+            :open-on-hover="!analysisTouchInput" :open-on-focus="!analysisTouchInput">
+            <template #activator="{ props: tooltipProps }">
+              <v-btn v-bind="tooltipProps" icon size="36" variant="text" class="isd-ai-status-btn"
+                :class="`isd-ai-status-btn--${prepStatus.kind}`"
+                :aria-label="prepStatus.busy ? `${prepStatus.label} – Details anzeigen` : analysisActionLabel"
+                :aria-busy="prepStatus.busy"
+                :disabled="!prepStatus.busy && (isCommitting || Boolean(stagingStore.pendingCommit) || totalPages === 0)"
+                @click.stop="onImportAnalysisClick">
+                <v-progress-circular v-if="prepStatus.busy" class="isd-ai-status-ring" indeterminate size="30" width="2" color="primary" aria-hidden="true" />
+                <v-icon v-if="prepStatus.busy" size="16" color="primary" aria-hidden="true">mdi-creation</v-icon>
+                <v-icon v-else-if="aiAnalysis.kind === 'failed'" size="20" aria-hidden="true">mdi-alert-circle-outline</v-icon>
+                <v-icon v-else size="20" aria-hidden="true">mdi-creation</v-icon>
+              </v-btn>
+            </template>
+            <strong class="isd-ai-status-heading">{{ prepStatus.busy ? prepStatus.label : analysisActionLabel }}</strong>
+            <span>{{ prepStatus.busy ? prepStatus.description : aiStatusTitle }}</span>
+          </v-tooltip>
+        </div>
         <div class="isd-props-scroll">
 
         <RetentionStatusBar v-if="isRetentionEnabled" :model-value="docRetention" :document-date-iso="docDateIso || ''"
@@ -634,52 +513,14 @@
             </div>
           </template>
         </DocumentMetadataFields>
-        <details v-if="Object.keys(importForm.previousValues).length" class="isd-review-hint">
-          <summary>Automatische Änderungen zurücksetzen</summary>
-          <button v-for="(_, field) in importForm.previousValues" :key="field" type="button" @click="undoImportField(field)">{{ ({ title: 'Dokumentname', date: 'Datum', category: 'Dokumenttyp', correspondent: 'Korrespondent', tags: 'Tags', note: 'Notiz', retention: 'Aufbewahrung' })[field] }}</button>
-        </details>
-        <div v-if="primaryDocument?.meta?.titleSuggestionMeta?.scope_limited" class="isd-review-hint" role="status">
-          {{ primaryDocument.meta.titleSuggestionMeta.pages_analyzed }} von {{ primaryDocument.meta.titleSuggestionMeta.pages_total }} Seiten analysiert. Für weitere Seiten eine Auswahl erstellen.
         </div>
-        <div v-if="primaryDocument?.meta?.titleSuggestionMeta?.analysis_selection" class="isd-review-hint">Die Erkennung basiert auf der ausdrücklich ausgewählten Seitenauswahl.</div>
-        <div v-if="primaryDocument?.meta?.titleSuggestionMeta?.review_fields?.includes('date')" class="isd-review-hint">Das erkannte Datum ist ungewöhnlich. Bitte prüfen.</div>
-        <details v-if="primaryDocument?.meta?.titleSuggestionMeta?.date_candidates?.length > 1" class="isd-review-hint">
-          <summary>Datumsangaben im Dokument prüfen</summary>
-          <p v-for="(candidate, index) in primaryDocument.meta.titleSuggestionMeta.date_candidates" :key="index">
-            {{ candidate.label || 'Datum ohne eindeutige Zuordnung' }}: {{ isoToGermanDate(candidate.value) }}
-            <button type="button" @click="docDate = isoToGermanDate(candidate.value); docDateTouched = true; docDateAiFilled = false">Als Dokumentdatum verwenden</button>
-          </p>
-        </details>
-        <div v-for="(proposal, field) in fieldProposals" :key="field" class="isd-review-hint">
-          {{ ({ category: 'Dokumenttyp', correspondent: 'Absender', date: 'Datum', note: 'Notiz', tags: 'Tags', retention: 'Aufbewahrung' })[field] || field }}: {{ proposalText(field, proposal) }}
-          <button type="button" @click="acceptImportProposal(field)">Übernehmen</button>
-          <button type="button" @click="dismissImportProposal(field)">Verwerfen</button>
-        </div>
-        <details v-if="primaryDocument?.meta?.titleSuggestionMeta?.evidence" class="isd-review-hint">
-          <summary>Fundstellen der Erkennung</summary>
-          <p v-for="(evidence, field) in primaryDocument.meta.titleSuggestionMeta.evidence" :key="field">{{ ({ title: 'Dokumentname', correspondent: 'Absender', date: 'Datum' })[field] || field }}: {{ evidence.text }}</p>
-        </details>
-
-       </div>
-
-
-
       </div>
       </Transition>
     </div>
 
     <template #footer>
       <div class="isd-footer">
-        <div class="isd-footer-start">
-          <span v-if="footerValidationHint" class="isd-review-hint" role="status">{{ footerValidationHint }}</span>
-          <v-btn
-            variant="text"
-            :disabled="isUploadingSources || isCommitting"
-            @click="requestCloseImport"
-          >
-            Abbrechen
-          </v-btn>
-        </div>
+        <span v-if="footerValidationHint" class="isd-footer-hint isd-review-hint" role="status">{{ footerValidationHint }}</span>
         <div class="isd-footer-end">
           <span v-if="isCommitting" class="isd-footer-status">
             Verarbeitung läuft…
@@ -734,7 +575,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { PDF_WORKER_SRC } from '../utils/pdfWorker.js';
@@ -743,6 +584,8 @@ import BaseDialog from './BaseDialog.vue';
 import DestructiveDialog from './DestructiveDialog.vue';
 import RetentionStatusBar from './RetentionStatusBar.vue';
 import DocumentMetadataFields from './DocumentMetadataFields.vue';
+import PreviewToolbar from './PreviewToolbar.vue';
+import { usePageImagePreview } from '../composables/usePageImagePreview.js';
 import TagInlineEditor from './TagInlineEditor.vue';
 import { useImportDocumentForm } from '../composables/useImportDocumentForm.js';
 import { useScannerPreviewTransition } from '../composables/useScannerPreviewTransition.js';
@@ -886,21 +729,8 @@ const previewImageSrc = ref('');
 const previewImageLoading = ref(false);
 const previewIsThumbnail = ref(false);
 const discardImportConfirmOpen = ref(false);
-const PREVIEW_MAGNIFIER_WIDTH = 220;
-const PREVIEW_MAGNIFIER_HEIGHT = 132;
-const PREVIEW_MAGNIFIER_ZOOM = 2.25;
-const previewMagnifier = ref({
-  visible: false,
-  x: 0,
-  y: 0,
-  bgX: 0,
-  bgY: 0,
-  bgWidth: 0,
-  bgHeight: 0
-});
 const stageTagPool = ref([]);
 const fileInput = ref(null);
-const replacePageInput = ref(null);
 const peekPanelRef = ref(null);
 const peekAnchorEl = ref(null);
 const bodyScrollRef = ref(null);
@@ -956,14 +786,10 @@ const fieldErrors = computed(() => {
   return Object.fromEntries(Object.entries(result).filter(([key]) => validationAttempted.value || importForm.value.touched[key === 'title' ? 'title' : key]));
 });
 const metadataSources = computed(() => Object.fromEntries(Object.entries(importForm.value.aiFilled)
-  .filter(([, value]) => value).map(([key, value]) => [({ title: 'name', correspondent: 'correspondent', category: 'category' })[key] || key, typeof value === 'string' ? value : 'Automatisch erkannt'])));
-const fieldProposals = computed(() => Object.fromEntries(Object.entries(importForm.value.proposals).filter(([field]) => field !== 'title')));
-function proposalText(field, proposal) {
-  if (field === 'correspondent') return correspondentStore.findById(proposal.value)?.name || proposal.value;
-  if (field === 'tags') return (proposal.value || []).join(', ');
-  if (field === 'retention') return proposal.value?.period_years === -1 ? 'Unbegrenzt' : proposal.value?.period_years ? `${proposal.value.period_years} Jahre` : 'Aufbewahrung prüfen';
-  return String(proposal.value || '');
-}
+  .filter(([, value]) => value).map(([key, value]) => [
+    ({ title: 'name', correspondent: 'correspondent', category: 'category' })[key] || key,
+    value,
+  ])));
 const retentionExpanded = ref(false);
 const isRetentionEnabled = computed(() => settingsStore.settings?.retention?.enabled !== false);
 const aiFieldGlowActive = ref(false);
@@ -1317,8 +1143,6 @@ function getStageTitleMetaText(documentEntry) {
     const parts = [];
     if (canShowScanSuggestion(documentEntry)) {
       parts.push(`${getScanSuggestionPrefix(documentEntry)}: ${suggestion}`);
-    } else {
-      parts.push('Automatisch erkannt');
     }
     if (details) {
       parts.push(details);
@@ -1348,33 +1172,18 @@ const selectedPageEntry = computed(() => {
   return documentEntry.pages.find((page) => page.id === selected.value?.pageId) || null;
 });
 const hasSelectedPreview = computed(() => Boolean(selectedPageEntry.value));
-const selectedPreviewLabel = computed(() => {
-  const index = allPagesFlat.value.findIndex(({ page }) => page.id === selected.value?.pageId);
-  return index >= 0 ? `Seite ${index + 1} von ${totalPages.value}` : 'Seitenvorschau';
-});
-const previewFallbackStyle = computed(() => {
-  if (!previewIsThumbnail.value || !selectedPageEntry.value) return undefined;
-  const page = selectedPageEntry.value;
-  const quarterTurn = [90, 270].includes(((Number(page.rotation || 0) % 360) + 360) % 360);
-  return {
-    transform: page.rotation ? `rotate(${page.rotation}deg)` : undefined,
-    width: quarterTurn ? '100cqh' : undefined,
-    height: quarterTurn ? '100cqw' : undefined,
-    maxWidth: quarterTurn ? 'none' : undefined,
-    maxHeight: quarterTurn ? 'none' : undefined,
-    filter: page.colorMode === 'grayscale' ? 'grayscale(1)'
-      : page.colorMode === 'bw' ? 'grayscale(1) contrast(4)' : undefined,
-  };
-});
-const previewMagnifierStyle = computed(() => ({
-  width: `${PREVIEW_MAGNIFIER_WIDTH}px`,
-  height: `${PREVIEW_MAGNIFIER_HEIGHT}px`,
-  transform: `translate(${Math.round(previewMagnifier.value.x - PREVIEW_MAGNIFIER_WIDTH / 2)}px, ${Math.round(previewMagnifier.value.y - PREVIEW_MAGNIFIER_HEIGHT / 2)}px)`,
-  backgroundImage: `url("${previewImageSrc.value}")`,
-  backgroundSize: `${Math.round(previewMagnifier.value.bgWidth)}px ${Math.round(previewMagnifier.value.bgHeight)}px`,
-  backgroundPosition: `${Math.round(previewMagnifier.value.bgX)}px ${Math.round(previewMagnifier.value.bgY)}px`
-}));
-const MODAL_WORK_WIDTH_SPLIT = 1360;
+const selectedPreviewNumber = computed(() => allPagesFlat.value.findIndex(({ page }) => page.id === selected.value?.pageId) + 1);
+const selectedPreviewLabel = computed(() => selectedPreviewNumber.value ? `Seite ${selectedPreviewNumber.value} von ${totalPages.value}` : 'Seitenvorschau');
+const {
+  viewport: previewViewport, image: previewImageElement,
+  zoom: previewZoom, zoomPercent: previewZoomPercent, canZoomIn: canPreviewZoomIn, canZoomOut: canPreviewZoomOut,
+  canvasStyle: previewCanvasStyle, imageStyle: previewImageStyle, onImageLoad: onPreviewImageLoad,
+  resetZoom: resetPreviewZoom, zoomIn: zoomPreviewIn, zoomOut: zoomPreviewOut, onWheel: onPreviewWheel, onKeydown: onPreviewKeydown,
+  magnifierEnabled: previewMagnifierEnabled, magnifier: previewMagnifier, magnifierStyle: previewMagnifierStyle,
+  hideMagnifier: hidePreviewMagnifier, toggleMagnifier: togglePreviewMagnifier, onPointerMove: onPreviewPointerMove,
+} = usePageImagePreview({ source: previewImageSrc, pageId: () => selectedPageEntry.value?.id,
+  thumbnail: previewIsThumbnail, rotation: () => selectedPageEntry.value?.rotation, colorMode: () => selectedPageEntry.value?.colorMode });
+const MODAL_WORK_WIDTH_SPLIT = 1200;
 const peekStyle = computed(() => ({
   left: `${Math.round(peek.value.x)}px`,
   top: `${Math.round(peek.value.y)}px`
@@ -1426,13 +1235,19 @@ function isNewTagName(name) {
   return !findStageTagIdByName(String(name || ''));
 }
 const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
-// Die vier Farb-Buttons spiegeln die AUSWAHL des Nutzers (roher colorMode) –
-// genau ein Wert, also immer nur ein Button aktiv. 'auto' = „Scanbereinigung
-// folgen"; ein bw-bereinigter Scan zeigt damit „Automatisch" (nicht „Farbe"),
-// die dedizierte Automatisch-Option ersetzt die frühere Ersatz-Anzeige.
-const selectedPageColorChoice = computed(() => String(selectedPageEntry.value?.colorMode || 'auto'));
-function pageColorModeLabel(mode) {
-  return ({ color: 'Original', grayscale: 'Graustufen', auto: 'Automatisch', bw: 'S/W' })[String(mode || '')] || 'Farbe';
+// Der Farbmodus gilt für den gesamten Import, unabhängig von der Seitenauswahl.
+const pageToolsDisabled = computed(() => !hasSelectedPreview.value || isCommitting.value || Boolean(stagingStore.pendingCommit));
+const colorToolsDisabled = computed(() => totalPages.value === 0 || isCommitting.value || Boolean(stagingStore.pendingCommit));
+const pageColorOptions = [
+  { value: 'color', title: 'Originalfarbe des Scans', icon: 'mdi-image-outline' },
+  { value: 'grayscale', title: 'Graustufen', icon: 'mdi-circle-half-full' },
+  { value: 'auto', title: 'Automatische Scanbereinigung beibehalten', icon: 'mdi-palette-outline' },
+];
+function pageColorFilter(mode) {
+  return mode === 'grayscale' ? 'grayscale(1)' : mode === 'bw' ? 'grayscale(1) contrast(4)' : undefined;
+}
+function pageThumbnailImageStyle(page) {
+  return { transform: page.rotation ? `rotate(${page.rotation}deg)` : undefined, filter: pageColorFilter(page.colorMode) };
 }
 function autoCropForPage(page) {
   const sourceFileId = String(page?.sourceFileId || '').trim();
@@ -1517,53 +1332,6 @@ function selectDocumentForEditing(documentId) {
   clearMultiSelection();
   const firstPage = allPagesFlat.value.find(({ doc }) => doc.id === documentId);
   if (firstPage) selectPage(documentId, firstPage.page.id, firstPage.globalIndex);
-}
-
-function hidePreviewMagnifier() {
-  if (previewMagnifier.value.visible) {
-    previewMagnifier.value = {
-      ...previewMagnifier.value,
-      visible: false
-    };
-  }
-}
-
-function onPreviewPointerMove(event) {
-  if (!previewImageSrc.value || previewIsThumbnail.value || event.pointerType === 'touch') {
-    hidePreviewMagnifier();
-    return;
-  }
-  const imageEl = event.currentTarget;
-  const stageEl = imageEl?.parentElement;
-  if (!(imageEl instanceof HTMLImageElement) || !(stageEl instanceof HTMLElement) || !imageEl.complete || !imageEl.naturalWidth) {
-    hidePreviewMagnifier();
-    return;
-  }
-  const imageRect = imageEl.getBoundingClientRect();
-  const stageRect = stageEl.getBoundingClientRect();
-  const scale = Math.min(imageRect.width / imageEl.naturalWidth, imageRect.height / imageEl.naturalHeight);
-  const renderedWidth = imageEl.naturalWidth * scale;
-  const renderedHeight = imageEl.naturalHeight * scale;
-  const imageX = event.clientX - imageRect.left - (imageRect.width - renderedWidth) / 2;
-  const imageY = event.clientY - imageRect.top - (imageRect.height - renderedHeight) / 2;
-  if (imageX < 0 || imageX > renderedWidth || imageY < 0 || imageY > renderedHeight) {
-    hidePreviewMagnifier();
-    return;
-  }
-  const stageX = event.clientX - stageRect.left + stageEl.scrollLeft;
-  const stageY = event.clientY - stageRect.top + stageEl.scrollTop;
-  const zoomedWidth = renderedWidth * PREVIEW_MAGNIFIER_ZOOM;
-  const zoomedHeight = renderedHeight * PREVIEW_MAGNIFIER_ZOOM;
-
-  previewMagnifier.value = {
-    visible: true,
-    x: stageX,
-    y: stageY,
-    bgX: PREVIEW_MAGNIFIER_WIDTH / 2 - imageX * PREVIEW_MAGNIFIER_ZOOM,
-    bgY: PREVIEW_MAGNIFIER_HEIGHT / 2 - imageY * PREVIEW_MAGNIFIER_ZOOM,
-    bgWidth: zoomedWidth,
-    bgHeight: zoomedHeight
-  };
 }
 
 async function deleteSelectedPages() {
@@ -1768,7 +1536,7 @@ const aiAnalysis = computed(() => {
   return { kind: 'idle', fields: [] };
 });
 
-// Vereint Seitenverbesserung und KI-Analyse zu einer einzigen Toolbar-Anzeige.
+// Vereint Seitenverbesserung und KI-Analyse im Formularheader.
 // Priorität: erst wird der Scan bereinigt, dann analysiert die KI – nie beides
 // als getrennter Spinner.
 const prepStatus = computed(() => {
@@ -1798,8 +1566,27 @@ const prepStatus = computed(() => {
   return { busy: false, label: '', kind: aiAnalysis.value.kind };
 });
 const preparationHintOpen = ref(false);
-watch(() => [prepStatus.value.busy, props.modelValue], ([busy, open]) => {
-  if (!busy || !open) preparationHintOpen.value = false;
+watch(() => [prepStatus.value.busy, props.modelValue, primaryDocument.value?.id], ([busy, open, id], previous) => {
+  if (!busy || !open || id !== previous?.[2]) preparationHintOpen.value = false;
+});
+const analysisTouchInput = ref(false);
+let analysisInputMedia;
+function updateAnalysisTouchInput() { analysisTouchInput.value = Boolean(analysisInputMedia?.matches); }
+function onAnalysisHintKeydown(event) {
+  if (event.key !== 'Escape' || !preparationHintOpen.value || !props.modelValue) return;
+  preparationHintOpen.value = false;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+onMounted(() => {
+  analysisInputMedia = window.matchMedia('(hover: none), (pointer: coarse)');
+  updateAnalysisTouchInput();
+  analysisInputMedia.addEventListener('change', updateAnalysisTouchInput);
+  window.addEventListener('keydown', onAnalysisHintKeydown, true);
+});
+onBeforeUnmount(() => {
+  analysisInputMedia?.removeEventListener('change', updateAnalysisTouchInput);
+  window.removeEventListener('keydown', onAnalysisHintKeydown, true);
 });
 const pendingMetadataFields = computed(() => {
   if (!prepStatus.value.busy) return {};
@@ -1816,7 +1603,7 @@ const aiStatusTitle = computed(() => {
     return 'Der aktuelle Status ist nicht verfügbar — Klicken, um vorhandene Ergebnisse erneut abzufragen';
   }
   if (kind === 'success') {
-    return `Automatisch erkannt: ${aiAnalysis.value.fields.join(', ')} — Klicken, um die Analyse erneut zu starten`;
+    return `Ergänzte Angaben: ${aiAnalysis.value.fields.join(', ')} — Klicken, um die Analyse erneut zu starten`;
   }
   if (kind === 'partial') {
     if (aiAnalysis.value.fields.length) return `Teilweise erkannt: ${aiAnalysis.value.fields.join(', ')} — Klicken, um die Analyse erneut zu starten`;
@@ -1828,8 +1615,21 @@ const aiStatusTitle = computed(() => {
   if (kind === 'failed') {
     return 'Keine automatische Erkennung — Klicken, um die Analyse erneut zu starten';
   }
-  return 'Felder werden automatisch erkannt';
+  return 'Die KI erkennt Dokumentname, Datum, Dokumenttyp, Korrespondent, Tags und Notizen.';
 });
+const analysisActionLabel = computed(() => ({ failed: 'Analyse wiederholen', interrupted: 'Analysestatus aktualisieren' })[aiAnalysis.value.kind] || 'Angaben automatisch ausfüllen');
+const analysisHeaderStatus = computed(() => prepStatus.value.busy ? prepStatus.value.label
+  : ({ failed: 'Erkennung fehlgeschlagen', interrupted: 'Status nicht verfügbar' })[aiAnalysis.value.kind] || 'Nur Notizen sind optional.');
+
+async function onImportAnalysisClick() {
+  if (prepStatus.value.busy) { preparationHintOpen.value = true; return; }
+  if (isCommitting.value || stagingStore.pendingCommit || totalPages.value === 0) return;
+  if (aiAnalysis.value.kind === 'interrupted') {
+    await requestScanTitleSuggestion(primaryDocument.value.id, 'all_pages', { silent: true });
+  } else {
+    await retryAnalysis(false);
+  }
+}
 
 function hasAiFilledImportFields() {
   return Boolean(
@@ -3422,61 +3222,6 @@ function saveImportRetention(value) {
   docRetention.value = { ...value, status: 'manual', retain_until: computeRetainUntilIso(value.period_years) };
   docRetentionTouched.value = true;
 }
-function undoImportField(field) {
-  const value = importForm.value.previousValues[field];
-  if (field === 'title') stagingStore.setDocumentTitleDraft(primaryDocument.value.id, value);
-  else if (field === 'tags') onTagNamesChange(value || []);
-  else importForm.value[({ correspondent: 'correspondentId' })[field] || field] = value;
-  importForm.value.touched[field] = true;
-  importForm.value.revisions[field] = (importForm.value.revisions[field] || 0) + 1;
-  importForm.value.aiFilled[field] = false;
-  delete importForm.value.previousValues[field];
-}
-function acceptImportProposal(field) {
-  const proposal = importForm.value.proposals[field];
-  if (!proposal) return;
-  if (field === 'category' && !categoryStore.categoryNames.includes(proposal.value)) {
-    notify({ type: 'info', message: 'Bitte einen vorhandenen Dokumenttyp wählen oder den Typ in den Einstellungen anlegen.' }); return;
-  }
-  if (field === 'correspondent') {
-    const existing = correspondentStore.findByName(proposal.value) || correspondentStore.findById(proposal.value);
-    if (!existing) { notify({ type: 'info', message: 'Bitte den Absender einem vorhandenen Korrespondenten zuordnen oder ihn in den Einstellungen anlegen.' }); return; }
-    docCorrespondentId.value = existing.id;
-  } else if (field === 'tags') onTagNamesChange(proposal.value);
-  else importForm.value[({ date: 'date', category: 'category', note: 'note', retention: 'retention' })[field]] = proposal.value;
-  importForm.value.touched[field] = true;
-  importForm.value.revisions[field] = (importForm.value.revisions[field] || 0) + 1;
-  delete importForm.value.proposals[field];
-}
-
-function dismissImportProposal(field) {
-  importForm.value.dismissed[field] = importForm.value.proposals[field]?.value;
-  delete importForm.value.proposals[field];
-}
-
-// Startet den kompletten KI-Analyse-Prozess für alle Staging-Dokumente erneut.
-// Bereits laufende Analysen werden nicht doppelt gestartet (Dedupe in
-// requestScanTitleSuggestion); abgeschlossene/fehlgeschlagene werden neu angestoßen.
-async function refreshImportAnalyses() {
-  for (const sourceFileId of stagingStore.collectUsedSourceFileIds()) {
-    try {
-      const analysis = await apiFetch(`/api/import/source/${encodeURIComponent(sourceFileId)}/analysis`);
-      await applySourceAnalysisToExistingStages(sourceFileId, analysis);
-    } catch (error) { notify({ type: 'warning', message: mapApiError(error, 'Ergebnisse konnten nicht aktualisiert werden.') }); }
-  }
-}
-
-async function analyzeSelectedPages() {
-  if (isRetryingAnalysis.value) return;
-  isRetryingAnalysis.value = true;
-  const pageIds = hasMultiSelection.value ? new Set(multiSelectedPageIds.value) : new Set([selected.value?.pageId].filter(Boolean));
-  try {
-    for (const doc of documents.value) {
-      if (doc.pages.some(page => pageIds.has(page.id))) await requestScanTitleSuggestion(doc.id, 'all_pages', { force: true, silent: true, analysisPageIds: pageIds });
-    }
-  } finally { isRetryingAnalysis.value = false; }
-}
-
 async function retryAnalysis(repeatOcr = false) {
   if (isRetryingAnalysis.value) {
     return;
@@ -3515,7 +3260,6 @@ async function retryAnalysis(repeatOcr = false) {
 function applyScanSuggestion(stageId) {
   const documentEntry = getDocumentById(stageId);
   if (!documentEntry || !canOfferTitle(documentEntry)) return;
-  stagingStore.checkpoint();
   stagingStore.renameDocument(stageId, documentEntry.meta.titleSuggestion);
   const form = ensureImportForm(documentEntry);
   form.touched.title = true;
@@ -3569,32 +3313,6 @@ function fileListToCandidates(files, source = 'file') {
         ? normalizeRelativePath(file?.webkitRelativePath)
         : ''
   }));
-}
-
-async function replaceSelectedPageFromFile(event) {
-  const file = event.target.files?.[0];
-  event.target.value = '';
-  const pageId = selected.value?.pageId;
-  if (!file || !pageId || isCommitting.value) return;
-  isUploadingSources.value = true;
-  try {
-    const sources = await uploadSources([file]);
-    const source = sources[0];
-    if (!source) return;
-    if (source.page_count !== 1) {
-      await apiFetch(`/api/import/source/${encodeURIComponent(source.source_file_id)}`, { method: 'DELETE' });
-      notify({ type: 'warning', message: 'Zum Ersetzen einer Seite bitte ein PDF mit genau einer Seite auswählen.' });
-      return;
-    }
-    const current = stagingStore.findPageLocation(pageId)?.page;
-    if (!current) return;
-    const thumbs = await renderPdfThumbnails(file, 1);
-    stagingStore.checkpoint();
-    stagingStore.setStagingFile(source.source_file_id, file, { pageCount: 1, sourceRevision: source.source_revision, originalName: file.name });
-    Object.assign(current, { sourceFileId: source.source_file_id, pageIndex: 0, rotation: 0, colorMode: 'auto', thumbUrl: thumbs[0] || '', previewError: false });
-    previewImageCache.clear();
-  } catch (error) { notify({ type: 'error', message: mapApiError(error, 'Die Seite konnte nicht ersetzt werden. Die bisherige Seite bleibt erhalten.') }); }
-  finally { isUploadingSources.value = false; }
 }
 
 async function onFileInputChange(event) {
@@ -3866,9 +3584,9 @@ function rotateAnySelectedPage(delta) {
   rotateSelectedPage(selected.value.stageId, delta);
 }
 
-function setAnySelectedPageColorMode(colorMode) {
-  if (!selected.value?.pageId) return;
-  stagingStore.setPageColorMode(selected.value.pageId, colorMode);
+function setImportColorMode(colorMode) {
+  if (colorToolsDisabled.value) return;
+  stagingStore.setAllPagesColorMode(colorMode);
 }
 
 function addPrimaryDocTagById(tagId) {
@@ -4058,7 +3776,6 @@ async function removeSelectedPage(documentId) {
 }
 
 function deleteDocument(documentId) {
-  stagingStore.checkpoint();
   stagingStore.deleteDocument(documentId);
 }
 
@@ -5397,11 +5114,11 @@ onBeforeUnmount(() => {
   height: min(820px, 90vh) !important;
   min-height: min(820px, 90vh) !important;
   max-height: min(820px, 90vh) !important;
-  /* Volle Arbeitsbreite (Split). Im Leerzustand kleiner (siehe --empty).
+  /* Arbeitsbreite für Seitenliste, Vorschau und Formular. Im Leerzustand kleiner.
      Die Breitenänderung wird animiert, wenn die erste Seite hinzukommt. */
-  width: 1360px;
+  width: 1200px;
   max-width: 100%;
-  /* Der Overlay-Container (.v-overlay__content) ist ein 1360px-Flexbox mit
+  /* Der Overlay-Container (.v-overlay__content) verwendet die Arbeitsbreite mit
      justify:flex-start; das schmale Leer-Fenster bliebe sonst linksbündig.
      auto-Ränder zentrieren die Karte und halten sie beim Aufziehen mittig. */
   margin-inline: auto;
@@ -5512,8 +5229,8 @@ onBeforeUnmount(() => {
   position: relative;
   display: grid;
   grid-template-columns: var(--isd-rail-width) minmax(0, 1fr);
-  grid-template-rows: var(--isd-bar-height) minmax(0, 1fr) auto;
-  grid-template-areas: 'pages-header tools' 'pages preview' 'error error';
+  grid-template-rows: minmax(0, 1fr) var(--isd-bar-height) auto;
+  grid-template-areas: 'pages preview' 'pages-footer preview' 'error error';
   min-height: 0;
   overflow: hidden;
   border-right: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
@@ -5521,19 +5238,22 @@ onBeforeUnmount(() => {
 
 .isd-card--empty .isd-left { display: flex; flex-direction: column; border-right: 0; }
 
-.isd-pages-header {
-  grid-area: pages-header;
+.isd-pages-footer {
+  grid-area: pages-footer;
+  opacity: .78;
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   padding: 0 12px;
-  border-bottom: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
+  border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
   border-right: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
 }
-.isd-pages-header strong { font-size: 12px; font-weight: 650; }
-.isd-pages-header .isd-toolbar-select-btn { margin-left: auto; }
-.isd-pages-header .isd-page-count { padding: 2px 6px; }
+.isd-pages-footer:hover, .isd-pages-footer:focus-within,
+.isd-pages-footer:has(.isd-toolbar-select-btn--active) { opacity: 1; }
+.isd-pages-footer strong { font-size: 12px; font-weight: 650; }
+.isd-pages-footer .isd-toolbar-select-btn { margin-left: auto; }
+.isd-pages-footer .isd-page-count { padding: 2px 6px; }
 
 .isd-grid-scroll {
   grid-area: pages;
@@ -6599,107 +6319,25 @@ button.isd-dropzone__action--supplemental:focus-visible {
   }
 }
 
-.isd-toolbar {
-  grid-area: tools;
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 4px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
-  box-sizing: border-box;
-  height: var(--isd-bar-height, 49px);
-  background: rgb(var(--v-theme-surface));
-  container: isd-toolbar / inline-size;
+.isd-toolbar { --pdf-toolbar-group-gap: 6px; row-gap: 6px; }
+.isd-direct-tools, .isd-color-group { display: flex; align-items: center; flex: 0 0 auto; gap: 4px; }
+.isd-tool-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 28px; height: 26px;
+  border: 0; border-radius: 8px; padding: 0; background: transparent; color: var(--pdf-toolbar-icon); cursor: pointer;
 }
-.isd-preview-title {
-  min-width: 0;
-  flex: 1 1 auto;
-  margin-right: 8px;
-  color: rgba(var(--v-theme-on-surface), .6);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.isd-toolbar-left, .isd-toolbar-center {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 4px;
-}
-.isd-toolbar-center { margin-left: auto; min-width: 64px; }
-
-.isd-toolbar-divider {
-  width: 1px;
-  height: 18px;
-  background: rgba(var(--v-theme-on-surface), 0.14);
-  margin: 0 10px;
-  flex-shrink: 0;
-}
-
-.isd-toolbar-btn {
-  text-transform: none;
-  letter-spacing: normal;
-  font-size: 13px;
-}
-
-.isd-toolbar-left :deep(.v-icon) {
-  color: rgba(var(--v-theme-on-surface), 0.72);
-}
-
-.isd-toolbar-select-btn--active {
-  box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.22);
-}
-
-.isd-rotate-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.isd-color-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
+.isd-tool-btn:hover:not(:disabled) { background: var(--pdf-toolbar-hover-bg); color: var(--pdf-toolbar-text); }
+.isd-tool-btn--active { background: rgba(var(--v-theme-primary), .12); color: rgb(var(--v-theme-primary)); }
+.isd-tool-btn:disabled { opacity: .3; cursor: default; }
+.isd-tool-btn:focus-visible { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: 1px; }
+.isd-toolbar-select-btn--active { box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), .22); }
 
 .isd-page-card {
   position: relative;
 }
 
-.isd-page-mode-badge {
-  position: absolute;
-  right: 6px;
-  bottom: 25px;
-  z-index: 2;
-  padding: 2px 5px;
-  border-radius: 4px;
-  background: rgba(24, 24, 27, 0.78);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: 0.02em;
-}
-
-/* Aktiver Farbmodus deutlich hervorheben: getönte Fläche + Akzent-Icon.
-   Ohne dies überschreibt die generische .isd-toolbar-left .v-icon-Regel
-   (on-surface 0.72) die primary-Färbung, sodass die aktive Aktion
-   optisch nicht von den inaktiven zu unterscheiden war. */
-.isd-color-btn--active:not(.v-btn--disabled) {
-  background: rgba(var(--v-theme-primary), 0.16) !important;
-}
-
-.isd-color-btn--active:not(.v-btn--disabled) :deep(.v-icon) {
-  color: rgb(var(--v-theme-primary)) !important;
-}
-
-
 .isd-ai-status-btn {
   flex-shrink: 0;
+  color: rgba(var(--v-theme-on-surface), .72);
 }
 
 .isd-ai-status-btn--failed {
@@ -6717,17 +6355,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
   margin-bottom: 4px;
 }
 
-.isd-status-announcement {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 .isd-page-count {
   font-size: 11px;
   font-weight: 500;
@@ -6739,13 +6366,11 @@ button.isd-dropzone__action--supplemental:focus-visible {
   flex-shrink: 0;
 }
 
-/* Die KI bleibt direkt erreichbar; Farboptionen stehen bei wenig Platz im Mehr-Menü. */
-@container isd-toolbar (max-width: 560px) {
-  .isd-toolbar-divider, .isd-preview-title, .isd-color-group { display: none; }
-  .isd-toolbar-left, .isd-toolbar-center, .isd-rotate-group { gap: 0; }
-}
-@container isd-toolbar (max-width: 260px) {
-  .isd-toolbar-undo { display: none; }
+/* Werkzeuggruppen umbrechen bei wenig Platz; alle Aktionen bleiben direkt erreichbar. */
+@container isd-preview (max-width: 360px) {
+  .isd-direct-tools > .pm-preview-toolbar__divider, .isd-color-group > .pm-preview-toolbar__divider,
+  .isd-toolbar :deep(.pm-preview-toolbar__zoom-divider) { display: none; }
+  .isd-toolbar { --pdf-toolbar-divider-margin: 2px; padding-inline: 4px; max-width: calc(100% - 16px); }
 }
 
 /* Rechts bleiben die Formulare unabhängig von der Seitenliste scrollbar. */
@@ -6845,18 +6470,26 @@ button.isd-dropzone__action--supplemental:focus-visible {
 }
 
 .isd-props-heading {
+  position: sticky;
+  top: 0;
+  z-index: 40;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  flex: 0 0 var(--isd-bar-height);
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
+  min-height: var(--isd-bar-height);
   margin: 0;
-  padding: 0 20px;
+  padding: 6px 20px;
+  background: rgb(var(--v-theme-surface));
   border-bottom: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
   font-size: 12px;
   font-weight: 650;
 }
+.isd-props-title { min-width: 0; }
 .isd-props-heading h3 { margin: 0; font-size: inherit; font-weight: inherit; }
 .isd-props-heading p { margin: 2px 0 0; color: var(--pm-muted, #687076); font-size: 11px; font-weight: 400; }
+.isd-props-heading .isd-analysis-progress { color: rgb(var(--v-theme-primary)); }
 
 .isd-props-scroll {
   flex: 1 1 auto;
@@ -6870,6 +6503,8 @@ button.isd-dropzone__action--supplemental:focus-visible {
 }
 
 .isd-preview-panel {
+  position: relative;
+  container: isd-preview / inline-size;
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
@@ -6877,7 +6512,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
   grid-area: preview;
   min-width: 0;
   overflow: hidden;
-  padding: 20px;
+  padding: 12px 8px;
   background: rgba(var(--v-theme-on-surface), .035);
 }
 
@@ -6885,15 +6520,13 @@ button.isd-dropzone__action--supplemental:focus-visible {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
+  overflow: auto;
   padding: 0;
-  container-type: size;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
-.isd-preview-stage:has(.isd-preview-image:hover) {
+.isd-preview-stage--magnify:has(.isd-preview-image:hover) {
   cursor: crosshair;
 }
 
@@ -6901,13 +6534,18 @@ button.isd-dropzone__action--supplemental:focus-visible {
   background: rgba(var(--v-theme-on-surface), 0.04);
 }
 
+.isd-preview-canvas {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .isd-preview-image {
   display: block;
   flex: 0 0 auto;
-  width: 100%;
-  height: 100%;
-  max-width: 100%;
-  max-height: 100%;
   object-fit: contain;
   filter: drop-shadow(0 4px 12px rgba(15, 23, 42, .12));
 }
@@ -7192,6 +6830,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-left: auto;
 }
 
 .isd-footer-status {
@@ -7356,7 +6995,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
 .isd-suggestion-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-height:34px; }
 .isd-suggestion-dismiss { font-size:12px; color:var(--pm-muted,#687076); }
 .isd-card .isd-props { container-type:inline-size; }
-.isd-review-hint button { margin-left:8px; text-decoration:underline; }
 @media (max-width:1100px) and (min-width:961px) {
   .isd-card .isd-left { --isd-rail-width: 128px; }
   .isd-card .isd-props { flex-basis: 330px; }
@@ -7371,15 +7009,14 @@ button.isd-dropzone__action--supplemental:focus-visible {
 @media (max-width:600px) {
   .isd-card:not(.isd-card--empty) .isd-left { --isd-rail-width:88px; flex-basis:clamp(260px, 40vh, 340px); }
   .isd-card .isd-grid-scroll { padding:12px; }
-  .isd-card .isd-pages-header { justify-content:center; gap:4px; padding:0 6px; }
-  .isd-card .isd-pages-header strong { display:none; }
-  .isd-card .isd-pages-header .isd-toolbar-select-btn { margin-left:0; }
-  .isd-card .isd-toolbar { padding-inline:8px; gap:0; }
-  .isd-card .isd-preview-panel { padding:12px; }
+  .isd-card .isd-pages-footer { justify-content:center; gap:4px; padding:0 6px; }
+  .isd-card .isd-pages-footer strong { display:none; }
+  .isd-card .isd-pages-footer .isd-toolbar-select-btn { margin-left:0; }
+  .isd-card .isd-preview-panel { padding:10px 6px; }
   .isd-card .isd-props-scroll { padding:12px 16px; }
   .isd-card .isd-footer { flex-wrap:wrap; gap:4px; }
   .isd-card .isd-footer-end { margin-left:auto; min-width:0; flex-wrap:wrap; }
-  .isd-card .isd-footer-start { min-width:0; }
+  .isd-card .isd-footer-hint { min-width:0; }
 }
 @media (max-width:400px) {
   .isd-card:not(.isd-card--empty) .isd-left { --isd-rail-width:76px; }

@@ -49,10 +49,12 @@
       :class="{ 'pdf-preview__viewer--ready': firstPageReady }"
     >
       <!-- Toolbar: Seite + Zoom + Treffer -->
-      <div
+      <PreviewToolbar
         class="pdf-preview__toolbar"
         :class="{ 'pdf-preview__toolbar--search-open': searchOpen }"
-        aria-label="PDF-Steuerung"
+        label="PDF-Steuerung" :expanded="searchOpen" show-zoom
+        :zoom="zoomPercent" :default-zoom="isDefaultZoom" :can-zoom-in="canZoomIn" :can-zoom-out="canZoomOut"
+        @zoom-in="zoomIn" @zoom-out="zoomOut" @zoom-reset="resetZoom"
       >
         <div class="pdf-preview__left-controls">
           <button
@@ -231,34 +233,7 @@
           </div>
         </Transition>
 
-        <div class="pdf-preview__zoom-controls" role="group" aria-label="Zoom">
-          <div class="pdf-preview__zoom-stepper">
-            <button
-              class="pdf-preview__zoom-seg"
-              :disabled="!canZoomOut"
-              aria-label="Verkleinern"
-              @click="zoomOut"
-            >
-              <v-icon size="16">mdi-minus</v-icon>
-            </button>
-            <button
-              class="pdf-preview__zoom-value"
-              :class="{ 'pdf-preview__zoom-value--default': isDefaultZoom }"
-              :aria-label="`Zoom ${zoomPercent} Prozent – auf 100 % zurücksetzen`"
-              title="Auf 100 % zurücksetzen"
-              @click="resetZoom"
-            >{{ zoomPercent }}%</button>
-            <button
-              class="pdf-preview__zoom-seg"
-              :disabled="!canZoomIn"
-              aria-label="Vergrößern"
-              @click="zoomIn"
-            >
-              <v-icon size="16">mdi-plus</v-icon>
-            </button>
-          </div>
-        </div>
-      </div>
+      </PreviewToolbar>
 
       <!-- Seiten-Container (scrollbar) -->
       <div
@@ -374,6 +349,7 @@ import 'pdfjs-dist/web/pdf_viewer.css';
 import Konva from 'konva';
 import { useTheme } from 'vuetify';
 import PmEmptyState from './PmEmptyState.vue';
+import PreviewToolbar from './PreviewToolbar.vue';
 import { PDF_WORKER_SRC } from '../utils/pdfWorker.js';
 
 GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
@@ -2941,51 +2917,10 @@ onBeforeUnmount(() => {
 }
 
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
-.pdf-preview__toolbar {
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  right: auto;
-  transform: translateX(-50%);
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: auto;
-  min-width: 0;
-  max-width: calc(100% - 24px);
-  min-height: 34px;
-  gap: var(--pdf-toolbar-group-gap);
-  padding: 4px 8px;
-  border: 1px solid var(--pdf-toolbar-border);
-  border-radius: 999px;
-  background: var(--pdf-toolbar-bg);
-  box-shadow: var(--pdf-toolbar-shadow);
-  backdrop-filter: blur(12px) saturate(1.08);
-  -webkit-backdrop-filter: blur(12px) saturate(1.08);
-  box-sizing: border-box;
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    opacity 160ms ease,
-    background 160ms ease,
-    border-color 160ms ease,
-    box-shadow 160ms ease;
-}
-
-.pdf-preview__viewer:has(.pdf-preview__page:hover) .pdf-preview__toolbar,
-.pdf-preview__toolbar:hover,
-.pdf-preview__toolbar:focus-within,
-.pdf-preview__toolbar--search-open {
-  opacity: 1;
-  pointer-events: auto;
-}
-
 /* Suchmodus: die übrigen Steuergruppen sanft ausblenden und einklappen, damit
    das Eingabefeld Platz bekommt und die Leiste kaum breiter wird. */
 .pdf-preview__left-controls,
-.pdf-preview__rotate-controls,
-.pdf-preview__zoom-controls {
+.pdf-preview__rotate-controls {
   max-width: 420px;
   transition:
     max-width 220ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -2997,8 +2932,7 @@ onBeforeUnmount(() => {
 }
 
 .pdf-preview__toolbar--search-open .pdf-preview__left-controls,
-.pdf-preview__toolbar--search-open .pdf-preview__rotate-controls,
-.pdf-preview__toolbar--search-open .pdf-preview__zoom-controls {
+.pdf-preview__toolbar--search-open .pdf-preview__rotate-controls {
   max-width: 0;
   padding: 0;
   opacity: 0;
@@ -3008,8 +2942,7 @@ onBeforeUnmount(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .pdf-preview__left-controls,
-  .pdf-preview__rotate-controls,
-  .pdf-preview__zoom-controls {
+  .pdf-preview__rotate-controls {
     transition: none;
   }
 }
@@ -3219,75 +3152,6 @@ onBeforeUnmount(() => {
 .pdf-preview__rotate-btn:disabled {
   opacity: 0.4;
   cursor: default;
-}
-
-.pdf-preview__zoom-controls {
-  position: static;
-  display: flex;
-  align-items: center;
-  gap: var(--pdf-toolbar-group-gap);
-}
-
-/* Zoom: zusammenhängendes, weiches Pill-Steuerelement (−  100 %  +). */
-.pdf-preview__zoom-stepper {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  padding: 1px;
-  border-radius: 999px;
-  background: var(--pdf-toolbar-stepper-bg);
-}
-
-.pdf-preview__zoom-seg {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 26px;
-  padding: 0;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--pdf-toolbar-icon);
-  cursor: pointer;
-  transition: background 140ms ease, color 140ms ease, transform 120ms ease, opacity 140ms ease;
-}
-
-.pdf-preview__zoom-seg:hover:not(:disabled) {
-  background: var(--pdf-toolbar-hover-bg);
-  color: var(--pdf-toolbar-text);
-}
-
-.pdf-preview__zoom-seg:active:not(:disabled) {
-  transform: scale(0.9);
-}
-
-.pdf-preview__zoom-seg:disabled {
-  opacity: 0.28;
-  cursor: default;
-}
-
-.pdf-preview__zoom-value {
-  min-width: 2.7rem;
-  height: 26px;
-  padding: 0 2px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--pdf-toolbar-text);
-  font-size: 0.78rem;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  transition: background 140ms ease, color 140ms ease;
-}
-
-.pdf-preview__zoom-value:hover {
-  background: var(--pdf-toolbar-hover-bg);
-  color: var(--pdf-toolbar-text);
-}
-
-.pdf-preview__zoom-value--default {
-  color: var(--pdf-toolbar-text-muted);
 }
 
 /* ── Lupe-Toggle ─────────────────────────────────────────────────────────── */

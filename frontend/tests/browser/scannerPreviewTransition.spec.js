@@ -149,10 +149,14 @@ test('a failed thumbnail keeps the captured scan until retry succeeds', async ({
   await expect(page.locator('.isd-scan-flight')).toHaveCount(0);
   await expect(page.locator('.isd-scan-thumbnail-fallback')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Vorschau erneut laden' })).toBeVisible();
+  await page.locator('.isd-preview-panel').hover();
+  await page.getByRole('button', { name: 'Graustufen', exact: true }).click();
+  await expect(page.locator('.isd-scan-thumbnail-fallback')).toHaveCSS('filter', 'grayscale(1)');
   await page.route('**/api/test-thumbnail-retry', route => route.fulfill({ contentType: 'image/svg+xml', body: scanImage }));
   await page.evaluate(() => { window.importFixture.store.documents[0].pages[0].thumbUrl = '/api/test-thumbnail-retry'; });
   await expect(page.locator('.isd-scan-thumbnail-fallback')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Vorschau erneut laden' })).toHaveCount(0);
+  await expect(page.locator('.import-staging-page__thumb')).toHaveCSS('filter', 'grayscale(1)');
   expect(errors).toEqual([]);
 });
 

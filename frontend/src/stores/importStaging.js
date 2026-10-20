@@ -115,7 +115,7 @@ function normalizeColorMode(value) {
   return PAGE_COLOR_MODES.includes(value) ? value : DEFAULT_PAGE_COLOR_MODE;
 }
 
-function buildPagesForSource(docId, sourceFileId, pageCount, thumbUrls = []) {
+function buildPagesForSource(docId, sourceFileId, pageCount, thumbUrls = [], colorMode = DEFAULT_PAGE_COLOR_MODE) {
   const normalizedPageCount = Math.max(0, Number(pageCount || 0));
   return Array.from({ length: normalizedPageCount }, (_, pageIndex) => ({
     id: makeId('staging-page'),
@@ -123,7 +123,7 @@ function buildPagesForSource(docId, sourceFileId, pageCount, thumbUrls = []) {
     sourceFileId,
     pageIndex,
     rotation: 0,
-    colorMode: DEFAULT_PAGE_COLOR_MODE,
+    colorMode: normalizeColorMode(colorMode),
     thumbUrl: String(thumbUrls[pageIndex] || ''),
     deleted: false
   }));
@@ -137,12 +137,15 @@ export const useImportStagingStore = defineStore('importStaging', {
     stagingFiles: new Map(),
     sourceMetaById: new Map(),
     pendingCommit: null,
-    history: [],
   }),
 
   getters: {
     documentCount: (state) => state.documents.length,
     totalPages: (state) => state.documents.reduce((sum, doc) => sum + doc.pages.length, 0),
+    allPagesColorMode: (state) => {
+      const modes = new Set(state.documents.flatMap(doc => doc.pages.map(page => normalizeColorMode(page.colorMode))));
+      return modes.size === 1 ? modes.values().next().value : null;
+    },
     emptyDocuments: (state) => state.documents.filter((doc) => doc.pages.length === 0),
     hasEmptyDocuments() {
       return this.emptyDocuments.length > 0;
@@ -162,19 +165,10 @@ export const useImportStagingStore = defineStore('importStaging', {
   },
 
   actions: {
-    checkpoint() {
-      this.history.push(JSON.parse(JSON.stringify(this.documents)));
-      if (this.history.length > 10) this.history.shift();
-    },
-    undo() {
-      if (!this.history.length || this.pendingCommit) return;
-      this.documents = this.history.pop();
-    },
     completePages(pageIds) {
       const completed = new Set(pageIds);
       for (const doc of this.documents) doc.pages = doc.pages.filter(page => !completed.has(page.id));
       this.documents = this.documents.filter(doc => doc.pages.length);
-      this.history = [];
     },
     collectUsedSourceFileIds() {
       const ids = new Set();
@@ -187,10 +181,6 @@ export const useImportStagingStore = defineStore('importStaging', {
         }
       }
       return ids;
-    },
-
-    cleanupUnusedSources() {
-      // Sources remain available for undo until commit or explicit discard.
     },
 
     pruneDocumentIfEmpty(documentId) {
@@ -219,7 +209,6 @@ export const useImportStagingStore = defineStore('importStaging', {
       this.stagingFiles = new Map();
       this.sourceMetaById = new Map();
       this.pendingCommit = null;
-      this.history = [];
     },
 
     setStagingFile(sourceFileId, file, meta = {}) {
@@ -272,7 +261,7 @@ export const useImportStagingStore = defineStore('importStaging', {
     addDocumentFromSource({ sourceFileId, title, pageCount, thumbUrls = [], insertIndex = null, tags = [] }) {
       this.ensureBatch();
       // docId leer: createDocument weist den korrekten Wert beim Anlegen zu.
-      const pages = buildPagesForSource('', sourceFileId, pageCount, thumbUrls);
+      const pages = buildPagesForSource('', sourceFileId, pageCount, thumbUrls, this.allPagesColorMode);
 
       const created = createDocument({
         title,
@@ -296,7 +285,7 @@ export const useImportStagingStore = defineStore('importStaging', {
       if (!document) {
         return;
       }
-      const pages = buildPagesForSource(document.id, sourceFileId, pageCount, thumbUrls);
+      const pages = buildPagesForSource(document.id, sourceFileId, pageCount, thumbUrls, this.allPagesColorMode);
       if (pages.length === 0) {
         return;
       }
@@ -328,10 +317,6 @@ export const useImportStagingStore = defineStore('importStaging', {
         return;
       }
       this.documents.splice(docIndex, 1);
-      if (this.documents.length === 0) {
-        return;
-      }
-      this.cleanupUnusedSources();
     },
 
     renameDocument(documentId, nextTitle) {
@@ -412,19 +397,16 @@ export const useImportStagingStore = defineStore('importStaging', {
       if (!location) {
         return;
       }
-      this.checkpoint();
       const delta = direction === 'left' ? -90 : 90;
       const nextRotation = (location.page.rotation + delta + 360) % 360;
       location.page.rotation = normalizeRotation(nextRotation);
     },
 
-    setPageColorMode(pageId, colorMode) {
-      const location = this.findPageLocation(pageId);
-      if (!location) {
-        return;
+    setAllPagesColorMode(colorMode) {
+      const mode = normalizeColorMode(colorMode);
+      for (const document of this.documents) {
+        for (const page of document.pages) page.colorMode = mode;
       }
-      this.checkpoint();
-      location.page.colorMode = normalizeColorMode(colorMode);
     },
 
     removePage(pageId) {
@@ -432,11 +414,9 @@ export const useImportStagingStore = defineStore('importStaging', {
       if (!location) {
         return;
       }
-      this.checkpoint();
       const sourceDocId = this.documents[location.docIndex].id;
       this.documents[location.docIndex].pages.splice(location.pageIndex, 1);
       this.pruneDocumentIfEmpty(sourceDocId);
-      this.cleanupUnusedSources();
     },
 
     remapSourcePagesAfterRemoval(sourceFileId, removedPageIndices = [], nextPageCount = null) {
@@ -509,7 +489,6 @@ export const useImportStagingStore = defineStore('importStaging', {
         this.reset();
         return;
       }
-      this.cleanupUnusedSources();
     },
 
     movePage(pageId, targetDocId, targetPageIndex = null) {
@@ -522,8 +501,6 @@ export const useImportStagingStore = defineStore('importStaging', {
       if (targetDocIndex < 0) {
         return;
       }
-      this.checkpoint();
-
       const [page] = this.documents[source.docIndex].pages.splice(source.pageIndex, 1);
       if (!page) {
         return;
@@ -552,7 +529,6 @@ export const useImportStagingStore = defineStore('importStaging', {
       if (!source) {
         return null;
       }
-      this.checkpoint();
       const sourceDocId = this.documents[source.docIndex]?.id || null;
       const [page] = this.documents[source.docIndex].pages.splice(source.pageIndex, 1);
       if (!page) {

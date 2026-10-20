@@ -158,7 +158,8 @@ test('note cards and the document detail drawer share the same inline tag editor
   assert.match(documentsWorkspaceSource, /<TagInlineEditor[\s\S]*?ref="metadataTagsCombobox"/);
   assert.match(inlineTagEditorSource, /<v-chip[\s\S]*?closable[\s\S]*?class="pm-tags-input__chip"/);
   assert.match(inlineTagEditorSource, /<v-combobox[\s\S]*?multiple[\s\S]*?hide-selected[\s\S]*?no-filter/);
-  assert.match(inlineTagEditorSource, /class="pm-tags-input__add"[\s\S]*?mdi-plus[\s\S]*?>Tag</);
+  assert.match(inlineTagEditorSource, /class="pm-tags-input__add"[\s\S]*?mdi-plus[\s\S]*?class="pm-tags-input__add-label">\{\{ addLabel \}\}</);
+  assert.match(inlineTagEditorSource, /addLabel:\s*\{\s*type:\s*String,\s*default:\s*'Tag'\s*\}/);
   assert.match(inlineTagEditorSource, /\.pm-tags-input__chips\s*\{[\s\S]*?display:\s*contents;/);
   assert.match(inlineTagEditorSource, /\.pm-tags-input__field\.v-input--focused[\s\S]*?width:\s*104px;/);
   assert.match(inlineTagEditorSource, /\.pm-tags-input__field\.v-input\s*\{[\s\S]*?max-width:\s*min\(180px, 100%\)/);

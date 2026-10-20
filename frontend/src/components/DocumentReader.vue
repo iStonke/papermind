@@ -959,23 +959,6 @@ onBeforeUnmount(() => {
   background: transparent;
 }
 
-.doc-reader__main :deep(.pdf-preview__toolbar) {
-  top: 12px;
-  left: 50%;
-  right: auto;
-  transform: translateX(-50%);
-  width: auto;
-  min-width: 0;
-  min-height: 34px;
-  justify-content: center;
-  gap: var(--pdf-toolbar-group-gap);
-  padding: 4px 8px;
-  border: 1px solid var(--pdf-toolbar-border);
-  border-radius: 999px;
-  background: var(--pdf-toolbar-bg);
-  box-shadow: var(--pdf-toolbar-shadow);
-}
-
 .doc-reader__main :deep(.pdf-preview__left-controls),
 .doc-reader__main :deep(.pdf-preview__zoom-controls) {
   position: static;

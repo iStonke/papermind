@@ -20,6 +20,14 @@ async function mount(page, options = {}) {
   return requests;
 }
 
+async function revealImportTools(page) {
+  await page.locator('.isd-preview-panel').hover();
+  await expect(page.getByRole('toolbar', { name: 'Seitenwerkzeuge' })).toHaveCSS('opacity', '1');
+}
+async function startImportAnalysis(page) {
+  await page.locator('.isd-props-heading .isd-ai-status-btn').click();
+}
+
 async function completeRequiredMetadata(page) {
   await page.evaluate(() => {
     const { store, correspondents } = window.importFixture;
@@ -86,12 +94,11 @@ for (const failure of ['analysis-result', 'http-error']) test(`internal OCR diag
   await page.route('**/suggest-title', route => route.fulfill(failure === 'analysis-result'
     ? { json: { status: 'error', suggestion: '', meta: { analysis_status: 'ocr_failed', analysis_error: diagnostic, ocr: { errors: [diagnostic] } } } }
     : { status: 400, json: { error: { message: diagnostic } } }));
-  await page.getByRole('button', { name: 'Weitere Aktionen' }).click();
-  await page.getByText('Metadaten neu analysieren', { exact: true }).click();
+  await startImportAnalysis(page);
   await expect(page.locator('.isd-ai-status-btn--failed')).toBeVisible();
   await expect(page.locator('body')).not.toContainText('source=');
   await expect(page.locator('body')).not.toContainText('psm=');
-  await expect(page.getByTitle('Keine automatische Erkennung — Klicken, um die Analyse erneut zu starten')).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Analyse wiederholen', exact: true })).toBeEnabled();
   await expect(page.getByLabel('Dokumentname', { exact: true })).toHaveValue('Arbeitsstätte');
 });
 
@@ -121,12 +128,11 @@ test('early fields appear before slow lookups and late replies preserve manual i
       date: '2026-03-16', document_type: 'Brief', sender_raw: 'Sportverein', correspondent: { id: 'sport', name: 'Sportverein' }, note: 'Deine Mitgliedschaft endet am 30. Juni 2026.', tags: ['Sportverein', 'Mitgliedschaft'] } }
     : { status: 'ready', suggestion: 'Kündigung', meta: { analysis_job_id: 'progress', analysis_sequence: 2, analysis_phase: 'rule', progress_phase: 'llm', analysis_pending: true,
       date: '2026-03-16', document_type: 'Brief', tags: ['Sportverein'] } } }));
-  await page.getByRole('button', { name: 'Weitere Aktionen' }).click();
-  await page.getByText('Metadaten neu analysieren', { exact: true }).click();
+  await startImportAnalysis(page);
   await expect(page.getByLabel('Dokumentdatum', { exact: true })).toHaveAttribute('placeholder', 'Wird ermittelt…');
   await expect(page.getByLabel('Dokumentname', { exact: true })).toHaveValue('Kündigung');
   await expect(page.getByLabel('Dokumentdatum', { exact: true })).toHaveValue('16.03.2026');
-  await expect(page.locator('[data-field="date"] .pm-metadata-source')).toHaveText('Automatisch erkannt');
+  await expect(page.locator('[data-field="date"] .pm-metadata-ai-chip')).toBeVisible();
   await expect(page.locator('.isd-ai-status-btn--busy')).toBeVisible();
   await page.screenshot({ path: '/private/tmp/papermind-progressive-import-early.png' });
   await expect.poll(() => lookups.length).toBeGreaterThan(0);
@@ -154,8 +160,7 @@ test('a lost request keeps observing the server job without a false failure or d
   await page.route(url => url.pathname.includes('/stages/') && url.pathname.endsWith('/analysis'), route => route.fulfill({ json: finished
     ? { status: 'ready', suggestion: 'Erkannter Brief', meta: { analysis_phase: 'llm', analysis_pending: false, date: '2026-10-15' } }
     : { status: 'pending_ocr', suggestion: '', meta: { analysis_pending: true, progress_phase: 'ocr' } } }));
-  await page.getByRole('button', { name: 'Weitere Aktionen' }).click();
-  await page.getByText('Metadaten neu analysieren', { exact: true }).click();
+  await startImportAnalysis(page);
   await expect(page.getByRole('button', { name: 'Text wird erkannt – Details anzeigen', exact: true })).toBeVisible();
   await expect(page.locator('.isd-ai-status-btn--failed')).toHaveCount(0);
   finished = true;
@@ -172,8 +177,7 @@ test('a failed refinement retains early fields and leaves missing fields editabl
   await page.route(url => url.pathname.includes('/stages/') && url.pathname.endsWith('/analysis'), route => route.fulfill({ json: finished
     ? { status: 'error', suggestion: '', meta: { analysis_job_id: 'partial', analysis_sequence: 3, analysis_pending: false } }
     : { status: 'ready', suggestion: 'Erkannter Brief', meta: { analysis_job_id: 'partial', analysis_sequence: 2, analysis_phase: 'rule', analysis_pending: true, date: '2026-10-15' } } }));
-  await page.getByRole('button', { name: 'Weitere Aktionen' }).click();
-  await page.getByText('Metadaten neu analysieren', { exact: true }).click();
+  await startImportAnalysis(page);
   await expect(page.getByLabel('Dokumentdatum', { exact: true })).toHaveValue('15.10.2026');
   finished = true;
   await expect(page.locator('.isd-ai-status-btn--partial')).toBeVisible();
@@ -212,8 +216,7 @@ test('the 90-second browser timeout leaves an active server analysis running', a
   await page.route(url => url.pathname.includes('/stages/') && url.pathname.endsWith('/analysis'), route => route.fulfill({ json: finished
     ? { status: 'ready', suggestion: 'Später erkannter Brief', meta: { analysis_pending: false, analysis_phase: 'llm', date: '2026-10-15' } }
     : { status: 'pending_ocr', suggestion: '', meta: { analysis_pending: true, progress_phase: 'llm' } } }));
-  await page.getByRole('button', { name: 'Weitere Aktionen' }).click();
-  await page.getByText('Metadaten neu analysieren', { exact: true }).click();
+  await startImportAnalysis(page);
   await expect(page.getByRole('button', { name: 'KI analysiert Dokument – Details anzeigen', exact: true })).toBeVisible();
   await page.clock.fastForward(91000);
   await expect(page.locator('.isd-ai-status-btn--busy')).toBeVisible();
@@ -236,7 +239,7 @@ test('checking an interrupted analysis reuses the job instead of forcing new wor
   });
   await page.getByLabel('Dokumentname', { exact: true }).fill('Eigener Dokumentname');
   await page.evaluate(() => { window.importFixture.store.documents[0].meta.titleSuggestionStatus = 'interrupted'; });
-  await page.getByTitle('Der aktuelle Status ist nicht verfügbar — Klicken, um vorhandene Ergebnisse erneut abzufragen').click();
+  await page.getByRole('button', { name: 'Analysestatus aktualisieren', exact: true }).click();
   await expect.poll(() => body?.force).toBe(false);
   expect(body.repeatOcr).toBe(false);
   await expect(page.getByLabel('Dokumentname', { exact: true })).toHaveValue('Eigener Dokumentname');
@@ -301,7 +304,7 @@ test('scanner session can be cancelled from the scan preview', async ({ page }) 
 
 for (const width of [1440, 430]) test.describe(`preparation status at ${width}px`, () => {
   test.use({ viewport: { width, height: 1000 }, hasTouch: width === 430 });
-  test('stays at the AI button and opens accessibly', async ({ page }) => {
+  test('stays in the form header and opens accessibly', async ({ page }) => {
     await mount(page);
     await page.evaluate(() => {
       const fixture = window.importFixture;
@@ -309,13 +312,17 @@ for (const width of [1440, 430]) test.describe(`preparation status at ${width}px
     });
     const statusButton = page.getByRole('button', { name: 'Scan wird verbessert – Details anzeigen', exact: true });
     await expect(statusButton).toBeVisible();
+    await page.mouse.move(0, 0);
+    if (width === 1440) await expect(page.getByRole('toolbar', { name: 'Seitenwerkzeuge' })).toHaveCSS('opacity', '0');
+    await expect(page.locator('.isd-props-heading [role="status"]')).toHaveText('Scan wird verbessert');
     await expect(page.locator('.isd-footer')).not.toContainText('Die Scan-Seiten werden noch verbessert.');
     await expect(page.getByRole('button', { name: 'Importieren', exact: true })).toBeDisabled();
     const fits = await statusButton.evaluate(button => {
       const rect = button.getBoundingClientRect();
-      const toolbar = button.closest('.isd-toolbar').getBoundingClientRect();
-      const center = button.closest('.isd-toolbar-center').getBoundingClientRect();
-      return rect.width <= 36 && rect.left >= Math.max(toolbar.left, center.left) && rect.right <= Math.min(toolbar.right, center.right);
+      const header = button.closest('.isd-props-heading');
+      const bounds = header.getBoundingClientRect();
+      const title = header.querySelector('.isd-props-title').getBoundingClientRect();
+      return rect.width <= 36 && rect.left >= title.right + 8 && rect.right <= bounds.right - 16;
     });
     expect(fits).toBe(true);
     if (width === 1440) await statusButton.focus();
@@ -332,47 +339,46 @@ for (const width of [1440, 430]) test.describe(`preparation status at ${width}px
       for (const meta of fixture.store.sourceMetaById.values()) meta.scanCleanup = { status: 'ready' };
     });
     await expect(page.getByRole('button', { name: 'KI analysiert Dokument – Details anzeigen', exact: true })).toBeVisible();
+    await expect(page.locator('.isd-props-heading [role="status"]')).toHaveText('KI analysiert Dokument');
     await expect(page.getByRole('tooltip')).toContainText('Verfügbare Angaben erscheinen nach und nach.');
     if (width === 1440) await page.keyboard.press('Escape');
     else await page.getByLabel('Dokumentname', { exact: true }).tap();
     await expect(page.getByRole('tooltip').locator('.v-overlay__content')).not.toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(1);
     await page.evaluate(() => { window.importFixture.store.documents[0].meta.titleSuggestionStatus = 'ready'; });
     await expect(page.locator('.isd-ai-status-btn--busy')).toHaveCount(0);
-    await expect(page.getByRole('tooltip')).not.toBeVisible();
+    await expect(page.getByRole('tooltip')).not.toHaveClass(/v-overlay--active/);
+    await expect(page.getByRole('tooltip').locator('.v-overlay__content')).not.toBeVisible();
     await expect(page.getByRole('button', { name: 'Importieren', exact: true })).toBeEnabled();
   });
-});
 
-test('secondary page actions stay available in the compact toolbar menu', async ({ page }) => {
-  await page.setViewportSize({ width: 430, height: 900 });
-  await mount(page);
-  await page.locator('.isd-page-card').nth(1).click();
-  await page.getByRole('button', { name: 'Weitere Aktionen' }).click();
-  const [chooser] = await Promise.all([
-    page.waitForEvent('filechooser'),
-    page.getByText('Seite ersetzen', { exact: true }).click(),
-  ]);
-  expect(chooser.isMultiple()).toBe(false);
-  await chooser.setFiles([]);
-  await expect(page.getByText('Seite ersetzen', { exact: true })).not.toBeVisible();
-  await page.getByRole('button', { name: 'Weitere Aktionen' }).click();
-  await page.getByText('Ausgewählte Seite als neues Dokument', { exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.importFixture.store.documents.map(doc => doc.pages.length))).toEqual([2, 1]);
-});
-
-test('a targeted analysis sends only the explicitly selected page', async ({ page }) => {
-  await mount(page);
-  let request;
-  await page.route('**/suggest-title', async route => {
-    request = route.request().postDataJSON();
-    return route.fulfill({ json: { status: 'ready', suggestion: '', meta: {} } });
+  test('keeps the AI action visible while scrolling the form', async ({ page }) => {
+    await page.setViewportSize({ width, height: 720 });
+    await mount(page);
+    await page.evaluate(() => {
+      const doc = window.importFixture.store.documents[0];
+      doc.meta.titleSuggestionStatus = 'working';
+      doc.meta.analysisPhase = 'ocr';
+    });
+    const status = page.locator('.isd-props-heading [role="status"]');
+    await expect(status).toHaveText('Text wird erkannt');
+    await page.getByLabel('Notizen', { exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByLabel('Notizen', { exact: true })).toBeInViewport();
+    const button = page.getByRole('button', { name: 'Text wird erkannt – Details anzeigen', exact: true });
+    await expect(button).toBeInViewport();
+    await expect.poll(() => page.evaluate(() => {
+      const heading = document.querySelector('.isd-props-heading').getBoundingClientRect();
+      const body = document.querySelector('.isd-body').getBoundingClientRect();
+      return Math.abs(heading.top - body.top);
+    })).toBeLessThan(2);
+    await page.evaluate(() => { window.importFixture.store.documents[0].meta.analysisPhase = 'llm'; });
+    await expect(status).toHaveText('KI analysiert Dokument');
+    const updatedButton = page.getByRole('button', { name: 'KI analysiert Dokument – Details anzeigen', exact: true });
+    if (width === 1440) await updatedButton.focus();
+    else await updatedButton.tap();
+    await expect(page.getByRole('tooltip')).toContainText('Du kannst die Formularfelder bereits bearbeiten.');
+    await page.screenshot({ path: `/private/tmp/papermind-import-analysis-header-scroll-${width}.png` });
   });
-  await page.locator('.isd-page-card').nth(2).click();
-  await page.getByRole('button', { name: 'Weitere Aktionen' }).click();
-  await page.getByText('Ausgewählte Seiten analysieren', { exact: true }).click();
-  await expect.poll(() => request?.pages?.length).toBe(1);
-  expect(request.pages[0].page_index).toBe(2);
-  expect(request.force).toBe(true);
 });
 
 test('partial success removes only acknowledged documents and retries only the failure', async ({ page }) => {
@@ -402,8 +408,7 @@ test('a late analysis cannot overwrite typing or a deliberately cleared type', a
   await page.route('**/suggest-title', async route => {
     response = route;
   });
-  await page.getByRole('button', { name: 'Weitere Aktionen' }).click();
-  await page.getByText('Metadaten neu analysieren', { exact: true }).click();
+  await startImportAnalysis(page);
   await expect.poll(() => Boolean(response)).toBe(true);
   await page.getByLabel('Dokumentname', { exact: true }).fill('Mein eigener Titel');
   await page.evaluate(() => {
@@ -421,8 +426,7 @@ test('changed page order rejects a response for the old document revision', asyn
   await mount(page);
   let first;
   await page.route('**/suggest-title', route => { first ||= route; });
-  await page.getByRole('button', { name: 'Weitere Aktionen' }).click();
-  await page.getByText('Metadaten neu analysieren', { exact: true }).click();
+  await startImportAnalysis(page);
   await expect.poll(() => Boolean(first)).toBe(true);
   await page.evaluate(() => { window.importFixture.store.documents[0].pages.reverse(); });
   const revision = first.request().postDataJSON().documentRevision;
@@ -468,12 +472,116 @@ test('the page list stays vertical beside a persistent preview and its tools at 
       const pages = [...document.querySelectorAll('.isd-page-card')].map(page => page.getBoundingClientRect());
       const tools = [...document.querySelectorAll('.isd-toolbar button')].filter(button => button.checkVisibility()).map(button => button.getBoundingClientRect());
       return { vertical: pages.every((page, index) => Math.abs(page.left - pages[0].left) < 1 && (!index || page.top >= pages[index - 1].bottom)),
-        previewBeside: preview.left >= rail.right - 1, toolbarAbove: toolbar.bottom <= preview.top + 1,
+        previewBeside: preview.left >= rail.right - 1, toolbarOverlay: toolbar.left >= preview.left - 1 && toolbar.right <= preview.right + 1 && toolbar.top >= preview.top && toolbar.bottom <= preview.bottom,
         toolsFit: tools.every(tool => tool.left >= toolbar.left && tool.right <= toolbar.right),
         noHorizontalOverflow: document.querySelector('.isd-body').scrollWidth <= document.querySelector('.isd-body').clientWidth };
     });
-    expect(layout, `${width}px`).toEqual({ vertical: true, previewBeside: true, toolbarAbove: true, toolsFit: true, noHorizontalOverflow: true });
+    expect(layout, `${width}px`).toEqual({ vertical: true, previewBeside: true, toolbarOverlay: true, toolsFit: true, noHorizontalOverflow: true });
   }
+});
+
+test('floating import tools reveal on hover and keyboard focus', async ({ page }) => {
+  await mount(page);
+  const toolbar = page.getByRole('toolbar', { name: 'Seitenwerkzeuge' });
+  await page.mouse.move(0, 0);
+  await expect(toolbar).toHaveCSS('opacity', '0');
+  await revealImportTools(page);
+  await page.mouse.move(0, 0);
+  await expect(toolbar).toHaveCSS('opacity', '0');
+  await page.locator('.isd-preview-stage').focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(toolbar).toHaveCSS('opacity', '1');
+  expect(await toolbar.evaluate(element => element.contains(document.activeElement))).toBe(true);
+  await page.mouse.move(0, 0);
+  await expect(toolbar).toHaveCSS('opacity', '1');
+  await page.getByLabel('Dokumentname', { exact: true }).focus();
+  await expect(toolbar).toHaveCSS('opacity', '0');
+});
+
+test('color adjustments cover all import pages, later scans and the exported documents', async ({ page }) => {
+  const requests = await mount(page, { documents: 2, pages: 2 });
+  await page.getByTitle('Seiten auswählen', { exact: true }).click();
+  await page.locator('.isd-page-card').nth(2).click();
+  await revealImportTools(page);
+  const colors = page.getByRole('group', { name: 'Farbmodus für alle Seiten', exact: true });
+  for (const [label, mode] of [['Graustufen', 'grayscale'], ['Originalfarbe des Scans', 'color'], ['Automatische Scanbereinigung beibehalten', 'auto'], ['Graustufen', 'grayscale']]) {
+    await colors.getByRole('button', { name: label, exact: true }).click();
+    await expect.poll(() => page.evaluate(() => window.importFixture.store.documents.flatMap(doc => doc.pages.map(page => page.colorMode)))).toEqual(Array(4).fill(mode));
+    await expect(colors.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-pressed', 'true');
+  }
+  await expect(page.locator('.isd-page-card').filter({ hasText: 'Graustufen' })).toHaveCount(0);
+  expect(await page.locator('.import-staging-page__thumb').evaluateAll(images => images.every(image => image.style.filter === 'grayscale(1)'))).toBe(true);
+  await page.route('**/api/global-color-live-preview', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="280"><rect width="200" height="280" fill="#137c80"/></svg>' }));
+  await page.evaluate(() => {
+    const fixture = window.importFixture;
+    fixture.scannerActive.value = true;
+    fixture.scanner.value = { ...fixture.scanner.value, scan_progress: 50, live_preview_url: '/api/global-color-live-preview' };
+  });
+  await expect(page.locator('.isd-scanning-page-preview')).toBeVisible();
+  await expect(page.locator('.isd-scanning-page-preview')).toHaveCSS('filter', 'grayscale(1)');
+  await page.evaluate(() => {
+    const fixture = window.importFixture;
+    fixture.scannerActive.value = false;
+    fixture.scanner.value = { ...fixture.scanner.value, scan_progress: null, live_preview_url: null };
+  });
+  await page.getByTitle('Auswahl beenden', { exact: true }).click();
+  await page.evaluate(() => {
+    const { store } = window.importFixture;
+    const sourceFileId = '10000000-0000-4000-8000-000000000099';
+    store.setStagingFile(sourceFileId, null, { pageCount: 1, sourceRevision: 'later-scan' });
+    store.appendSourceToDocument(store.documents[0].id, { sourceFileId, pageCount: 1 });
+  });
+  await expect(page.locator('.isd-page-card')).toHaveCount(5);
+  await completeRequiredMetadata(page);
+  await page.getByRole('button', { name: 'Importieren', exact: true }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].documents.flatMap(doc => doc.pages.map(page => page.color_mode))).toEqual(Array(5).fill('grayscale'));
+});
+
+test('preview zoom fits the page and editing tools work through deleting the last page', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await mount(page, { pages: 1 });
+  await revealImportTools(page);
+  await page.getByRole('button', { name: 'Vergrößern', exact: true }).click();
+  await page.getByRole('button', { name: 'Vergrößern', exact: true }).click();
+  await expect(page.getByRole('button', { name: /Zoom 125 Prozent/ })).toBeVisible();
+  expect(await page.locator('.isd-preview-stage').evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await page.getByRole('button', { name: /Zoom 125 Prozent/ }).click();
+  await expect(page.getByRole('button', { name: /Zoom 100 Prozent/ })).toBeVisible();
+  expect(await page.locator('.isd-preview-stage').evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
+  await page.getByRole('button', { name: 'Nach rechts drehen', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.importFixture.store.documents[0].pages[0].rotation)).toBe(90);
+  await expect.poll(async () => { const rect = await page.locator('.isd-preview-image').boundingBox(); return rect.width > rect.height; }).toBe(true);
+  await page.getByRole('button', { name: 'Graustufen', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.importFixture.store.documents[0].pages[0].colorMode)).toBe('grayscale');
+  await page.getByRole('button', { name: 'Automatische Scanbereinigung beibehalten', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.importFixture.store.documents[0].pages[0].colorMode)).toBe('auto');
+  await page.getByRole('button', { name: 'Nach links drehen', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.importFixture.store.documents[0].pages[0].rotation)).toBe(0);
+  await page.getByRole('button', { name: 'Ausgewählte Seiten löschen', exact: true }).click();
+  await expect(page.locator('.isd-dropzone')).toBeVisible();
+  await expect(page.locator('.isd-page-card')).toHaveCount(0);
+});
+
+for (const width of [430, 320]) test.describe(`floating import tools on touch at ${width}px`, () => {
+  test.use({ viewport: { width, height: 1000 }, hasTouch: true });
+  test('remain visible and expose direct editing actions', async ({ page }) => {
+    await mount(page);
+    const toolbar = page.getByRole('toolbar', { name: 'Seitenwerkzeuge' });
+    await expect(toolbar).toHaveCSS('opacity', '1');
+    await page.getByRole('button', { name: 'Vergrößern', exact: true }).tap();
+    await expect(page.getByRole('button', { name: /Zoom 112 Prozent/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Nach rechts drehen', exact: true }).tap();
+    await expect.poll(() => page.evaluate(() => window.importFixture.store.documents[0].pages[0].rotation)).toBe(90);
+    await page.getByRole('button', { name: 'Graustufen', exact: true }).tap();
+    await expect.poll(() => page.evaluate(() => window.importFixture.store.documents[0].pages[0].colorMode)).toBe('grayscale');
+    await expect(toolbar).toHaveCSS('opacity', '1');
+    expect(await toolbar.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      const parent = element.parentElement.getBoundingClientRect();
+      return bounds.left >= parent.left && bounds.right <= parent.right;
+    })).toBe(true);
+  });
 });
 
 test('preview navigation crosses document boundaries, follows reordering and keeps the active page visible', async ({ page }) => {
@@ -492,6 +600,7 @@ test('preview navigation crosses document boundaries, follows reordering and kee
   });
   expect(inView).toBe(true);
   expect((await page.locator('.isd-toolbar').boundingBox()).y).toBe(toolbarTop);
+  await revealImportTools(page);
   await page.getByTitle('Ausgewählte Seiten löschen', { exact: true }).click();
   await expect(page.locator('.isd-preview-image')).toHaveAttribute('alt', 'Seite 8 von 11');
   await expect(page.locator('.isd-page-card--selected')).toHaveCount(1);
@@ -536,6 +645,8 @@ test('late previews cannot replace the active page and refreshed thumbnails inva
   await expect(page.locator('.isd-preview-loading')).toHaveCount(0);
   await expect(page.locator('.isd-preview-image')).not.toHaveAttribute('src', activeImage);
   await expect(page.locator('.isd-preview-image')).toHaveAttribute('alt', 'Seite 3 von 3');
+  await revealImportTools(page);
+  await page.getByRole('button', { name: 'Lupe', exact: true }).click();
   const preview = await page.locator('.isd-preview-stage').boundingBox();
   await page.mouse.move(preview.x + preview.width / 2, preview.y + preview.height / 2);
   await expect(page.locator('.isd-preview-magnifier')).toBeVisible();

@@ -1,8 +1,8 @@
 <template>
   <div class="pm-metadata-fields">
-    <div v-for="field in fields" :key="field.key" class="pm-metadata-row" :class="{ 'pm-metadata-row--ai': sources[field.key] === 'KI' }" :data-field="field.key" :data-drawer-expand-boundary="field.key === 'note' ? '' : undefined">
+    <div v-for="field in fields" :key="field.key" class="pm-metadata-row" :class="{ 'pm-metadata-row--ai': sources[field.key] }" :data-field="field.key" :data-drawer-expand-boundary="field.key === 'note' ? '' : undefined">
       <label :for="`${id}-${field.key}`" class="pm-metadata-label">{{ field.label }}</label>
-      <v-chip v-if="sources[field.key] === 'KI'" class="pm-metadata-ai-chip" size="x-small" color="primary"
+      <v-chip v-if="sources[field.key]" class="pm-metadata-ai-chip" size="x-small" color="primary"
         variant="tonal" rounded="pill" :ripple="false" title="Von der KI erkannt" aria-label="Von der KI erkannt">
         <v-icon start size="12" aria-hidden="true">mdi-creation</v-icon>KI
       </v-chip>
@@ -38,7 +38,6 @@
           <v-btn v-if="manage && ['category', 'correspondent'].includes(field.key)" icon="mdi-cog-outline" variant="text" size="x-small"
             :aria-label="field.key === 'category' ? 'Dokumenttypen verwalten' : 'Korrespondenten verwalten'" @click="emit(`manage-${field.key}`)" />
         </div>
-        <span v-if="sources[field.key] && sources[field.key] !== 'KI'" class="pm-metadata-source">{{ sources[field.key] === 'Regeln' ? 'Automatisch erkannt' : sources[field.key] }}</span>
         <p v-if="errors[field.key]" :id="`${id}-${field.key}-error`" class="pm-metadata-error" role="alert">{{ errors[field.key] }}</p>
         <slot :name="`after-${field.key}`" />
       </div>
@@ -61,7 +60,7 @@ const fields = [{ key: 'name', label: 'Dokumentname' }, { key: 'date', label: 'D
   { key: 'tags', label: 'Tags' }, { key: 'note', label: 'Notizen' }];
 </script>
 <style scoped>
-.pm-metadata-fields { display: grid; gap: 10px; min-width: 0; }
+.pm-metadata-fields { display: grid; gap: 16px; min-width: 0; }
 .pm-metadata-row { display: grid; grid-template-columns: 114px minmax(0, 1fr); grid-template-areas: 'label value'; gap: 12px; align-items: start; }
 .pm-metadata-row--ai { grid-template-areas: '. source' 'label value'; row-gap: 4px; }
 .pm-metadata-label { grid-area: label; color: var(--pm-muted, #687076); font-size: 12px; padding-top: 12px; }
@@ -73,11 +72,10 @@ const fields = [{ key: 'name', label: 'Dokumentname' }, { key: 'date', label: 'D
 .pm-metadata-control > * { min-width: 0; }
 .pm-metadata-control :deep(.v-field__input) { padding-top: 7px; padding-bottom: 7px; font-size: 14px; min-height: 36px; }
 .pm-metadata-error { margin: 4px 0 0; color: rgb(var(--v-theme-error)); font-size: 12px; }
-.pm-metadata-source { display: block; font-size: 11px; color: var(--pm-muted, #687076); margin-top: 3px; }
-.pm-metadata-ai-chip.v-chip { grid-area: source; justify-self: end; height: 20px; padding-inline: 7px; border: 1px solid rgba(var(--v-theme-primary), .18); font-size: 10px; font-weight: 600; letter-spacing: .025em; }
+.pm-metadata-ai-chip.v-chip { grid-area: source; align-self: center; justify-self: end; height: 20px; padding-inline: 7px; border: 1px solid rgba(var(--v-theme-primary), .18); font-size: 10px; font-weight: 600; letter-spacing: .025em; }
 @container (max-width: 420px) {
-  .pm-metadata-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'label label' 'value value'; gap: 3px 8px; }
+  .pm-metadata-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'label label' 'value value'; gap: 4px 8px; }
   .pm-metadata-row--ai { grid-template-areas: 'label source' 'value value'; }
-  .pm-metadata-label { align-self: center; padding-top: 2px; }
+  .pm-metadata-label { align-self: center; line-height: 20px; padding-top: 0; }
 }
 </style>

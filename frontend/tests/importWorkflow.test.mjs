@@ -113,7 +113,7 @@ test('acknowledging an old request preserves pages appended during that request'
 test('document revision changes on selection, order, rotation, colour and source replacement', () => {
   const { store, doc } = fixture();
   let previous = documentRevision(doc, store.sourceMetaById);
-  for (const mutate of [() => store.rotatePage(doc.pages[0].id), () => store.setPageColorMode(doc.pages[0].id, 'grayscale'),
+  for (const mutate of [() => store.rotatePage(doc.pages[0].id), () => store.setAllPagesColorMode('grayscale'),
     () => doc.pages.reverse(), () => store.sourceMetaById.set('source', { sourceRevision: 'new' }), () => doc.pages.pop()]) {
     mutate();
     const next = documentRevision(doc, store.sourceMetaById);
@@ -144,12 +144,14 @@ test('every import metadata field except notes is required, including at least o
   doc.title = '  ';
   assert.ok(validateImportDocument(doc).title);
 });
-test('undo restores page identity, order and selected colour without requiring a source deletion', () => {
+test('removing a page preserves the remaining identities and the source until commit or discard', () => {
   const { store, doc } = fixture();
+  store.setStagingFile('source', null, { pageCount: 3 });
   const original = doc.pages.map(page => page.id);
   store.removePage(original[1]);
-  store.undo();
-  assert.deepEqual(store.documents[0].pages.map(page => page.id), original);
+  assert.deepEqual(store.documents[0].pages.map(page => page.id), [original[0], original[2]]);
+  assert.deepEqual(store.documents[0].pages.map(page => page.pageIndex), [0, 2]);
+  assert.equal(store.sourceMetaById.has('source'), true);
 });
 test('a potentially blank page produces a review hint without modifying pixels', () => {
   const data = new Uint8ClampedArray(40 * 40 * 4).fill(255);
@@ -157,14 +159,13 @@ test('a potentially blank page produces a review hint without modifying pixels',
   assert.ok(data.every(value => value === 255));
 });
 
-test('undo also restores the last removed page', () => {
+test('removing the last page leaves the import empty', () => {
   const { store, doc } = fixture();
   doc.pages = doc.pages.slice(0, 1);
   const pageId = doc.pages[0].id;
   store.removePage(pageId);
   assert.equal(store.documents.length, 0);
-  store.undo();
-  assert.equal(store.documents[0].pages[0].id, pageId);
+  assert.equal(store.totalPages, 0);
 });
 
 test('skewed text lines are marked for review', () => {
