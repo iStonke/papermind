@@ -107,8 +107,10 @@
         :scanner-jobs="importScannerJobs"
         :scan-request-pending="scanRequestPending"
         :scan-cancel-pending="scanCancelPending"
+        :available-pages="importPageAvailability.pendingPages"
+        :available-pages-loading="isOpeningAvailableImportPages"
+        @open-available-pages="openAvailableImportPages"
         @scan="onScanTrigger"
-        @minimize="onImportMinimized"
         @committed="onImportCommitted"
         @open-document="openDocumentFromImport"
         @discarded-sources="onImportSourcesDiscarded"
@@ -121,32 +123,6 @@
         multiple
         @change="onImportPdfInputChange"
       />
-
-      <Transition name="import-tray">
-        <div v-if="isImportTrayVisible" class="import-tray" role="status" aria-live="polite">
-          <div class="import-tray__icon">
-            <v-icon size="20">mdi-file-import-outline</v-icon>
-          </div>
-          <div class="import-tray__content">
-            <div class="import-tray__title">Import vorbereitet</div>
-            <div class="import-tray__meta">{{ importTraySummary }}</div>
-          </div>
-          <div class="import-tray__actions">
-            <v-btn size="small" variant="text" class="import-tray__action" @click="restoreMinimizedImport">
-              Öffnen
-            </v-btn>
-            <v-btn
-              size="small"
-              variant="text"
-              color="error"
-              class="import-tray__action"
-              @click="discardMinimizedImport"
-            >
-              Verwerfen
-            </v-btn>
-          </div>
-        </div>
-      </Transition>
 
       <ImportFlightCard
         v-if="importFlight"
@@ -711,8 +687,9 @@
               </v-menu>
 
               <v-badge
-                :model-value="pendingImportInboxCount > 0"
-                :content="pendingImportInboxBadgeLabel"
+                :model-value="importPageAvailability.totalPages > 0"
+                :content="availableImportBadgeLabel"
+                class="import-availability-badge"
                 color="error"
                 offset-x="6"
                 offset-y="6"
@@ -722,8 +699,8 @@
                   color="primary"
                   variant="tonal"
                   icon
-                  aria-label="Importieren"
-                  title="Importieren"
+                  :aria-label="availableImportButtonLabel"
+                  :title="availableImportButtonLabel"
                   @click="openImport"
                 >
                   <v-icon size="20">mdi-import</v-icon>
@@ -1745,6 +1722,7 @@ import { createMetadataAutosave } from '../workspaces/documents/metadataAutosave
 import { resolveOcrHeaderPresentation } from '../workspaces/documents/ocrHeaderState.js';
 import { didOcrReachTerminalState } from '../workspaces/documents/ocrStatusTransition.js';
 import { shouldPreserveMetadataDraft, tagQueryIsEmpty } from '../workspaces/documents/metadataRefreshGuard.js';
+import { importAvailability, shouldLoadInboxIntoOpenImport } from '../workspaces/documents/importAvailability.js';
 import { createImportInboxSync } from '../workspaces/documents/importInboxSync.js';
 import { selectPdfFiles } from '../workspaces/documents/pdfSelection.js';
 import { useOcrPolling } from '../composables/useOcrPolling';
@@ -2127,10 +2105,7 @@ const selectedTrashNoteId = ref(null);
 let trashNotesRequestRevision = 0;
 const { tags, isTagMutationRunning } = storeToRefs(tagStore);
 const { categoryNames, categories, sortedCategories } = storeToRefs(categoryStore);
-const {
-  documentCount: importTrayDocumentCount,
-  totalPages: importTrayPageCount
-} = storeToRefs(importStagingStore);
+const { totalPages: importActivePageCount } = storeToRefs(importStagingStore);
 
 // Letztes Dokument persistent speichern
 watch(selectedDocumentId, (id) => {
@@ -2825,6 +2800,8 @@ const importInboxItems = ref([]);
 const importInboxPendingCount = ref(null);
 const importScannerJobs = ref([]);
 const isImportInboxLoading = ref(false);
+const isOpeningAvailableImportPages = ref(false);
+let importInboxRefreshJob = null;
 const isImportScannerActive = ref(false);
 const isImportScannerOptimisticActive = ref(false);
 const importScannerOptimisticPhase = ref('idle');
@@ -2861,7 +2838,6 @@ const activeImportInboxSourceToItemId = ref(new Map());
 const importInboxTimingBySource = new Map();
 const isClaimingImportInbox = ref(false);
 // Unterscheidet Minimieren (Items behalten) von echtem Schließen ohne Commit (verwerfen).
-const isMinimizingImport = ref(false);
 const isDocumentListSettling = ref(false);
 let documentListSettleTimer = null;
 let hasCompletedInitialImportInboxRefresh = false;
@@ -3435,16 +3411,8 @@ async function executeBatchDelete(ids) {
 }
 
 const isUploadDialogOpen = ref(false);
-const isImportTrayVisible = ref(false);
 const listDropNotice = ref('');
 const previewReloadNonce = ref(0);
-const importTraySummary = computed(() => {
-  const docs = Number(importTrayDocumentCount.value || 0);
-  const pages = Number(importTrayPageCount.value || 0);
-  const docLabel = `${docs} ${docs === 1 ? 'Dokument' : 'Dokumente'}`;
-  const pageLabel = `${pages} ${pages === 1 ? 'Seite' : 'Seiten'}`;
-  return `${docLabel} · ${pageLabel}`;
-});
 
 const isDetailsDrawerOpen = computed({
   get: () => settingsStore.drawerExpanded,
@@ -5034,13 +5002,15 @@ function processScannerErrorNotifications({ silent = false } = {}) {
   }
 }
 
-const pendingImportInboxBadgeLabel = computed(() => {
-  const count = pendingImportInboxCount.value;
-  return count > 99 ? '99+' : String(count);
-});
-const pendingImportInboxMenuTitle = computed(() => {
-  const count = pendingImportInboxCount.value;
-  return count === 1 ? 'Neue Scan-Seite anzeigen' : 'Neue Scans anzeigen';
+const importPageAvailability = computed(() => importAvailability({
+  pendingCount: pendingImportInboxCount.value,
+  items: visiblePendingImportInboxItems(importInboxItems.value), documents: importStagingStore.documents,
+  availableDocuments: importStagingStore.availableDraft?.documents || [],
+}));
+const availableImportBadgeLabel = computed(() => importPageAvailability.value.totalPages > 99 ? '99+' : String(importPageAvailability.value.totalPages));
+const availableImportButtonLabel = computed(() => {
+  const count = importPageAvailability.value.totalPages;
+  return count ? `Importieren – ${count} verfügbare ${count === 1 ? 'Seite' : 'Seiten'}` : 'Importieren';
 });
 
 function normalizeImportInboxItems(payload) {
@@ -5093,7 +5063,7 @@ function shouldAutoOpenImportInbox(nextItems, newItemIds) {
     nextItems.length > 0 &&
     newItemIds.length > 0 &&
     !isUploadDialogOpen.value &&
-    !isImportTrayVisible.value &&
+    !importStagingStore.availablePageCount &&
     activeImportInboxItemIds.value.size === 0 &&
     !isClaimingImportInbox.value &&
     !isAutoOpeningImportInbox;
@@ -5170,21 +5140,23 @@ function clearImportScannerOptimisticActive() {
   importScannerOptimisticTimer = null;
 }
 
-async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) {
-  if (isImportInboxLoading.value) {
-    return;
-  }
+function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) {
+  if (importInboxRefreshJob) return importInboxRefreshJob;
   isImportInboxLoading.value = true;
-  try {
-    const payload = await getImportInbox({ limit: 50 });
-    await handleImportInboxPayload(payload, { allowAutoOpen });
-  } catch (error) {
-    if (!silent) {
-      notify({ type: 'error', message: mapApiError(error, 'Neue Scans konnten nicht geladen werden.') });
+  importInboxRefreshJob = (async () => {
+    try {
+      const payload = await getImportInbox({ limit: 50 });
+      await handleImportInboxPayload(payload, { allowAutoOpen });
+      return true;
+    } catch (error) {
+      if (!silent) notify({ type: 'error', message: mapApiError(error, 'Verfügbare Seiten konnten nicht geladen werden.') });
+      return false;
+    } finally {
+      isImportInboxLoading.value = false;
+      importInboxRefreshJob = null;
     }
-  } finally {
-    isImportInboxLoading.value = false;
-  }
+  })();
+  return importInboxRefreshJob;
 }
 
 // Wendet einen Inbox-Status (egal ob via Polling-GET oder SSE-Push) auf den
@@ -5214,8 +5186,7 @@ async function handleImportInboxPayload(payload, { allowAutoOpen = true } = {}) 
       isUploadDialogOpen.value &&
       (wasImportScannerActive ||
         nextImportScannerActive ||
-        isImportScannerFeedbackActive.value ||
-        nextItems.some((item) => newItemIds.includes(item.id) && item.source_type === 'scanner'));
+        isImportScannerFeedbackActive.value);
     if (newItemIds.length > 0) {
       if (shouldKeepScannerFeedbackUntilLoaded) {
         setImportScannerOptimisticActive('pending');
@@ -5235,13 +5206,15 @@ async function handleImportInboxPayload(payload, { allowAutoOpen = true } = {}) 
     }
 
     shouldAutoOpen = allowAutoOpen && shouldAutoOpenImportInbox(nextItems, newItemIds);
-    // Dialog schon voll offen (nicht minimiert): alle noch sichtbaren Inbox-
-    // Items nachfüttern. Nicht nur newItemIds: Wenn ein Refresh mit
-    // allowAutoOpen=false das Item zuerst gesehen hat, ist es beim nächsten
-    // Poll nicht mehr "neu", muss aber trotzdem in den Dialog.
-    // addRemoteSources() ist idempotent pro source_file_id, daher unbedenklich
-    // mit der vollständigen Liste erneut aufrufbar.
-    shouldLivePush = !shouldAutoOpen && allowAutoOpen && nextItems.length > 0 && isUploadDialogOpen.value;
+    // Laufende Importe und Scans weiter befüllen. Auf dem leeren Startbildschirm
+    // bleiben Hintergrundseiten dagegen eine ausdrückliche Quellenauswahl.
+    // Auch schon bekannte Items berücksichtigen: Ein vorheriger Refresh mit
+    // allowAutoOpen=false kann sie zuerst gesehen haben. addRemoteSources()
+    // ist pro source_file_id idempotent.
+    shouldLivePush = !shouldAutoOpen && allowAutoOpen && nextItems.length > 0 && shouldLoadInboxIntoOpenImport({
+      open: isUploadDialogOpen.value, stagedPages: importActivePageCount.value,
+      scannerActive: isImportScannerFeedbackActive.value,
+    });
   }
 
   if (shouldAutoOpen) {
@@ -5270,14 +5243,23 @@ const importInboxSync = createImportInboxSync({
 });
 watch(isUploadDialogOpen, () => importInboxSync.schedule(0));
 
-async function openImportInboxScans({ refresh = true, notifyWhenEmpty = true } = {}) {
+async function openAvailableImportPages({ restored = false } = {}) {
+  if (isOpeningAvailableImportPages.value) return;
+  isOpeningAvailableImportPages.value = true;
+  try { await openImportInboxScans({ onlyIfOpen: true, notifyWhenEmpty: !restored }); }
+  finally { isOpeningAvailableImportPages.value = false; }
+}
+
+async function openImportInboxScans({ refresh = true, notifyWhenEmpty = true, onlyIfOpen = false } = {}) {
   if (refresh) {
-    await refreshImportInbox({ silent: false, allowAutoOpen: false });
+    if (!await refreshImportInbox({ silent: false, allowAutoOpen: false })) return false;
   }
-  const items = importInboxItems.value.slice();
+  if (onlyIfOpen && !isUploadDialogOpen.value) return false;
+  const savedSources = new Set((importStagingStore.availableDraft?.documents || []).flatMap(doc => doc.pages.map(page => page.sourceFileId)));
+  const items = importInboxItems.value.filter(item => !savedSources.has(item.source_file_id));
   if (items.length === 0) {
     if (notifyWhenEmpty) {
-      notify({ type: 'info', message: 'Keine neuen Scans verfügbar.' });
+      notify({ type: 'info', message: 'Keine verfügbaren Seiten mehr vorhanden.' });
     }
     return false;
   }
@@ -5297,7 +5279,8 @@ async function openImportInboxScans({ refresh = true, notifyWhenEmpty = true } =
       const assignResult = await assignImportInboxItems(assignableItemIds);
       if (Number(assignResult?.assigned || 0) !== assignableItemIds.length) {
         notify({ type: 'info', message: 'Einige Scanner-Scans wurden bereits übernommen.' });
-        await refreshImportInbox({ silent: true, allowAutoOpen: false });
+        if (refresh) await refreshImportInbox({ silent: true, allowAutoOpen: false });
+        else importInboxSync.schedule(0);
         return false;
       }
       for (const item of items) {
@@ -5306,6 +5289,7 @@ async function openImportInboxScans({ refresh = true, notifyWhenEmpty = true } =
         }
       }
     }
+    if (onlyIfOpen && !isUploadDialogOpen.value) return false;
     await dialogRef.openWithRemoteSources({
       sources: items,
       sessionId: 'import-inbox'
@@ -5335,9 +5319,11 @@ async function openImportInboxScans({ refresh = true, notifyWhenEmpty = true } =
   return true;
 }
 
-async function claimActiveImportInboxItems(sourceIds = null) {
-  const requested = sourceIds ? new Set(sourceIds) : null;
-  const itemIds = requested ? [...activeImportInboxSourceToItemId.value].filter(([sourceId]) => requested.has(sourceId)).map(([, itemId]) => itemId) : Array.from(activeImportInboxItemIds.value);
+async function claimActiveImportInboxItems(sourceIds = []) {
+  const requested = new Set(sourceIds);
+  const sourceItems = new Map(activeImportInboxSourceToItemId.value);
+  for (const [id, meta] of importStagingStore.sourceMetaById) if (meta.inboxItemId) sourceItems.set(id, meta.inboxItemId);
+  const itemIds = [...new Set([...sourceItems].filter(([id]) => requested.has(id)).map(([, itemId]) => itemId))];
   if (itemIds.length === 0) {
     return;
   }
@@ -5366,10 +5352,12 @@ async function onImportSourcesDiscarded(payload = {}) {
   const itemIds = [];
   const nextActive = new Set(activeImportInboxItemIds.value);
   const nextSourceMap = new Map(activeImportInboxSourceToItemId.value);
+  const releasedInboxItems = new Map(payload.inboxItems || []);
 
   for (const rawSourceFileId of sourceFileIds) {
     const sourceFileId = String(rawSourceFileId || '').trim();
-    const itemId = nextSourceMap.get(sourceFileId);
+    const itemId = nextSourceMap.get(sourceFileId) || releasedInboxItems.get(sourceFileId)
+      || importInboxItems.value.find(item => item.source_file_id === sourceFileId)?.id;
     if (!itemId) {
       continue;
     }
@@ -5396,42 +5384,6 @@ async function onImportSourcesDiscarded(payload = {}) {
     releaseImportInboxDiscardSuppressionLater(itemIds);
   }
 }
-
-watch(isUploadDialogOpen, async (open) => {
-  if (open) {
-    isImportTrayVisible.value = false;
-    return;
-  }
-  // Minimieren ist kein echtes Schließen: Items für späteres Wiederherstellen behalten.
-  if (isMinimizingImport.value) {
-    isMinimizingImport.value = false;
-    return;
-  }
-  // Commit-Pfad setzt isClaimingImportInbox/leert die aktiven Items → hier nichts tun.
-  if (isClaimingImportInbox.value || activeImportInboxItemIds.value.size === 0) {
-    return;
-  }
-  // Dialog ohne Commit geschlossen (Abbrechen/Esc/Klick außerhalb): geöffnete
-  // Inbox-Scans konsequent verwerfen. Wer sie behalten will, nutzt "Minimieren"
-  // statt zu schließen - daher hier keine zusätzliche Rückfrage mehr: ein
-  // window.confirm() mit invertierter Bedeutung ("Abbrechen" = behalten) führte
-  // dazu, dass reflexhaft weggeklickte Scans unbeabsichtigt im Posteingang
-  // blieben und nach einem Refresh wieder als rotes Badge auftauchten.
-  const itemIds = Array.from(activeImportInboxItemIds.value);
-  activeImportInboxItemIds.value = new Set();
-  activeImportInboxSourceToItemId.value = new Map();
-  keepImportInboxItemsSuppressed(itemIds);
-
-  try {
-    const result = await discardImportInboxItems(itemIds);
-    updateImportInboxPendingCountFromMutation(result);
-    await refreshImportInbox({ silent: true, allowAutoOpen: false });
-  } catch (error) {
-    notify({ type: 'warning', message: mapApiError(error, 'Verworfene Scans konnten nicht gelöscht werden.') });
-  } finally {
-    releaseImportInboxDiscardSuppressionLater(itemIds);
-  }
-});
 
 // ── Navigation ────────────────────────────────────────────────────────────
 
@@ -9161,30 +9113,6 @@ watch(() => uiStore.workspaceRequestSignal, () => {
   }
 });
 
-function onImportMinimized() {
-  // Markieren, damit der Close-Watcher die Inbox-Scans NICHT verwirft (nur Tray).
-  isMinimizingImport.value = true;
-  isImportTrayVisible.value = importTrayPageCount.value > 0 || importTrayDocumentCount.value > 0;
-}
-
-function restoreMinimizedImport() {
-  if (importTrayPageCount.value <= 0 && importTrayDocumentCount.value <= 0) {
-    isImportTrayVisible.value = false;
-    return;
-  }
-  isUploadDialogOpen.value = true;
-  isImportTrayVisible.value = false;
-}
-
-async function discardMinimizedImport() {
-  const sourceFileIds = Array.from(importStagingStore.stagingFiles?.keys?.() || []);
-  importStagingStore.reset();
-  isImportTrayVisible.value = false;
-  if (sourceFileIds.length > 0) {
-    await onImportSourcesDiscarded({ sourceFileIds });
-  }
-}
-
 function setListDropNotice(message) {
   listDropNotice.value = message;
   if (listDropNoticeTimer) {
@@ -9308,15 +9236,8 @@ function openImportPdfPicker() {
   importPdfInputRef.value?.click?.();
 }
 
-// Importieren-Button: bei vorhandenen Posteingang-Scans direkt die Miniaturen,
-// sonst das Import-Fenster mit Drag&Drop-Zone öffnen (kein FileChooser mehr).
-async function openImport() {
-  if (pendingImportInboxCount.value > 0) {
-    const openedInbox = await openImportInboxScans({ notifyWhenEmpty: false });
-    if (openedInbox) {
-      return;
-    }
-  }
+// Closed drafts and pending inbox pages are opened through the source choices.
+function openImport() {
   isUploadDialogOpen.value = true;
 }
 
@@ -9348,12 +9269,10 @@ async function onImportPdfInputChange(event) {
 
 async function openDocumentFromImport(id) {
   isUploadDialogOpen.value = false;
-  isImportTrayVisible.value = true;
   await selectDocument(id);
 }
 
 async function onImportCommitted(payload) {
-  isImportTrayVisible.value = false;
   if (!Array.isArray(payload?.created) || payload.created.length === 0) {
     return;
   }
@@ -9380,7 +9299,7 @@ async function onImportCommitted(payload) {
   activityIndicatorRef.value?.refresh();
   try {
     if (!payload.remaining && (!Array.isArray(payload?.errors) || payload.errors.length === 0)) {
-      await claimActiveImportInboxItems();
+      await claimActiveImportInboxItems(payload.completed_source_ids || []);
     }
     await fetchDocuments(selectedDocumentId.value, { autoSelectFirst: false });
     scheduleSidebarCountsRefresh();

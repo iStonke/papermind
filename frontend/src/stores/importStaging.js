@@ -137,11 +137,13 @@ export const useImportStagingStore = defineStore('importStaging', {
     stagingFiles: new Map(),
     sourceMetaById: new Map(),
     pendingCommit: null,
+    availableDraft: null,
   }),
 
   getters: {
     documentCount: (state) => state.documents.length,
     totalPages: (state) => state.documents.reduce((sum, doc) => sum + doc.pages.length, 0),
+    availablePageCount: (state) => (state.availableDraft?.documents || []).reduce((sum, doc) => sum + doc.pages.length, 0),
     allPagesColorMode: (state) => {
       const modes = new Set(state.documents.flatMap(doc => doc.pages.map(page => normalizeColorMode(page.colorMode))));
       return modes.size === 1 ? modes.values().next().value : null;
@@ -165,6 +167,26 @@ export const useImportStagingStore = defineStore('importStaging', {
   },
 
   actions: {
+    parkDraft() {
+      if (!this.totalPages) { this.reset(); return null; }
+      const previous = this.availableDraft;
+      const used = this.collectUsedSourceFileIds();
+      this.availableDraft = {
+        batchId: this.batchId, createdAt: this.createdAt, documents: this.documents,
+        sourceMeta: [...this.sourceMetaById].filter(([id]) => used.has(id)),
+        files: [...this.stagingFiles].filter(([id]) => used.has(id)), pendingCommit: this.pendingCommit,
+      };
+      this.reset();
+      return previous;
+    },
+    restoreAvailableDraft() {
+      if (this.totalPages || !this.availablePageCount) return false;
+      const draft = this.availableDraft;
+      this.$patch({ batchId: draft.batchId, createdAt: draft.createdAt, documents: draft.documents,
+        sourceMetaById: new Map(draft.sourceMeta), stagingFiles: new Map(draft.files),
+        pendingCommit: draft.pendingCommit, availableDraft: null });
+      return true;
+    },
     completePages(pageIds) {
       const completed = new Set(pageIds);
       for (const doc of this.documents) doc.pages = doc.pages.filter(page => !completed.has(page.id));
@@ -219,6 +241,7 @@ export const useImportStagingStore = defineStore('importStaging', {
         originalName: String(meta.originalName || file?.name || '').trim(),
         pageCount: Number(meta.pageCount || 0),
         isImportInbox: Boolean(meta.isImportInbox),
+        inboxItemId: meta.inboxItemId || this.sourceMetaById.get(sourceFileId)?.inboxItemId || '',
         sourceType: meta.sourceType || this.sourceMetaById.get(sourceFileId)?.sourceType || '',
         pageQuality: meta.pageQuality || this.sourceMetaById.get(sourceFileId)?.pageQuality || [],
         analysis: normalizeAnalysisPayload(meta.analysis),

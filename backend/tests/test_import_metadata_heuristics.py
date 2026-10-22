@@ -17,6 +17,13 @@ class ImportMetadataHeuristicsTest(unittest.TestCase):
 
         self.assertEqual(detect_sender(text), "Muster Versicherung")
 
+    def test_short_inspection_labels_do_not_match_word_endings(self):
+        self.assertEqual(detect_subject_heuristic('Beim Aufbau helfen'), '')
+        self.assertEqual(detect_subject_heuristic('AU bestanden'), 'Hauptuntersuchung')
+
+    def test_free_note_headings_are_not_senders(self):
+        self.assertIsNone(detect_sender('Notizen\nTreffen am Gartentor\nMaterial für den Aufbau besorgen.'))
+
     def test_issuer_line_collapses_duplicate_ocr_tokens(self) -> None:
         self.assertEqual(extract_issuer_from_line("Vodafone Vodafone, Kundenservice"), "Vodafone")
 

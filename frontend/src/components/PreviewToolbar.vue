@@ -5,10 +5,10 @@
     <div v-if="showZoom" class="pdf-preview__zoom-controls" role="group" aria-label="Zoom" :inert="expanded">
       <span v-if="$slots.default" class="pm-preview-toolbar__divider pm-preview-toolbar__zoom-divider" aria-hidden="true" />
       <div class="pdf-preview__zoom-stepper">
-        <button type="button" class="pdf-preview__zoom-seg" :disabled="!canZoomOut" aria-label="Verkleinern" @click="emit('zoom-out')"><v-icon size="16">mdi-minus</v-icon></button>
-        <button type="button" class="pdf-preview__zoom-value" :class="{ 'pdf-preview__zoom-value--default': defaultZoom }"
+        <button type="button" tabindex="0" class="pdf-preview__zoom-seg" :disabled="!canZoomOut" aria-label="Verkleinern" @click="emit('zoom-out')"><v-icon size="16">mdi-minus</v-icon></button>
+        <button type="button" tabindex="0" class="pdf-preview__zoom-value" :class="{ 'pdf-preview__zoom-value--default': defaultZoom }"
           :aria-label="`Zoom ${zoom} Prozent – ${resetLabel}`" :title="resetLabel" @click="emit('zoom-reset')">{{ zoom }}%</button>
-        <button type="button" class="pdf-preview__zoom-seg" :disabled="!canZoomIn" aria-label="Vergrößern" @click="emit('zoom-in')"><v-icon size="16">mdi-plus</v-icon></button>
+        <button type="button" tabindex="0" class="pdf-preview__zoom-seg" :disabled="!canZoomIn" aria-label="Vergrößern" @click="emit('zoom-in')"><v-icon size="16">mdi-plus</v-icon></button>
       </div>
     </div>
     <slot name="append" :touch="touch" />

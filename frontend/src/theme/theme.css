@@ -52,6 +52,7 @@
   --pm-metadata-field-bg: #eef2f3;
   --pm-metadata-field-border: #7c8b91;
   --pm-metadata-field-hover-border: #4f646d;
+  --pm-import-pages-footer-bg: color-mix(in srgb, var(--pm-app-surface) 68%, transparent);
 
   /* Trennlinien & Schatten */
   --pm-divider:      #d8dfe1;   /* --pm-border */
@@ -171,6 +172,7 @@
   --pm-metadata-field-bg: #252f33;
   --pm-metadata-field-border: #7c8e95;
   --pm-metadata-field-hover-border: #9aadb5;
+  --pm-import-pages-footer-bg: color-mix(in srgb, var(--pm-app-surface) 78%, transparent);
 
   /* Trennlinien & Schatten */
   --pm-divider:    #3e484c;   /* --pm-border */

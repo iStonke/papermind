@@ -18,7 +18,17 @@ export function sourcePages(document, sourceMeta = new Map()) {
   }));
 }
 export function documentRevision(document, sourceMeta) {
-  const serialized = JSON.stringify(sourcePages(document, sourceMeta));
+  return hashRevision(sourcePages(document, sourceMeta));
+}
+// Analysis always reads the prepared source, independently of display colour.
+export function analysisRevision(document, sourceMeta) {
+  return hashRevision(sourcePages(document, sourceMeta).map(({ color_mode, ...page }) => page));
+}
+export function pageDisplayRevision(page, sourceMeta) {
+  return hashRevision([page.id, sourcePages({ pages: [page] }, sourceMeta)[0], page.thumbUrl || '']);
+}
+function hashRevision(value) {
+  const serialized = JSON.stringify(value);
   let first = 2166136261;
   let second = 5381;
   for (const character of serialized) {
@@ -38,21 +48,23 @@ export function ensureImportForm(document) {
   for (const name of ['touched', 'aiFilled', 'revisions', 'proposals', 'previousValues', 'dismissed']) form[name] ||= {};
   return form;
 }
-export function validateImportDocument(document) {
+export function validateImportDocument(document, { requireComplete = true } = {}) {
   const form = ensureImportForm(document);
   const errors = {};
-  if (!String(document.title || '').trim()) errors.title = 'Bitte einen Dokumentnamen eingeben.';
-  else if (document.title.length > 200) errors.title = 'Der Dokumentname darf höchstens 200 Zeichen enthalten.';
-  if (!String(form.date || '').trim()) errors.date = 'Bitte ein Dokumentdatum eingeben.';
-  else if (!parseDocumentDateInput(form.date).ok) errors.date = 'Bitte ein gültiges Datum eingeben, z. B. 15.10.2026.';
-  if (!String(form.category || '').trim()) errors.category = 'Bitte einen Dokumenttyp wählen.';
+  const title = String(document.title || '').trim();
+  const date = String(form.date || '').trim();
+  if (!title && requireComplete) errors.title = 'Bitte einen Dokumentnamen eingeben.';
+  else if (title && document.title.length > 200) errors.title = 'Der Dokumentname darf höchstens 200 Zeichen enthalten.';
+  if (!date && requireComplete) errors.date = 'Bitte ein Dokumentdatum eingeben.';
+  else if (date && !parseDocumentDateInput(form.date).ok) errors.date = 'Bitte ein gültiges Datum eingeben, z. B. 15.10.2026.';
+  if (requireComplete && !String(form.category || '').trim()) errors.category = 'Bitte einen Dokumenttyp wählen.';
   const correspondent = typeof form.correspondentId === 'object' && form.correspondentId
     ? form.correspondentId.value || form.correspondentId.id || form.correspondentId.name || form.correspondentId.title : form.correspondentId;
-  if (!String(correspondent || '').trim()) errors.correspondent = 'Bitte einen Korrespondenten wählen.';
+  if (requireComplete && !String(correspondent || '').trim()) errors.correspondent = 'Bitte einen Korrespondenten wählen.';
   const hasTag = [...(document.tags || []), ...(document.meta?.pendingTagNames || [])].some(tag => String(tag || '').trim());
-  if (!hasTag) errors.tags = 'Bitte mindestens einen Tag hinzufügen.';
+  if (requireComplete && !hasTag) errors.tags = 'Bitte mindestens einen Tag hinzufügen.';
   if (String(form.note || '').length > 10000) errors.note = 'Die Notiz darf höchstens 10.000 Zeichen enthalten.';
-  if (!document.pages?.length) errors.pages = 'Bitte mindestens eine Seite hinzufügen.';
+  if (requireComplete && !document.pages?.length) errors.pages = 'Bitte mindestens eine Seite hinzufügen.';
   return errors;
 }
 export function applyFieldProposal(document, field, value, expectedRevision, read, write, origin = 'KI') {

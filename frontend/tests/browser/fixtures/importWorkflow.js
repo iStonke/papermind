@@ -6,7 +6,7 @@ import { resetApiSession } from '../../../src/api/session.js';
 import { useImportStagingStore } from '../../../src/stores/importStaging.js';
 import { useCategoryStore } from '../../../src/stores/categories.js';
 import { useCorrespondentStore } from '../../../src/stores/correspondents.js';
-import { documentRevision } from '../../../src/utils/importWorkflow.js';
+import { analysisRevision } from '../../../src/utils/importWorkflow.js';
 import ImportStagingDialog from '../../../src/components/ImportStagingDialog.vue';
 import '../../../src/theme/theme.css';
 import '../../../src/workspaces/documents/workspace.css';
@@ -24,7 +24,7 @@ export async function mountImportWorkflow({ documents = 1, pages = 3, title = 'A
       thumbUrls: thumbnails ? Array(pages).fill('data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="280"><rect width="200" height="280" fill="white"/><text x="20" y="60">Dokumentvorschau</text></svg>')) : [] });
     store.setStagingFile(sourceId, null, { pageCount: pages, sourceRevision: 'revision-1', originalName: `${doc.title}.pdf` });
     doc.meta.titleSuggestionStatus = 'ready';
-    doc.meta.analysisRevision = documentRevision(doc, store.sourceMetaById);
+    doc.meta.analysisRevision = analysisRevision(doc, store.sourceMetaById);
   }
   const open = ref(true);
   const scannerActive = ref(false);

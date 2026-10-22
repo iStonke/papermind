@@ -144,6 +144,23 @@ test('every import metadata field except notes is required, including at least o
   doc.title = '  ';
   assert.ok(validateImportDocument(doc).title);
 });
+test('inline validation ignores empty fields but still reports malformed values', () => {
+  const { doc } = fixture();
+  const form = ensureImportForm(doc);
+  doc.title = '   ';
+  form.date = '   ';
+  assert.deepEqual(validateImportDocument(doc, { requireComplete: false }), {});
+  assert.deepEqual(Object.keys(validateImportDocument(doc)), ['title', 'date', 'category', 'correspondent', 'tags']);
+  doc.title = 'A'.repeat(201);
+  form.date = '31.2.2026';
+  form.note = 'A'.repeat(10001);
+  assert.deepEqual(Object.keys(validateImportDocument(doc, { requireComplete: false })), ['title', 'date', 'note']);
+  doc.title = '';
+  form.date = '';
+  form.note = '';
+  assert.deepEqual(validateImportDocument(doc, { requireComplete: false }), {});
+  assert.ok(validateImportDocument(doc).date);
+});
 test('removing a page preserves the remaining identities and the source until commit or discard', () => {
   const { store, doc } = fixture();
   store.setStagingFile('source', null, { pageCount: 3 });

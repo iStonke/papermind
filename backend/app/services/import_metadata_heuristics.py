@@ -118,18 +118,23 @@ def detect_sender(text_value: object) -> str | None:
     lines = [line.strip() for line in str(text_value or "").splitlines() if line.strip()]
     candidates = lines[:20]
     scored_candidates: list[tuple[int, int, str]] = []
+    # Legal suffixes must be words: 'AG' must not match 'Datumsangabe'.
+    organisation = lambda line: bool(_ISSUER_SUFFIX_RE.search(line)) or any(hint in line.lower() for hint in _SENDER_ORG_HINTS)
+    letter_context = bool(re.search(r'Sehr geehrt|Mit freundlichen|\b(?:Rechnung|Briefdatum|Rechnungsdatum)\b|\b\d{5}\s+[A-ZÄÖÜ]', str(text_value or ''), re.IGNORECASE))
     for index, line in enumerate(candidates):
-        if any(hint in line.lower() for hint in _SENDER_LINE_HINTS):
+        if organisation(line):
             issuer = extract_issuer_from_line(line)
             if issuer and len(issuer) >= 4:
                 scored_candidates.append((120 - index, index, issuer))
     for index, line in enumerate(candidates):
-        if 2 <= len(line.split()) <= 6 and len(line) <= 44 and not any(char.isdigit() for char in line):
+        if (letter_context or organisation(line)) and 2 <= len(line.split()) <= 6 and len(line) <= 44 and not any(char.isdigit() for char in line):
             issuer = normalize_issuer(line)
             if issuer and len(issuer) >= 4:
                 score = 30 - index + (60 if any(hint in issuer.lower() for hint in _SENDER_ORG_HINTS) else 0)
                 scored_candidates.append((score, index, issuer))
     for index, line in enumerate(candidates[:8]):
+        if not letter_context and not organisation(line):
+            continue
         issuer = extract_issuer_from_line(line)
         if not issuer or issuer.lower() in {"herr", "frau"} or re.search(r"\b\d{3,}\b", issuer) or len(issuer) < 4:
             continue
@@ -141,17 +146,22 @@ def detect_sender(text_value: object) -> str | None:
     return scored_candidates[0][2]
 
 
+def _subject_hint_matches(text: str, token: str) -> bool:
+    # Short labels such as HU/AU require both word boundaries.
+    return bool(re.search(r'(?<!\w)' + re.escape(token.strip()) + r'(?!\w)', text)) if len(token.strip()) <= 3 else token in text
+
+
 def detect_subject_heuristic(text_value: object) -> str:
     normalized = f" {str(text_value or '').lower()} "
-    if any(token in normalized for token in SUBJECT_HINTS["Hauptuntersuchung"]):
+    if any(_subject_hint_matches(normalized, token) for token in SUBJECT_HINTS["Hauptuntersuchung"]):
         return "Hauptuntersuchung"
-    if any(token in normalized for token in SUBJECT_HINTS["Kfz-Service"]):
+    if any(_subject_hint_matches(normalized, token) for token in SUBJECT_HINTS["Kfz-Service"]):
         return "Kfz-Service"
     if "versicherung" in normalized:
         return "Versicherung"
     if "vodafone" in normalized:
         return "Vodafone"
-    if any(token in normalized for token in SUBJECT_HINTS["Energie"]):
+    if any(_subject_hint_matches(normalized, token) for token in SUBJECT_HINTS["Energie"]):
         return "Energie"
     return "Kündigung" if "kündigung" in normalized or "kuendigung" in normalized else ""
 
@@ -163,7 +173,7 @@ def is_subject_supported_by_context(subject: object, text_value: object, issuer_
     context = f" {str(text_value or '').lower()} {str(issuer_value or '').lower()} "
     known = {key.lower(): key for key in SUBJECT_HINTS}
     if normalized_subject in known:
-        return any(token in context for token in SUBJECT_HINTS[known[normalized_subject]])
+        return any(_subject_hint_matches(context, token) for token in SUBJECT_HINTS[known[normalized_subject]])
     return normalized_subject != "ohne betreff"
 
 

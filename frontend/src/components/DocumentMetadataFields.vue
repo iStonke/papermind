@@ -1,11 +1,13 @@
 <template>
-  <div class="pm-metadata-fields">
-    <div v-for="field in fields" :key="field.key" class="pm-metadata-row" :class="{ 'pm-metadata-row--ai': sources[field.key] }" :data-field="field.key" :data-drawer-expand-boundary="field.key === 'note' ? '' : undefined">
+  <div class="pm-metadata-fields" @focusin="onFieldFocus" @focusout="onFieldBlur">
+    <div v-for="field in fields" :key="field.key" class="pm-metadata-row" :class="{ 'pm-metadata-row--ai': sources[field.key] || proposals[field.key] }" :data-field="field.key" :data-drawer-expand-boundary="field.key === 'note' ? '' : undefined">
       <label :for="`${id}-${field.key}`" class="pm-metadata-label">{{ field.label }}</label>
+      <div v-if="sources[field.key] || proposals[field.key]" class="pm-metadata-source"><slot name="source" :field="field.key" :label="field.label">
       <v-chip v-if="sources[field.key]" class="pm-metadata-ai-chip" size="x-small"
         variant="flat" rounded="pill" :ripple="false" title="Von der KI erkannt" aria-label="Von der KI erkannt">
         <v-icon start size="11" aria-hidden="true">mdi-creation</v-icon>KI
       </v-chip>
+      </slot></div>
       <div class="pm-metadata-value">
         <div class="pm-metadata-control" :class="{ 'pm-metadata-control--error': Boolean(errors[field.key]) }">
           <v-text-field v-if="field.key === 'name'" :id="`${id}-name`" :model-value="name" maxlength="200"
@@ -23,13 +25,15 @@
           <v-autocomplete v-else-if="field.key === 'correspondent'" :id="`${id}-correspondent`" :model-value="correspondent"
             :required="requiredFields" :error="Boolean(errors.correspondent)" :aria-invalid="Boolean(errors.correspondent)" :aria-describedby="errors.correspondent ? `${id}-correspondent-error` : undefined"
             :items="correspondents" item-title="title" item-value="value" :return-object="false" variant="plain" density="compact"
+            :search="search" @update:search="search = $event || ''; emit('update:correspondent-search', search)"
             hide-details clearable :placeholder="pending.correspondent ? 'Wird ermittelt…' : 'Korrespondent wählen…'" :disabled="disabled" :loading="correspondentLoading"
             :menu-props="menuProps" @update:model-value="emit('update:correspondent', $event)" @blur="emit('correspondent-blur')" @focus="emit('correspondent-focus')">
             <template #item="{ props: itemProps, item }"><v-list-item v-bind="itemProps" :title="undefined" :prepend-icon="undefined">
               <template #title>{{ item.raw?.name || item.title }}{{ item.raw?.kind === 'collection' ? ' · Sammlung' : '' }}</template>
             </v-list-item></template>
             <template #selection="{ item }">{{ item.raw?.short_name || item.raw?.name || item.title }}{{ item.raw?.kind === 'collection' ? ' · Sammlung' : '' }}</template>
-            <template #no-data><v-list-item title="Kein Korrespondent gefunden" subtitle="Neue Korrespondenten in den Einstellungen anlegen" /></template>
+            <template #no-data><slot name="correspondent-empty"><v-list-item title="Kein Korrespondent gefunden" subtitle="Neue Korrespondenten in den Einstellungen anlegen" /></slot></template>
+            <template #append-item><slot name="correspondent-append" /></template>
           </v-autocomplete>
           <template v-else-if="field.key === 'tags'"><slot name="tags" :input-id="`${id}-tags`" :required="requiredFields" :error="Boolean(errors.tags)" :error-id="errors.tags ? `${id}-tags-error` : undefined" /></template>
           <v-textarea v-else :id="`${id}-note`" :model-value="note" maxlength="10000" :rows="3" :max-rows="8" auto-grow
@@ -45,25 +49,38 @@
   </div>
 </template>
 <script setup>
-import { useId } from 'vue';
-defineProps({ name: String, date: String, category: String, correspondent: [String, Object], note: String,
+import { nextTick, ref, useId, watch } from 'vue';
+const props = defineProps({ name: String, date: String, category: String, correspondent: [String, Object], note: String,
   categories: { type: Array, default: () => [] }, correspondents: { type: Array, default: () => [] },
   errors: { type: Object, default: () => ({}) }, sources: { type: Object, default: () => ({}) },
+  proposals: { type: Object, default: () => ({}) }, correspondentSearch: String,
   pending: { type: Object, default: () => ({}) },
   menuProps: { type: Object, default: () => ({ maxHeight: 240, attach: 'body', zIndex: 6000 }) },
   disabled: Boolean, categoryLoading: Boolean, correspondentLoading: Boolean, requiredFields: Boolean, manage: Boolean });
 const emit = defineEmits(['update:name', 'update:date', 'update:category', 'update:correspondent', 'update:note',
-  'text-blur', 'date-blur', 'date-keydown', 'correspondent-blur', 'correspondent-focus', 'manage-category', 'manage-correspondent']);
+  'text-blur', 'date-blur', 'date-keydown', 'correspondent-blur', 'correspondent-focus', 'manage-category', 'manage-correspondent', 'field-focus', 'field-blur', 'update:correspondent-search']);
 const id = useId();
+const search = ref('');
+watch(() => props.correspondentSearch, value => { if (value !== undefined) search.value = value; }, { immediate:true });
 const fields = [{ key: 'name', label: 'Dokumentname' }, { key: 'date', label: 'Dokumentdatum' },
   { key: 'category', label: 'Dokumenttyp' }, { key: 'correspondent', label: 'Korrespondent' },
   { key: 'tags', label: 'Tags' }, { key: 'note', label: 'Notizen' }];
+function onFieldFocus(event) {
+  if (event.target.matches('input, textarea, [role="combobox"]')) emit('field-focus', event.target.closest('[data-field]')?.dataset.field);
+}
+async function onFieldBlur(event) {
+  const row = event.target.closest('[data-field]');
+  if (!row || !event.target.matches('input, textarea, [role="combobox"]')) return;
+  await nextTick();
+  if (!row.contains(document.activeElement) || !document.activeElement.matches('input, textarea, [role="combobox"]')) emit('field-blur', row.dataset.field);
+}
 </script>
 <style scoped>
 .pm-metadata-fields { display: grid; gap: 16px; min-width: 0; }
 .pm-metadata-row { display: grid; grid-template-columns: 114px minmax(0, 1fr); grid-template-areas: 'label value'; gap: 12px; align-items: start; }
 .pm-metadata-row--ai { grid-template-areas: '. source' 'label value'; row-gap: 4px; }
 .pm-metadata-label { grid-area: label; color: var(--pm-muted, #687076); font-size: 12px; padding-top: 12px; }
+.pm-metadata-source { grid-area:source; align-self:center; justify-self:end; display:inline-flex; }
 .pm-metadata-value { grid-area: value; min-width: 0; }
 .pm-metadata-control { display: flex; align-items: center; min-width: 0; padding: 0 9px; border: 1px solid var(--pm-metadata-field-border); border-radius: 6px; background: var(--pm-metadata-field-bg); }
 .pm-metadata-control:hover { border-color: var(--pm-metadata-field-hover-border); }

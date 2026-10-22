@@ -8,7 +8,8 @@
     "test": "node --test tests/*.test.mjs",
     "build": "vite build && node scripts/check-bundle-budget.mjs",
     "preview": "vite preview --host 0.0.0.0",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "test:import:matrix": "playwright test --config playwright.import.config.js"
   },
   "dependencies": {
     "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",

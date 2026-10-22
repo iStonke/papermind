@@ -756,3 +756,185 @@ test('dropping a PDF uploads and commits the selected pages', async ({ page }) =
   await expect.poll(() => imports.length).toBe(2);
   expect(imports[1].documents[0].pages).toEqual([{ source_file_id: 'source-1', page_index: 0, rotation: 0 }]);
 });
+
+async function mockAvailableImportPages(page, initialCount = 3) {
+  await mockApi(page);
+  const sourceId = '30000000-0000-4000-8000-000000000001';
+  const state = { count:initialCount, extraCount:0, failure:false, scanning:false, calls:0, mutations:[], discardedIds:[] };
+  await page.route('**/api/import/inbox?*', route => {
+    state.calls++;
+    return route.fulfill(state.failure ? {status:503,json:{error:{message:'Temporär nicht verfügbar'}}} : {json:{
+      items:[...(state.count ? [{ id:'available-pdf',source_file_id:sourceId,source_revision:'ready-1',source_type:'shortcut',is_assigned_to_me:true,
+        original_name:'Bereitgestellte PDF.pdf',page_count:state.count,preview_url:'/api/available-pdf-preview' }] : []),
+        ...(state.extraCount ? [{id:'new-pdf',source_file_id:'30000000-0000-4000-8000-000000000002',source_revision:'new-1',source_type:'shortcut',
+          is_assigned_to_me:true,original_name:'Neue Seiten.pdf',page_count:state.extraCount,preview_url:'/api/available-pdf-preview'}] : [])],
+      pending_count:state.count+state.extraCount,scanner_jobs:[],scanning:state.scanning,scanner:{id:'scanner-ready',name:'Scanner'},
+    }});
+  });
+  await page.route('**/api/import/inbox/claim', route => {state.mutations.push('claim');return route.fulfill({json:{}});});
+  await page.route('**/api/import/inbox/discard', route => {
+    state.mutations.push('discard');state.discardedIds.push(...route.request().postDataJSON().item_ids);
+    if(state.discardedIds.includes('available-pdf')) state.count=0;
+    if(state.discardedIds.includes('new-pdf')) state.extraCount=0;
+    return route.fulfill({json:{pending_count:state.count+state.extraCount}});
+  });
+  await page.route('**/api/import/source/*/file', route => route.fulfill({status:404}));
+  await page.route('**/api/import/source/*/color-preview?*', route => route.fulfill({status:404}));
+  await page.route('**/api/import/stages/*/suggest-title', route => route.fulfill({json:{status:'ready',suggestion:'',meta:{analysis_pending:false}}}));
+  await page.route('**/api/available-pdf-preview', route => route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="200" height="280"><rect width="200" height="280" fill="white"/><text x="18" y="50">Verfügbare PDF</text></svg>'}));
+  await login(page);
+  return state;
+}
+
+async function refreshAvailableImportPages(page) {
+  const response=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/import/inbox');
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+  await response;
+}
+
+test('closed import and new background PDFs share the explicit available pages entry',async({page})=>{
+  const state=await mockAvailableImportPages(page,3);
+  await page.getByRole('button',{name:'Importieren – 3 verfügbare Seiten',exact:true}).click();
+  await page.getByRole('button',{name:'3 verfügbare Seiten öffnen',exact:true}).click();
+  await expect(page.locator('.isd-page-card')).toHaveCount(3);
+  await page.getByRole('button',{name:'Dialog schließen',exact:true}).click();
+  await expect(page.locator('.isd-card')).toHaveCount(0);
+  state.extraCount=2;await refreshAvailableImportPages(page);
+  await page.getByRole('button',{name:'Importieren – 5 verfügbare Seiten',exact:true}).click();
+  const available=page.getByRole('button',{name:'5 verfügbare Seiten öffnen',exact:true});
+  await expect(available).toBeVisible();await refreshAvailableImportPages(page);
+  await expect(page.locator('.isd-page-card')).toHaveCount(0);
+  await available.click();await expect(page.locator('.isd-page-card')).toHaveCount(5);
+  expect(state.mutations).toEqual([]);
+});
+
+test('a new scan stays separate from the closed import and replaces only that saved draft on close',async({page})=>{
+  const state=await mockAvailableImportPages(page,3);
+  await page.getByRole('button',{name:'Importieren – 3 verfügbare Seiten',exact:true}).click();
+  await page.getByRole('button',{name:'3 verfügbare Seiten öffnen',exact:true}).click();
+  await expect(page.locator('.isd-page-card')).toHaveCount(3);
+  await page.getByRole('button',{name:'Dialog schließen',exact:true}).click();
+  await expect(page.locator('.isd-card')).toHaveCount(0);
+  await page.getByRole('button',{name:'Importieren – 3 verfügbare Seiten',exact:true}).click();
+  await expect(page.getByRole('button',{name:'3 verfügbare Seiten öffnen',exact:true})).toBeVisible();
+  state.scanning=true;await refreshAvailableImportPages(page);
+  state.extraCount=2;state.scanning=false;await refreshAvailableImportPages(page);
+  await expect(page.locator('.isd-page-card')).toHaveCount(2);
+  await expect(page.locator('.import-availability-badge .v-badge__badge')).toHaveText('5');
+  await page.getByRole('button',{name:'Dialog schließen',exact:true}).click();
+  await expect(page.locator('.isd-card')).toHaveCount(0);
+  await expect.poll(()=>state.discardedIds).toEqual(['available-pdf']);
+  await page.getByRole('button',{name:'Importieren – 2 verfügbare Seiten',exact:true}).click();
+  await page.getByRole('button',{name:'2 verfügbare Seiten öffnen',exact:true}).click();
+  await expect(page.locator('.isd-page-card')).toHaveCount(2);
+});
+
+test('available background PDFs show an import badge and load only through the third source choice',async({page})=>{
+  const state=await mockAvailableImportPages(page,3);
+  const badge=page.locator('.import-availability-badge .v-badge__badge');
+  const trigger=page.getByRole('button',{name:'Importieren – 3 verfügbare Seiten',exact:true});
+  await expect(badge).toHaveText('3');await trigger.click();
+  await expect(page.locator('.isd-dropzone')).toBeVisible();
+  const available=page.getByRole('button',{name:'3 verfügbare Seiten öffnen',exact:true});
+  await expect(available).toBeVisible();
+  await expect(page.locator('.isd-dropzone__actions > button strong')).toHaveText(['Scannen','PDFs auswählen','Verfügbare Seiten']);
+  await refreshAvailableImportPages(page);
+  await expect(available).toBeVisible();await expect(page.locator('.isd-page-card')).toHaveCount(0);
+  const availableRect=await available.boundingBox();
+  const scrollRect=await page.locator('.isd-grid-scroll').boundingBox();
+  expect(availableRect.y+availableRect.height).toBeLessThanOrEqual(scrollRect.y+scrollRect.height);
+  await page.screenshot({path:'/private/tmp/papermind-available-import-pages-light.png',animations:'disabled'});
+  await page.emulateMedia({colorScheme:'dark'});
+  await expect(page.locator('.isd-card')).toHaveClass(/v-theme--dark/);
+  await page.screenshot({path:'/private/tmp/papermind-available-import-pages-dark.png',animations:'disabled'});
+  await available.click();await expect(page.locator('.isd-page-card')).toHaveCount(3);
+  await expect(page.locator('.isd-dropzone')).toHaveCount(0);await expect(badge).toHaveText('3');
+  expect(state.mutations).toEqual([]);
+  await page.getByRole('button',{name:'Dialog schließen',exact:true}).click();
+  await expect(page.locator('.isd-card')).toHaveCount(0);
+  await expect(badge).toHaveText('3');expect(state.mutations).toEqual([]);
+  await trigger.click();await expect(available).toBeVisible();
+  await expect(page.locator('.isd-page-card')).toHaveCount(0);
+  await available.click();await expect(page.locator('.isd-page-card')).toHaveCount(3);
+  await page.getByRole('button',{name:'Dialog schließen',exact:true}).click();
+  await expect(page.locator('.isd-card')).toHaveCount(0);
+  await page.reload();await expect(badge).toHaveText('3');
+  await trigger.click();await expect(available).toBeVisible();
+  await available.click();await expect(page.locator('.isd-page-card')).toHaveCount(3);
+  expect(state.mutations).toEqual([]);
+});
+
+test('background page availability updates while the empty import is open and stale pages disappear',async({page})=>{
+  const state=await mockAvailableImportPages(page,0);
+  await page.getByRole('button',{name:'Importieren',exact:true}).click();
+  await expect(page.locator('.isd-dropzone')).toBeVisible();
+  await expect(page.locator('.isd-dropzone__available-pages')).toHaveCount(0);
+  state.count=1;await refreshAvailableImportPages(page);
+  const available=page.getByRole('button',{name:'1 verfügbare Seite öffnen',exact:true});
+  await expect(available).toBeVisible();await expect(available).toContainText('1 Seite wartet auf den Import');
+  await expect(page.locator('.isd-page-card')).toHaveCount(0);
+  state.count=0;await available.click();
+  await expect(page.locator('.isd-dropzone__available-pages')).toHaveCount(0);
+  await expect(page.locator('.isd-dropzone')).toBeVisible();
+  await expect(page.locator('.import-availability-badge .v-badge__badge')).toBeHidden();
+  expect(state.mutations).toEqual([]);
+});
+
+test('pages from an active scan still arrive directly in the open import',async({page})=>{
+  const state=await mockAvailableImportPages(page,0);
+  await page.getByRole('button',{name:'Importieren',exact:true}).click();
+  await expect(page.locator('.isd-dropzone')).toBeVisible();
+  state.scanning=true;await refreshAvailableImportPages(page);
+  state.count=2;state.scanning=false;await refreshAvailableImportPages(page);
+  await expect(page.locator('.isd-page-card')).toHaveCount(2);
+  await expect(page.locator('.isd-dropzone')).toHaveCount(0);
+  expect(state.mutations).toEqual([]);
+});
+
+test('a failed background page request leaves the source choice retryable and closing preserves the inbox',async({page})=>{
+  const state=await mockAvailableImportPages(page,2);
+  await page.getByRole('button',{name:'Importieren – 2 verfügbare Seiten',exact:true}).click();
+  const available=page.getByRole('button',{name:'2 verfügbare Seiten öffnen',exact:true});
+  await expect(available).toBeVisible();state.failure=true;
+  const failed=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/import/inbox'&&response.status()===503);
+  await available.click();await failed;await expect(available).toBeEnabled();await expect(available).toHaveAttribute('aria-busy','false');
+  await expect(page.locator('.isd-page-card')).toHaveCount(0);
+  await page.getByRole('button',{name:'Dialog schließen',exact:true}).click();
+  await expect(page.locator('.isd-card')).toHaveCount(0);expect(state.mutations).toEqual([]);
+  state.failure=false;await page.getByRole('button',{name:'Importieren – 2 verfügbare Seiten',exact:true}).click();
+  await page.getByRole('button',{name:'2 verfügbare Seiten öffnen',exact:true}).click();
+  await expect(page.locator('.isd-page-card')).toHaveCount(2);
+});
+
+test('closing the import during a background page request does not reopen it',async({page})=>{
+  await mockAvailableImportPages(page,2);
+  const trigger=page.getByRole('button',{name:'Importieren – 2 verfügbare Seiten',exact:true});
+  await trigger.click();
+  const available=page.getByRole('button',{name:'2 verfügbare Seiten öffnen',exact:true});
+  await expect(available).toBeVisible();
+  let heldRequest;
+  const holdRequest=route=>{heldRequest=route;};
+  await page.route('**/api/import/inbox?*',holdRequest);
+  await available.click();await expect.poll(()=>Boolean(heldRequest)).toBe(true);
+  await page.getByRole('button',{name:'Dialog schließen',exact:true}).click();
+  await expect(page.locator('.isd-card')).toHaveCount(0);
+  const response=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/import/inbox');
+  await heldRequest.fallback();await (await response).finished();
+  await page.unroute('**/api/import/inbox?*',holdRequest);
+  // Wait for the request handler and Vue update to finish, then reopen manually.
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  await expect(page.locator('.isd-card')).toHaveCount(0);
+  await trigger.click();await expect(available).toBeVisible();
+  await expect(page.locator('.isd-page-card')).toHaveCount(0);
+});
+
+for(const width of [430,320]) test(`available pages stay reachable on the import start screen at ${width}px`,async({page})=>{
+  await mockAvailableImportPages(page,4);
+  await page.getByRole('button',{name:'Importieren – 4 verfügbare Seiten',exact:true}).click();
+  await expect(page.locator('.isd-dropzone')).toBeVisible();
+  await page.setViewportSize({width,height:900});
+  const available=page.getByRole('button',{name:'4 verfügbare Seiten öffnen',exact:true});
+  await available.scrollIntoViewIfNeeded();await expect(available).toBeVisible();
+  const rect=await available.boundingBox();expect(rect.x).toBeGreaterThanOrEqual(0);expect(rect.x+rect.width).toBeLessThanOrEqual(width);expect(rect.height).toBeGreaterThanOrEqual(44);
+  await available.click();await expect(page.locator('.isd-page-card')).toHaveCount(4);
+});

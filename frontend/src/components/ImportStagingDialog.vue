@@ -1,31 +1,19 @@
 <template>
   <BaseDialog
     v-model="isOpen"
-    :persistent="isUploadingSources || isCommitting"
-    :guard-close="hasStagedPages"
+    guard-close
     :max-width="MODAL_WORK_WIDTH_SPLIT"
     :card-class="['isd-card', { 'isd-card--empty': isEmptyLayout }]"
     title="Importieren"
     header-subtitle="Seiten zu einem neuen Dokument zusammenführen"
     @request-close="requestCloseImport"
   >
-    <template #header-actions>
-      <v-btn
-        icon="mdi-window-minimize"
-        size="small"
-        variant="text"
-        class="isd-minimize-btn"
-        :disabled="isCommitting || !hasStagedPages"
-        aria-label="Import minimieren"
-        @click="minimizeDialog"
-      />
-    </template>
 
     <div v-for="job in props.scannerJobs.filter(job => job.state === 'error' && job.error_kind !== 'cancelled' && Date.parse(job.created_at) > Math.max(stagingStore.createdAt || 0, Date.now() - 300000))" :key="job.id" class="isd-import-error" role="alert">
       {{ job.error || 'Scan fehlgeschlagen. Bereits erfasste Seiten bleiben erhalten.' }}
       <v-btn size="small" variant="text" :disabled="props.scannerActive" @click="emitScan('page')">Erneut scannen</v-btn>
     </div>
-    <div class="isd-body">
+    <div class="isd-body" :style="{ '--isd-props-width': `${detailsPaneWidth}px` }">
       <input ref="fileInput" class="d-none" type="file" accept="application/pdf" multiple @change="onFileInputChange" />
 
       <!-- Seitenliste und dauerhafte Vorschau mit schwebenden Werkzeugen. -->
@@ -46,6 +34,7 @@
             class="isd-dropzone"
             :class="{
               'isd-dropzone--over': isDropzoneDragOver,
+              'isd-dropzone--available-pages': availablePageCount > 0,
               'isd-dropzone--scanning': props.scannerActive || scannerPreviewFinalizing
             }"
             @dragenter.prevent="onDropzoneDragEnter"
@@ -170,6 +159,19 @@
                   </small>
                 </span>
               </button>
+              <hr v-if="availablePageCount > 0" class="isd-dropzone__source-divider" aria-hidden="true" />
+              <button v-if="availablePageCount > 0" type="button"
+                class="isd-dropzone__action isd-dropzone__available-pages"
+                :disabled="isUploadingSources || isCommitting || availablePagesLoading"
+                :aria-busy="availablePagesLoading" :aria-label="availablePagesLabel"
+                @click="openAvailablePages">
+                <span class="isd-dropzone__action-icon"><v-icon size="22">mdi-file-document-multiple-outline</v-icon></span>
+                <span class="isd-dropzone__action-copy">
+                  <strong>Verfügbare Seiten</strong>
+                  <small>{{ availablePagesLoading ? 'Seiten werden geladen…' : availablePagesSummary }}</small>
+                </span>
+                <v-icon class="isd-dropzone__available-arrow" size="18" aria-hidden="true">mdi-chevron-right</v-icon>
+              </button>
             </div>
           </div>
 
@@ -180,9 +182,9 @@
             @dragover.prevent="onPagesContainerDragOver($event, documents[0]?.id)"
             @drop.prevent="onPagesContainerDrop($event, documents[0]?.id)"
           >
+            <template v-for="{ doc, page, globalIndex, pageIndexInDoc } in allPagesFlat" :key="page.id">
+            <div v-if="documents.length > 1 && pageIndexInDoc === 0" class="isd-document-boundary" role="heading" aria-level="3" :aria-label="`Dokument: ${doc.title}`" @click.stop>{{ doc.title || 'Ohne Namen' }}</div>
             <div
-              v-for="{ doc, page, globalIndex, pageIndexInDoc } in allPagesFlat"
-              :key="page.id"
               :ref="el => setPageThumbRef(page.id, el)"
               class="isd-page-card import-staging-page"
               :data-page-id="page.id"
@@ -219,7 +221,7 @@
                     class="isd-page-thumb import-staging-page__thumb"
                     :style="pageThumbnailImageStyle(page)"
                     draggable="false" loading="lazy" decoding="async"
-                    @load="page.previewError = false; onScannerThumbnailLoaded(page.id, $event.target)"
+                    @load="rememberThumbnailSize($event.target); page.previewError = false; onScannerThumbnailLoaded(page.id, $event.target)"
                     @error="page.previewError = true"
                     alt=""
                   />
@@ -230,6 +232,7 @@
                       :src="scannerThumbnailFallback.url"
                       :style="pageThumbnailImageStyle(page)"
                       class="isd-scan-thumbnail-fallback"
+                      @load="rememberThumbnailSize($event.target)"
                       draggable="false" alt=""
                     />
                   </Transition>
@@ -243,22 +246,25 @@
                   <v-icon v-if="isPageMultiSelected(page.id)" size="14">mdi-check</v-icon>
                 </div>
               </div>
-              <div class="isd-page-num">{{ globalIndex + 1 }}<span v-if="documents.length > 1"> · {{ doc.title }}</span></div>
+              <div class="isd-page-num">{{ globalIndex + 1 }}</div>
               <span v-if="stagingStore.sourceMetaById.get(page.sourceFileId)?.pageQuality?.[page.pageIndex]" class="isd-page-review">{{ stagingStore.sourceMetaById.get(page.sourceFileId).pageQuality[page.pageIndex] }}</span>
               <button v-if="page.previewError" type="button" class="isd-page-review" @click.stop="retryThumbnail(page)">Vorschau erneut laden</button>
             </div>
+            </template>
 
             <!-- Scan-in-progress placeholder: zeigt, wo die nächste Seite gleich auftaucht -->
             <div v-if="props.scannerActive" class="isd-scanning-page-card">
               <div
                 class="isd-scanning-page-thumb-wrap"
                 :class="{ 'isd-scanning-page-thumb-wrap--live': scannerLivePreviewUrl }"
+                :style="pageThumbnailFormatStyle({ thumbUrl: scannerLivePreviewUrl })"
               >
                 <img
                   v-if="scannerLivePreviewUrl"
                   :src="scannerLivePreviewUrl"
                   class="isd-scanning-page-preview"
                   :style="{ filter: pageColorFilter(stagingStore.allPagesColorMode) }"
+                  @load="rememberThumbnailSize($event.target)"
                   alt="Aktuelle Scanvorschau"
                 />
                 <v-icon v-else size="28" class="isd-scanning-page-icon">mdi-scanner</v-icon>
@@ -367,24 +373,24 @@
         </div>
         <div v-if="primaryDocument?.meta?.commitError" class="isd-import-error isd-workspace-error" role="alert">
           {{ primaryDocument.meta.commitError.message }}
-          <button v-if="primaryDocument.meta.commitError.existing_doc_id" type="button" @click="minimizeDialog(); emit('open-document', primaryDocument.meta.commitError.existing_doc_id)">Vorhandenes Dokument öffnen</button>
+          <button v-if="primaryDocument.meta.commitError.existing_doc_id" type="button" @click="requestCloseImport(); emit('open-document', primaryDocument.meta.commitError.existing_doc_id)">Vorhandenes Dokument öffnen</button>
         </div>
         <div v-if="!isEmptyLayout" role="region" aria-label="Seitenvorschau" class="isd-preview-panel">
           <PreviewToolbar class="isd-toolbar" label="Seitenwerkzeuge" show-zoom :zoom="previewZoomPercent"
             :default-zoom="Math.abs(previewZoom - 1) < .001" :can-zoom-in="canPreviewZoomIn" :can-zoom-out="canPreviewZoomOut"
             reset-label="Seite einpassen"
             @zoom-in="zoomPreviewIn" @zoom-out="zoomPreviewOut" @zoom-reset="resetPreviewZoom">
-            <button type="button" class="isd-tool-btn isd-magnifier-btn" :class="{ 'isd-tool-btn--active': previewMagnifierEnabled }"
+            <button type="button" tabindex="0" class="isd-tool-btn isd-magnifier-btn" :class="{ 'isd-tool-btn--active': previewMagnifierEnabled }"
               aria-label="Lupe" title="Lupe (Ausschnitt vergrößern)" :aria-pressed="previewMagnifierEnabled" :disabled="!hasSelectedPreview" @click="togglePreviewMagnifier"><v-icon size="17">mdi-magnify</v-icon></button>
             <div class="isd-direct-tools">
               <span class="pm-preview-toolbar__divider" aria-hidden="true" />
-              <button type="button" class="isd-tool-btn" aria-label="Nach links drehen" title="Nach links drehen" :disabled="pageToolsDisabled" @click="rotateAnySelectedPage(-90)"><v-icon size="17">mdi-rotate-left</v-icon></button>
-              <button type="button" class="isd-tool-btn" aria-label="Nach rechts drehen" title="Nach rechts drehen" :disabled="pageToolsDisabled" @click="rotateAnySelectedPage(90)"><v-icon size="17">mdi-rotate-right</v-icon></button>
-              <button type="button" class="isd-tool-btn" aria-label="Ausgewählte Seiten löschen" title="Ausgewählte Seiten löschen" :disabled="!isDeleteEnabled || isCommitting || Boolean(stagingStore.pendingCommit)" @click="deleteSelectedPages"><v-icon size="17">mdi-trash-can-outline</v-icon></button>
+              <button type="button" tabindex="0" class="isd-tool-btn" aria-label="Nach links drehen" title="Nach links drehen" :disabled="pageToolsDisabled" @click="rotateAnySelectedPage(-90)"><v-icon size="17">mdi-rotate-left</v-icon></button>
+              <button type="button" tabindex="0" class="isd-tool-btn" aria-label="Nach rechts drehen" title="Nach rechts drehen" :disabled="pageToolsDisabled" @click="rotateAnySelectedPage(90)"><v-icon size="17">mdi-rotate-right</v-icon></button>
+              <button type="button" tabindex="0" class="isd-tool-btn" aria-label="Ausgewählte Seiten löschen" title="Ausgewählte Seiten löschen" :disabled="!isDeleteEnabled || isCommitting || Boolean(stagingStore.pendingCommit)" @click="deleteSelectedPages"><v-icon size="17">mdi-trash-can-outline</v-icon></button>
             </div>
             <div class="isd-color-group" role="group" aria-label="Farbmodus für alle Seiten">
               <span class="pm-preview-toolbar__divider" aria-hidden="true" />
-              <button v-for="option in pageColorOptions" :key="option.value" type="button" class="isd-tool-btn"
+              <button v-for="option in pageColorOptions" :key="option.value" type="button" tabindex="0" class="isd-tool-btn"
                 :class="{ 'isd-tool-btn--active': stagingStore.allPagesColorMode === option.value }" :aria-label="option.title" :title="`${option.title} – für alle Seiten`"
                 :aria-pressed="stagingStore.allPagesColorMode === option.value" :disabled="colorToolsDisabled" @click="setImportColorMode(option.value)"><v-icon size="17">{{ option.icon }}</v-icon></button>
             </div>
@@ -393,38 +399,45 @@
           <div
             ref="previewViewport" class="isd-preview-stage"
             :class="{ 'isd-preview-stage--magnify': previewMagnifierEnabled, 'isd-preview-stage--scan-handoff': scannerPreviewFlight && scannerPreviewFlight.pageId === selectedPageEntry?.id }"
-            :aria-busy="previewImageLoading"
-            tabindex="0" aria-label="Dokumentseite" @wheel="onPreviewWheel" @keydown="onPreviewKeydown" @scroll="hidePreviewMagnifier"
+            :aria-busy="previewImageLoading" :style="{ scrollSnapType: previewAdjusting || previewZoom > 1.001 ? 'none' : undefined }"
+            tabindex="0" aria-label="Dokumentseite" @wheel="onPreviewWheel" @keydown="onPreviewKeydown" @scroll="onPreviewScroll" @scrollend="onPreviewScrollEnd"
           >
-            <div class="isd-preview-canvas" :style="previewCanvasStyle">
-              <template v-if="hasSelectedPreview">
+            <div v-if="hasSelectedPreview" class="isd-preview-pages" :style="previewCanvasStyle">
+              <div v-for="{ page, globalIndex } in allPagesFlat" :key="page.id"
+                :ref="el => setPreviewPageElement(page.id, el)"
+                class="isd-preview-page" :class="{ 'isd-preview-page--active': page.id === selectedPageEntry?.id }"
+                :data-preview-page-id="page.id" :style="previewPageStyle(page)"
+                role="group" :aria-label="`Seite ${globalIndex + 1} von ${totalPages}`">
                 <img
-                  v-if="previewImageSrc"
-                  :src="previewImageSrc"
-                  ref="previewImageElement" :style="previewImageStyle" @load="onPreviewImageLoad(); onScannerPreviewLoaded(selectedPageEntry?.id, $event.target)"
-                  class="isd-preview-image"
-                  :alt="selectedPreviewLabel"
-                  draggable="false"
-                  @pointermove="onPreviewPointerMove"
+                  v-if="shouldLoadPreview(page.id) && pagePreviewSource(page)"
+                  :src="pagePreviewSource(page)"
+                  :ref="el => setPreviewImageElement(page.id, el)" :style="previewImageStyle(page)"
+                  @load="onPreviewImageLoad(page.id, $event.target); onScannerPreviewLoaded(page.id, $event.target)"
+                  class="isd-preview-page-image" :class="{ 'isd-preview-image': page.id === selectedPageEntry?.id }"
+                  :alt="`Seite ${globalIndex + 1} von ${totalPages}`"
+                  draggable="false" decoding="sync"
+                  @pointermove="onPreviewPointerMove($event, page)"
                   @pointerleave="hidePreviewMagnifier"
                 />
                 <Transition name="isd-scan-frame">
-                  <div v-if="scannerPreviewFallback?.pageId === selectedPageEntry.id" class="isd-preview-scan-frame" aria-hidden="true">
-                    <img :src="scannerPreviewFallback.url" :style="previewImageStyle" draggable="false" alt="" />
+                  <div v-if="scannerPreviewFallback?.pageId === page.id" class="isd-preview-scan-frame" aria-hidden="true">
+                    <img :src="scannerPreviewFallback.url" :style="previewImageStyle(page)" draggable="false" alt="" />
                   </div>
                 </Transition>
                 <div
-                  v-if="previewMagnifier"
+                  v-if="previewMagnifier?.pageId === page.id"
                   class="isd-preview-magnifier"
                   :style="previewMagnifierStyle"
                   aria-hidden="true"
                 />
-                <div v-if="!previewImageSrc" class="isd-preview-empty">
+                <div v-if="!pagePreviewSource(page)" class="isd-preview-empty">
                   <v-icon size="40">mdi-file-document-outline</v-icon>
                   <span>Vorschau wird vorbereitet</span>
                 </div>
-              </template>
-              <div v-else class="isd-preview-empty isd-preview-empty--illustrated">
+              </div>
+            </div>
+            <div v-else class="isd-preview-canvas">
+              <div class="isd-preview-empty isd-preview-empty--illustrated">
                 <DocumentPreviewIllustration aria-label="Keine Seite ausgewählt" />
               </div>
             </div>
@@ -435,8 +448,9 @@
       <!-- Right column: document properties.
            Wird im Leerzustand ausgeblendet und erst eingeblendet (Slide/Expand),
            sobald mindestens eine Seite hinzugefügt wurde. -->
+      <ImportPaneDivider v-if="!isEmptyLayout" v-model="detailsPaneWidth" :controls="detailsPaneId" />
       <Transition name="isd-props-reveal">
-      <div v-if="!isEmptyLayout" class="isd-props">
+      <div v-if="!isEmptyLayout" :id="detailsPaneId" class="isd-props">
         <div class="isd-props-heading">
           <div class="isd-props-title">
             <h3>Dokumentdetails</h3>
@@ -459,6 +473,7 @@
             </template>
             <strong class="isd-ai-status-heading">{{ prepStatus.busy ? prepStatus.label : analysisActionLabel }}</strong>
             <span>{{ prepStatus.busy ? prepStatus.description : aiStatusTitle }}</span>
+            <span v-if="analysisScopeHint" class="isd-analysis-scope">{{ analysisScopeHint }}</span>
           </v-tooltip>
         </div>
         <div class="isd-props-scroll">
@@ -472,7 +487,9 @@
           density="compact" variant="outlined" @update:model-value="selectDocumentForEditing" />
         <DocumentMetadataFields :name="primaryDocTitle" :date="docDate" :category="docCategory"
           :correspondent="docCorrespondentId" :note="docNote" :categories="categoryItems" :correspondents="correspondentItems"
-          :errors="{ ...fieldErrors, name: fieldErrors.title }" :sources="metadataSources" :pending="pendingMetadataFields" required-fields :disabled="isCommitting || Boolean(stagingStore.pendingCommit)"
+          :errors="{ ...fieldErrors, name: fieldErrors.title }" :sources="metadataSources" :pending="pendingMetadataFields" required-fields :disabled="isCommitting || Boolean(stagingStore.pendingCommit) || correspondentDialogOpen"
+          :proposals="metadataProposals" v-model:correspondent-search="correspondentSearch"
+          @field-focus="metadataFocus.focus" @field-blur="metadataFocus.blur"
           @update:name="onPrimaryDocTitleInput({ target: { value: $event } })"
           @update:date="docDate = $event; docDateTouched = true; docDateAiFilled = false"
           @update:category="docCategory = $event; docCategoryTouched = true; docCategoryAiFilled = false"
@@ -481,20 +498,22 @@
           @text-blur="onPrimaryDocTitleBlur" @date-blur="normalizeImportDate"
           @date-keydown="handleShortcut($event, SHORTCUT_ACTIONS.PRIMARY, normalizeImportDate, { ignoreEditable: false })"
           @correspondent-focus="correspondentStore.ensureLoaded()">
+          <template #source="{ field, label }">
+            <ImportFieldSource :source="metadataSources[field]" :proposal="metadataProposals[field]" :label="label"
+              :text="proposalText(field)" :create="field === 'correspondent' && proposalNeedsCorrespondent"
+              :disabled="isCommitting || Boolean(stagingStore.pendingCommit)" @accept="acceptMetadataProposal(field)" @dismiss="dismissMetadataProposal(field)" />
+          </template>
+          <template #correspondent-empty><v-list-item title="Kein Korrespondent gefunden" /></template>
+          <template #correspondent-append>
+            <div @keydown.enter.stop><button v-if="canCreateCorrespondent" type="button" class="isd-create-correspondent"
+              @click="openCorrespondentDialog(correspondentSearch)"><v-icon size="18">mdi-plus</v-icon><span>„{{ correspondentSearch.trim() }}“ anlegen</span></button></div>
+          </template>
           <template #tags="{ inputId, required, error, errorId }">
             <TagInlineEditor :model-value="primaryDocTagNames" v-model:search="tagInlineValue"
               :input-id="inputId" :required="required" :error="error" :error-id="errorId"
               :items="allTagNamesForPool" :disabled="isCommitting" :loading="isCreatingTags" :add-label="pendingMetadataFields.tags ? 'Wird ermittelt…' : 'Tag'"
               @update:model-value="onTagNamesChange" @remove="onTagNamesChange(primaryDocTagNames.filter(name => name !== $event))"
               @keydown="onImportTagKeydown" @focus="ensureStageTagsLoaded()" />
-          </template>
-          <template #after-name>
-            <div v-if="primaryDocSuggestionText" class="isd-suggestion-row">
-              <button type="button" class="isd-ai-chip" @click="applyScanSuggestion(primaryDocument.id)">
-                <v-icon size="13">mdi-robot-outline</v-icon><span>{{ primaryDocSuggestionText }}</span><strong>Übernehmen</strong>
-              </button>
-              <button type="button" class="isd-suggestion-dismiss" @click="primaryDocument.meta.dismissedTitle = primaryDocSuggestionText">Verwerfen</button>
-            </div>
           </template>
         </DocumentMetadataFields>
         </div>
@@ -506,6 +525,7 @@
       <div class="isd-footer">
         <span v-if="footerValidationHint" class="isd-footer-hint isd-review-hint" role="status">{{ footerValidationHint }}</span>
         <div class="isd-footer-end">
+          <ImportReadinessHelp v-if="importReadinessBlockers.length && !isCommitting && !stagingStore.pendingCommit" :blockers="importReadinessBlockers" @navigate="navigateToImportField" />
           <span v-if="isCommitting" class="isd-footer-status">
             Verarbeitung läuft…
           </span>
@@ -513,7 +533,7 @@
             v-if="hasMultiSelection"
             variant="tonal"
             color="primary"
-            :disabled="isImportActionDisabled"
+            :disabled="isSelectionImportDisabled"
             @click="commitSelectionImport"
           >
             Auswahl importieren ({{ multiSelectionCount }})
@@ -540,44 +560,37 @@
     </div>
   </Teleport>
 
-  <DestructiveDialog
-    v-model="discardImportConfirmOpen"
-    title="Seiten verwerfen?"
-    :header-subtitle="discardImportConfirmSubtitle"
-    primary-text="Verwerfen"
-    secondary-text="Zurück"
-    icon="mdi-trash-can-outline"
-    max-width="460"
-    @primary="confirmDiscardImport"
-    @secondary="cancelDiscardImport"
-    @close="cancelDiscardImport"
-  >
-    <p class="isd-discard-confirm__text">
-      {{ discardImportConfirmDescription }}
-    </p>
-  </DestructiveDialog>
+  <ImportCorrespondentDialog v-model="correspondentDialogOpen" :initial-name="newCorrespondentName" @created="selectCreatedCorrespondent" />
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import { PDF_WORKER_SRC } from '../utils/pdfWorker.js';
 import { authedUrl, authHeaders } from '../api/client.js';
 import BaseDialog from './BaseDialog.vue';
-import DestructiveDialog from './DestructiveDialog.vue';
 import RetentionStatusBar from './RetentionStatusBar.vue';
 import DocumentMetadataFields from './DocumentMetadataFields.vue';
+import ImportFieldSource from './ImportFieldSource.vue';
+import ImportReadinessHelp from './ImportReadinessHelp.vue';
+import ImportCorrespondentDialog from './ImportCorrespondentDialog.vue';
+import ImportPaneDivider from './ImportPaneDivider.vue';
+import { useImportFieldFocus } from '../composables/useImportFieldFocus.js';
+import { usefulAnalysisNote, importAnalysisScope } from '../utils/importPresentation.js';
 import DocumentPreviewIllustration from './DocumentPreviewIllustration.vue';
 import PreviewToolbar from './PreviewToolbar.vue';
-import { usePageImagePreview } from '../composables/usePageImagePreview.js';
+import { useContinuousPagePreview } from '../composables/useContinuousPagePreview.js';
 import TagInlineEditor from './TagInlineEditor.vue';
 import { useImportDocumentForm } from '../composables/useImportDocumentForm.js';
 import { useScannerPreviewTransition } from '../composables/useScannerPreviewTransition.js';
-import { canOfferTitle, meaningfulSuggestion, ensureImportForm, sourcePages, documentRevision, validateImportDocument, applyFieldProposal, commitSubset } from '../utils/importWorkflow.js';
+import { canOfferTitle, meaningfulSuggestion, ensureImportForm, sourcePages, analysisRevision, pageDisplayRevision, validateImportDocument, applyFieldProposal, commitSubset } from '../utils/importWorkflow.js';
 import { parseDocumentDateInput } from '../utils/dates.js';
 import { apiFetch } from '../api/client.js';
-import { scanImageQuality } from '../utils/scanImageQuality.js';
+import { useImportPdfRenderer } from '../composables/useImportPdfRenderer.js';
+import { useImportPreviewImages } from '../composables/useImportPreviewImages.js';
+import { createImportAnalysisQueue, abortableDelay } from '../utils/importAnalysisQueue.js';
+import { setImportAnalysisState, importProcessState } from '../utils/importProcess.js';
+import { createImportDiagnostics } from '../utils/importDiagnostics.js';
+import { useImportCommit } from '../composables/useImportCommit.js';
 import { useImportDraftPersistence } from '../composables/useImportDraftPersistence.js';
 import { suggestImportStageTitle, readImportStageAnalysis } from '../api/importStaging';
 import { analysisPending, acceptAnalysisSnapshot, transientAnalysisError } from '../utils/importAnalysis.js';
@@ -594,7 +607,6 @@ import {
   useShortcutScope
 } from '../keyboard/shortcuts';
 
-GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
 
 const VOCAB_NAME_MIN_LENGTH = 2;
 const VOCAB_NAME_MAX_LENGTH = 30;
@@ -614,18 +626,26 @@ const props = defineProps({
   scannerJobs: { type: Array, default: () => [] },
   scanRequestPending: { type: Boolean, default: false },
   scanCancelPending: { type: Boolean, default: false },
+  availablePages: { type: Number, default: 0 },
+  availablePagesLoading: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'minimize', 'scan', 'open-document']);
+const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'scan', 'open-document', 'open-available-pages']);
 
 // Im Live-Modus erzeugt jede Seite sofort ein eigenes Dokument -> kein "Fertig".
 // Im Batch-Modus sammelt der Scanner und braucht ein explizites Abschließen.
+const availablePageCount = computed(() => stagingStore.availablePageCount + (Number.isFinite(props.availablePages) ? Math.max(0, Math.floor(props.availablePages)) : 0));
+const availablePagesLabel = computed(() => `${availablePageCount.value} verfügbare ${availablePageCount.value === 1 ? 'Seite öffnen' : 'Seiten öffnen'}`);
+const availablePagesSummary = computed(() => availablePageCount.value === 1 ? '1 Seite wartet auf den Import' : `${availablePageCount.value} Seiten warten auf den Import`);
 const canTriggerScan = computed(() => Boolean(props.scanner?.id));
 const isScannerFeedbackPending = computed(() => props.scannerFeedbackState === 'pending');
 const scannerLivePreviewCandidateUrl = computed(() => {
   const raw = String(props.scanner?.live_preview_url || '').trim();
   return raw ? authedUrl(buildApiResourceUrl(raw)) : '';
 });
+let scanFrameSeen = false;
+watch(() => props.scannerActive, active => { if (active) { scanFrameSeen = false; diagnostics.start('scan', 'scan_start'); } });
+watch(scannerLivePreviewCandidateUrl, url => { if (url && !scanFrameSeen) { scanFrameSeen = true; diagnostics.end('scan', 'first_scan_frame'); } });
 const scannerFeedbackVisible = computed(() => props.scannerActive || props.scanRequestPending || props.scanCancelPending || scannerPreviewFinalizing.value);
 const scannerFeedbackStatus = computed(() => (
   props.scanCancelPending ? 'Abbruch angefordert' : props.scanRequestPending ? 'Scan wird angefordert' :
@@ -650,24 +670,13 @@ const categoryStore = useCategoryStore();
 const correspondentStore = useCorrespondentStore();
 const { documents, documentCount, totalPages, emptyDocuments } = storeToRefs(stagingStore);
 const draftPersistence = useImportDraftPersistence(stagingStore, {
-  restored: () => { emit('minimize'); notify({ type: 'info', message: 'Dein offener Import wurde wiederhergestellt.' }); },
-  failed: () => notify({ type: 'warning', message: 'Der Importentwurf konnte nicht lokal gesichert werden. Bitte dieses Fenster bis zum Import geöffnet lassen.' }),
+  saved: fields => diagnostics.record('draft_saved', fields),
+  restored: () => notify({ type: 'info', message: 'Dein offener Import wurde wiederhergestellt.' }),
+  failed: error => notify({ type: 'warning', message: error?.name === 'DraftConflictError'
+    ? 'Dieser Import wurde in einem anderen Fenster geändert. Hier bleiben deine Eingaben erhalten; bitte im anderen Fenster fortfahren.'
+    : 'Der Importentwurf konnte nicht lokal gesichert werden. Bitte dieses Fenster bis zum Import geöffnet lassen.' }),
 });
 
-const KNOWN_ICONS = new Set([
-  'mdi-file-document-outline',
-  'mdi-folder-outline',
-  'mdi-plus',
-  'mdi-robot-outline',
-  'mdi-call-split',
-  'mdi-rotate-left',
-  'mdi-rotate-right',
-  'mdi-dots-horizontal',
-  'mdi-trash-can-outline',
-  'mdi-file-pdf-box',
-  'mdi-refresh',
-  'mdi-check'
-]);
 
 const isDropzoneDragOver = ref(false);
 const dropDragDepth = ref(0);
@@ -682,24 +691,26 @@ const activeDocumentId = ref('');
 const primaryDocument = computed(() => documents.value.find(doc => doc.id === (selected.value?.stageId || activeDocumentId.value)) || documents.value[0] || null);
 const peek = ref({ open: false, x: 0, y: 0 });
 const isUploadingSources = ref(false);
+const remoteSourceLoads = ref(0);
 const isCommitting = ref(false);
 const preparationProgress = ref({ done: 0, total: 0 });
 const sourceRefreshCount = ref(0);
 const remoteSourceStageBySession = new Map();
-const titleSuggestJobByStage = new Map();
-let analysisChain = Promise.resolve();
+const analysisQueue = createImportAnalysisQueue();
+const titleSuggestJobByStage = analysisQueue.jobs;
+const diagnostics = createImportDiagnostics();
 let analysisDisposed = false;
 const importTimingBySource = new Map();
-const IMPORT_ANALYSIS_RETRY_DELAY_MS = 1500;
-const IMPORT_ANALYSIS_MAX_TRANSIENT_RETRIES = 3;
+
+
 // Scanner-Seiten werden nach dem sichtbaren Import erst bereinigt und dann im
 // Worker analysiert. Auf dem Pi darf diese Warteschlange mehrere Minuten
 // dauern; die UI pollt daher den Worker-Cache, statt voreilig rot zu melden.
-const IMPORT_ANALYSIS_MAX_PENDING_RETRIES = 160;
+
 const previewImageSrc = ref('');
 const previewImageLoading = ref(false);
 const previewIsThumbnail = ref(false);
-const discardImportConfirmOpen = ref(false);
+let previewImages = null;
 const stageTagPool = ref([]);
 const fileInput = ref(null);
 const peekPanelRef = ref(null);
@@ -707,9 +718,10 @@ const peekAnchorEl = ref(null);
 const bodyScrollRef = ref(null);
 const docsListRef = ref(null);
 const titleInputRefs = new Map();
-const cardFileInputRefs = new Map();
+
 const pageThumbRefs = new Map();
-const thumbnailQuality = new WeakMap();
+const pdfRenderer = useImportPdfRenderer(() => stagingStore.stagingFiles);
+const { renderPdfThumbnails, renderLargePreview, thumbnailQuality } = pdfRenderer;
 const lazyThumbnailJobs = new Set();
 let thumbnailRenderChain = Promise.resolve();
 let thumbnailObserver = null;
@@ -736,9 +748,8 @@ let settlePageTimer = 0;
 let autoScrollRaf = 0;
 let bodyLayoutRaf = 0;
 let bodyLayoutObserver = null;
-let closeResetTimer = 0;
+let closeParkTimer = 0;
 let viewSwitchTimer = 0;
-let isMinimizingToTray = false;
 const autoScrollState = {
   container: null,
   dx: 0,
@@ -750,11 +761,92 @@ const { docDate, docCategory, docNote, docCorrespondentId, docRetention,
   docTitleTouched, docDateTouched, docCategoryTouched, docTagsTouched, docNoteTouched, docCorrespondentTouched,
   docRetentionTouched, docTitleAiFilled, docDateAiFilled, docCategoryAiFilled, docTagsAiFilled,
   docNoteAiFilled, docCorrespondentAiFilled, importForm } = useImportDocumentForm(primaryDocument);
+const metadataFocus = useImportFieldFocus(primaryDocument);
+const detailsPaneWidth = ref(360);
+const detailsPaneId = `import-details-${useId()}`;
+const correspondentSearch = ref('');
+const correspondentDialogOpen = ref(false);
+const newCorrespondentName = ref('');
+let correspondentTarget = null;
+const canCreateCorrespondent = computed(() => {
+  const name = correspondentSearch.value.replace(/\s+/gu, ' ').trim();
+  return name.length >= 2 && name.length <= 120 && !correspondentStore.findByName(name) && !isCommitting.value && !stagingStore.pendingCommit;
+});
+const metadataProposals = computed(() => {
+  const doc = primaryDocument.value;
+  if (!doc) return {};
+  const proposals = {};
+  for (const [key, proposal] of Object.entries(ensureImportForm(doc).proposals)) {
+    if (!['title', 'date', 'category', 'correspondent', 'tags', 'note'].includes(key)) continue;
+    if (key === 'category' && validateTagName(String(proposal.value || ''))) continue;
+    if (key === 'note' && !usefulAnalysisNote(proposal.value, doc.meta.titleSuggestionMeta)) continue;
+    proposals[key === 'title' ? 'name' : key] = proposal;
+  }
+  if (!proposals.name && canOfferTitle(doc)) proposals.name = { value:doc.meta.titleSuggestion, origin:'KI' };
+  return proposals;
+});
+const proposalNeedsCorrespondent = computed(() => {
+  const value = normalizeCorrespondentInput(metadataProposals.value.correspondent?.value);
+  return Boolean(value && !correspondentStore.findById(value) && !correspondentStore.findByName(value));
+});
+function proposalText(field) {
+  const value = metadataProposals.value[field]?.value;
+  if (field === 'correspondent') return correspondentStore.findById(normalizeCorrespondentInput(value))?.name || String(value || '');
+  return Array.isArray(value) ? value.join(', ') : String(value || '');
+}
+function writeChosenMetadata(doc, field, value, origin) {
+  const form = ensureImportForm(doc);
+  if (field === 'title') stagingStore.setDocumentTitleDraft(doc.id, String(value).trim().slice(0, 200));
+  else if (field === 'tags') {
+    const names = value.map(name => normalizeTagName(name)).filter(name => name && !validateTagName(name));
+    stagingStore.setDocumentTags(doc.id, names.map(findStageTagIdByName).filter(Boolean));
+    doc.meta.pendingTagNames = names.filter(name => !findStageTagIdByName(name));
+  } else form[({ correspondent:'correspondentId' })[field] || field] = value;
+  form.touched[field] = true;
+  form.revisions[field] = (form.revisions[field] || 0) + 1;
+  form.aiFilled[field] = origin || false;
+  delete form.proposals[field];
+}
+function acceptMetadataProposal(field) {
+  const doc = primaryDocument.value;
+  const proposal = metadataProposals.value[field];
+  if (!doc || !proposal || isCommitting.value || stagingStore.pendingCommit) return;
+  if (field === 'correspondent') {
+    const value = normalizeCorrespondentInput(proposal.value);
+    const correspondent = correspondentStore.findById(value) || correspondentStore.findByName(value);
+    if (!correspondent) { openCorrespondentDialog(value, proposal.origin); return; }
+    writeChosenMetadata(doc, field, correspondent.id, proposal.origin);
+  } else writeChosenMetadata(doc, field === 'name' ? 'title' : field, proposal.value, proposal.origin);
+}
+function dismissMetadataProposal(field) {
+  const doc = primaryDocument.value;
+  const proposal = metadataProposals.value[field];
+  if (!doc || !proposal) return;
+  const key = field === 'name' ? 'title' : field;
+  const form = ensureImportForm(doc);
+  form.dismissed[key] = proposal.value;
+  delete form.proposals[key];
+  if (key === 'title') doc.meta.dismissedTitle = proposal.value;
+}
+function openCorrespondentDialog(name, origin = null) {
+  if (!primaryDocument.value || isCommitting.value || stagingStore.pendingCommit) return;
+  correspondentTarget = { id:primaryDocument.value.id, origin };
+  newCorrespondentName.value = String(name || '').replace(/\s+/gu, ' ').trim();
+  correspondentDialogOpen.value = true;
+}
+function selectCreatedCorrespondent(id) {
+  const doc = getDocumentById(correspondentTarget?.id);
+  if (doc) writeChosenMetadata(doc, 'correspondent', id, correspondentTarget.origin);
+  correspondentSearch.value = '';
+  correspondentTarget = null;
+  void nextTick(() => document.querySelector('.isd-props [data-field="correspondent"] input')?.focus());
+}
 const validationAttempted = ref(false);
 const fieldErrors = computed(() => {
   if (!primaryDocument.value) return {};
-  const result = validateImportDocument(primaryDocument.value);
-  return Object.fromEntries(Object.entries(result).filter(([key]) => validationAttempted.value || importForm.value.touched[key === 'title' ? 'title' : key]));
+  // Leere Felder blockieren den Import, erhalten aber keine rote Fehlermeldung.
+  const result = validateImportDocument(primaryDocument.value, { requireComplete: false });
+  return Object.fromEntries(Object.entries(result).filter(([key]) => validationAttempted.value || importForm.value.touched[key]));
 });
 const metadataSources = computed(() => Object.fromEntries(Object.entries(importForm.value.aiFilled)
   .filter(([, value]) => value).map(([key, value]) => [
@@ -782,10 +874,6 @@ const categoryItems = computed(() => {
 // Korrespondenten-Optionen für die Combobox ({ title, value }).
 const correspondentItems = computed(() => correspondentStore.correspondentOptions);
 
-function compactCorrespondentItemProps(itemProps = {}) {
-  const { title, prependIcon, ...rest } = itemProps || {};
-  return rest;
-}
 
 function normalizeCorrespondentInput(value) {
   if (value && typeof value === 'object') {
@@ -796,15 +884,10 @@ function normalizeCorrespondentInput(value) {
 
 // Ein Korrespondenten-Wert ist „noch nicht angelegt", wenn er weder einer bekannten
 // ID noch einem bekannten Namen entspricht (→ gestrichelter Chip, Anlage beim Import).
-function isNewCorrespondentValue(item) {
-  const value = normalizeCorrespondentInput(item?.value ?? item?.raw ?? item);
-  if (!value) return false;
-  return !correspondentStore.findById(value) && !correspondentStore.findByName(value);
-}
 
-const docOcrLang = computed(() => settingsStore.settings.documents.ocr_doc_lang ?? 'de');
+
 const docDateIso = computed(() => parseDocumentDateInput(docDate.value).iso);
-const isDocDateValid = computed(() => parseDocumentDateInput(docDate.value).ok);
+
 
 // Ablaufdatum lokal aus Dokumentdatum + Frist (Backend rechnet es beim Commit final neu).
 function computeRetainUntilIso(periodYears) {
@@ -829,33 +912,10 @@ function onRetentionAccept() {
 }
 
 // Kompakte Zusammenfassung für den eingeklappten Zustand.
-const RETENTION_PAPER_PHRASE = Object.freeze({
-  unclear: 'Papieroriginal offen',
-  keep: 'Original erforderlich',
-  scan_sufficient: 'Scan genügt',
-  not_applicable: 'Kein Original nötig'
-});
-const retentionSummary = computed(() => {
-  const r = docRetention.value;
-  if (!r || (r.period_years == null && (r.paper_original || 'unclear') === 'unclear')) {
-    return 'Nicht erfasst';
-  }
-  const period = r.period_years === -1
-    ? 'Unbegrenzt'
-    : (Number(r.period_years) > 0 ? `${r.period_years} Jahre` : 'Erfasst');
-  const phrase = RETENTION_PAPER_PHRASE[r.paper_original] || RETENTION_PAPER_PHRASE.unclear;
-  return `${period} · ${phrase}`;
-});
+
 
 // Ablaufdatum-Vorschau (dd.mm.yyyy) aus Dokumentdatum + Frist.
-const retentionExpiryLabel = computed(() => {
-  const period = docRetention.value ? docRetention.value.period_years : null;
-  if (period === -1) return 'Kein Ablauf';
-  const iso = computeRetainUntilIso(period);
-  if (!iso) return '';
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  return m ? `${m[3]}.${m[2]}.${m[1]}` : '';
-});
+
 
 // Ändert sich das Dokumentdatum, die Ablaufdatum-Vorschau mitziehen.
 watch(docDateIso, () => {
@@ -865,9 +925,8 @@ watch(docDateIso, () => {
     docRetention.value = { ...docRetention.value, retain_until: next };
   }
 });
-const tagInputRef = ref(null);
-const tagSearchInput = ref('');
-const tagDropdownOpen = ref(false);
+
+
 const tagInlineValue = ref('');
 const isCreatingTags = ref(false);
 
@@ -879,19 +938,10 @@ const isOpen = computed({
 const isIOSDevice = computed(() => isIOS());
 const isEmpty = computed(() => documentCount.value === 0 && totalPages.value === 0);
 // Die zuletzt sichtbare Anordnung bleibt während der Schließanimation erhalten,
-// auch wenn gespeicherte oder verworfene Seiten bereits aus dem Entwurf entfallen.
+// auch wenn gespeicherte oder abgelegte Seiten bereits aus dem aktiven Entwurf entfallen.
 const isEmptyLayout = ref(isEmpty.value);
 watch([() => props.modelValue, isEmpty], ([open, empty]) => {
   if (open) isEmptyLayout.value = empty;
-});
-const hasStagedPages = computed(() => totalPages.value > 0);
-const stagedPageCountLabel = computed(() => `${totalPages.value} ${totalPages.value === 1 ? 'Seite' : 'Seiten'}`);
-const discardImportConfirmSubtitle = computed(() => {
-  return `${stagedPageCountLabel.value} im aktuellen Import`;
-});
-const discardImportConfirmDescription = computed(() => {
-  const verb = totalPages.value === 1 ? 'wurde' : 'wurden';
-  return `${stagedPageCountLabel.value} ${verb} noch nicht importiert. Wenn du sie verwirfst, geht dieser Importentwurf verloren.`;
 });
 const dropzoneSubtitle = computed(() => {
   if (isDropzoneDragOver.value) return 'Die neuen Seiten werden gleich für die Vorschau vorbereitet';
@@ -931,15 +981,8 @@ function msSinceImportSourceSeen(sourceFileId) {
 }
 
 function logImportTiming(event, fields = {}) {
-  if (typeof console === 'undefined' || typeof console.info !== 'function') {
-    return;
-  }
-  const payload = {
-    event,
-    at: new Date().toISOString(),
-    ...fields
-  };
-  console.info('[ImportTiming]', payload);
+  const name = { dialog_source_seen: 'source_received', preview_visible: 'preview_render' }[event];
+  if (name) diagnostics.record(name, { pages: Number(fields.page_count || 0), network_ms: fields.server_created_to_dialog_ms, browser_ms: fields.ms_since_dialog_source_seen });
 }
 
 function rememberImportSourceTiming(source) {
@@ -1017,21 +1060,6 @@ function isDefaultScanTitle(title) {
   return String(title || '').trim() === 'Neuer Scan';
 }
 
-function isScanStage(documentEntry) {
-  const meta = ensureScanMeta(documentEntry);
-  if (!meta) {
-    return false;
-  }
-  return Boolean(meta.isScanSession || meta.scanSourceFileIds.length > 0 || isDefaultScanTitle(documentEntry?.title));
-}
-
-function isScanTitleWorking(documentEntry) {
-  return String(documentEntry?.meta?.titleSuggestionStatus || '') === 'working';
-}
-
-function isScanTitlePendingOcr(documentEntry) {
-  return String(documentEntry?.meta?.titleSuggestionStatus || '') === 'pending_ocr';
-}
 
 function isScanTitleBusy(documentEntry) {
   const status = String(documentEntry?.meta?.titleSuggestionStatus || '');
@@ -1040,104 +1068,7 @@ function isScanTitleBusy(documentEntry) {
   return false;
 }
 
-function canOpenTitleSuggestActions(documentEntry) {
-  return Boolean(documentEntry && Number(documentEntry?.pages?.length || 0) > 0);
-}
 
-function isTitleSuggestActionDisabled(documentEntry) {
-  if (isScanTitleBusy(documentEntry)) {
-    return true;
-  }
-  return !canOpenTitleSuggestActions(documentEntry);
-}
-
-function getTitleSuggestHint(documentEntry) {
-  if (isScanTitleBusy(documentEntry)) {
-    return 'Bitte warten…';
-  }
-  if (Number(documentEntry?.pages?.length || 0) <= 0) {
-    return 'Erst Seiten hinzufügen';
-  }
-  return 'Titel mit KI vorschlagen';
-}
-
-function hasReadyScanSuggestion(documentEntry) {
-  const suggestion = String(documentEntry?.meta?.titleSuggestion || '').trim();
-  const status = String(documentEntry?.meta?.titleSuggestionStatus || '');
-  return Boolean(suggestion && status === 'ready');
-}
-
-function canShowScanSuggestion(documentEntry) {
-  return hasReadyScanSuggestion(documentEntry) && canOfferTitle(documentEntry);
-}
-
-function getScanSuggestionPrefix(documentEntry) {
-  if (documentEntry?.meta?.titleSuggestionUsedFallback) {
-    return 'Titel automatisch';
-  }
-  return 'KI-Vorschlag';
-}
-
-function getScanSuggestionActionLabel(documentEntry) {
-  return documentEntry?.meta?.titleSuggestionUsedFallback ? 'Bearbeiten' : 'Übernehmen';
-}
-
-function getScanSuggestionDetails(documentEntry) {
-  const meta = documentEntry?.meta?.titleSuggestionMeta;
-  if (!meta || typeof meta !== 'object') {
-    return '';
-  }
-  const details = [];
-  const issuer = String(meta.issuer || '').trim();
-  const subject = String(meta.subject || '').trim();
-  const amount = Number(meta.amount);
-  const currency = String(meta.currency || '').trim();
-  if (issuer) {
-    details.push(`Firma: ${issuer}`);
-  }
-  if (subject) {
-    details.push(`Betreff: ${subject}`);
-  }
-  if (Number.isFinite(amount) && amount > 0) {
-    const formatted = amount.toFixed(2).replace('.', ',');
-    details.push(`Betrag: ${formatted}${currency === 'EUR' ? '€' : currency || ''}`);
-  }
-  return details.join(' · ');
-}
-
-function getStageTitleMetaText(documentEntry) {
-  if (isScanTitleWorking(documentEntry)) {
-    return 'Titel wird vorgeschlagen…';
-  }
-  if (isScanTitlePendingOcr(documentEntry)) {
-    return documentEntry?.meta?.titleSuggestionPollExhausted
-      ? 'OCR noch nicht fertig - später erneut versuchen.'
-      : 'OCR läuft…';
-  }
-  if (hasReadyScanSuggestion(documentEntry)) {
-    const suggestion = String(documentEntry?.meta?.titleSuggestion || '').trim();
-    const details = getScanSuggestionDetails(documentEntry);
-    const parts = [];
-    if (canShowScanSuggestion(documentEntry)) {
-      parts.push(`${getScanSuggestionPrefix(documentEntry)}: ${suggestion}`);
-    }
-    if (details) {
-      parts.push(details);
-    }
-    return parts.join(' · ');
-  }
-  return '';
-}
-
-function getStageTitleMetaClass(documentEntry) {
-  if (isScanTitleWorking(documentEntry)) {
-    return 'scan-title-hint--working';
-  }
-  if (isScanTitlePendingOcr(documentEntry)) {
-    return 'scan-title-hint--pending';
-  }
-  return 'scan-title-hint--ready';
-}
 const selectedDocumentEntry = computed(
   () => documents.value.find((entry) => entry.id === selected.value?.stageId) || null
 );
@@ -1149,47 +1080,18 @@ const selectedPageEntry = computed(() => {
   return documentEntry.pages.find((page) => page.id === selected.value?.pageId) || null;
 });
 const hasSelectedPreview = computed(() => Boolean(selectedPageEntry.value));
-const selectedPreviewNumber = computed(() => allPagesFlat.value.findIndex(({ page }) => page.id === selected.value?.pageId) + 1);
-const selectedPreviewLabel = computed(() => selectedPreviewNumber.value ? `Seite ${selectedPreviewNumber.value} von ${totalPages.value}` : 'Seitenvorschau');
-const {
-  viewport: previewViewport, image: previewImageElement,
-  zoom: previewZoom, zoomPercent: previewZoomPercent, canZoomIn: canPreviewZoomIn, canZoomOut: canPreviewZoomOut,
-  canvasStyle: previewCanvasStyle, imageStyle: previewImageStyle, onImageLoad: onPreviewImageLoad,
-  resetZoom: resetPreviewZoom, zoomIn: zoomPreviewIn, zoomOut: zoomPreviewOut, onWheel: onPreviewWheel, onKeydown: onPreviewKeydown,
-  magnifierEnabled: previewMagnifierEnabled, magnifier: previewMagnifier, magnifierStyle: previewMagnifierStyle,
-  hideMagnifier: hidePreviewMagnifier, toggleMagnifier: togglePreviewMagnifier, onPointerMove: onPreviewPointerMove,
-} = usePageImagePreview({ source: previewImageSrc, pageId: () => selectedPageEntry.value?.id,
-  thumbnail: previewIsThumbnail, rotation: () => selectedPageEntry.value?.rotation, colorMode: () => selectedPageEntry.value?.colorMode });
 const MODAL_WORK_WIDTH_SPLIT = 1200;
-const peekStyle = computed(() => ({
-  left: `${Math.round(peek.value.x)}px`,
-  top: `${Math.round(peek.value.y)}px`
-}));
-const pageDropMarkerStyle = computed(() => ({
-  left: `${Math.round(pageDropMarker.value.left)}px`,
-  top: `${Math.round(pageDropMarker.value.top)}px`,
-  height: `${Math.round(pageDropMarker.value.height)}px`
-}));
-const footerSummary = computed(() => `${documentCount.value} Dokumente • ${totalPages.value} Seiten`);
-const emptyHint = computed(() => (emptyDocuments.value.length > 0 ? 'Leere Dokumente werden nicht importiert.' : ''));
+
+
 const primaryDocTitle = computed(() => primaryDocument.value?.title || '');
-const isPrimaryDocTitleBusy = computed(() => primaryDocument.value ? isScanTitleBusy(primaryDocument.value) : false);
-const primaryDocSuggestionText = computed(() => {
-  if (!primaryDocument.value) return '';
-  return canShowScanSuggestion(primaryDocument.value) ? String(primaryDocument.value.meta?.titleSuggestion || '').trim() : '';
-});
+
+
 const primaryDocTags = computed(() => {
   if (!primaryDocument.value) return [];
   return (primaryDocument.value.tags || [])
     .map(id => stageTagPool.value.find(t => t.id === id) || { id, name: id });
 });
-const tagDropdownResults = computed(() => {
-  const q = tagSearchInput.value.trim().toLowerCase();
-  const selectedIds = new Set(primaryDocument.value?.tags || []);
-  const pool = stageTagPool.value.filter(t => !selectedIds.has(t.id));
-  if (!q) return pool.slice(0, 8);
-  return pool.filter(t => t.name.toLowerCase().includes(q)).slice(0, 8);
-});
+
 const primaryDocPendingTagNames = computed(() =>
   Array.isArray(primaryDocument.value?.meta?.pendingTagNames)
     ? primaryDocument.value.meta.pendingTagNames
@@ -1208,9 +1110,7 @@ const allTagNamesForPool = computed(() => {
 
 // Ein Tag-Name ist "neu", wenn dazu (noch) kein bestehendes Tag existiert –
 // er würde beim Import erst angelegt. Solche Chips werden gestrichelt dargestellt.
-function isNewTagName(name) {
-  return !findStageTagIdByName(String(name || ''));
-}
+
 const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
 // Der Farbmodus gilt für den gesamten Import, unabhängig von der Seitenauswahl.
 const pageToolsDisabled = computed(() => !hasSelectedPreview.value || isCommitting.value || Boolean(stagingStore.pendingCommit));
@@ -1223,8 +1123,28 @@ const pageColorOptions = [
 function pageColorFilter(mode) {
   return mode === 'grayscale' ? 'grayscale(1)' : mode === 'bw' ? 'grayscale(1) contrast(4)' : undefined;
 }
+const thumbnailSizes = ref(new Map());
+function rememberThumbnailSize(image) {
+  const url = image?.getAttribute('src');
+  const width = image?.naturalWidth;
+  const height = image?.naturalHeight;
+  if (!url || !width || !height) return;
+  const previous = thumbnailSizes.value.get(url);
+  if (previous?.width !== width || previous?.height !== height) thumbnailSizes.value.set(url, { width, height });
+}
+function thumbnailRotation(page) {
+  return ((Number(page?.rotation || 0) % 360) + 360) % 360;
+}
 function pageThumbnailImageStyle(page) {
-  return { transform: page.rotation ? `rotate(${page.rotation}deg)` : undefined, filter: pageColorFilter(page.colorMode) };
+  const rotation = thumbnailRotation(page);
+  const { width, height } = pageThumbnailSize(page);
+  const quarterTurn = [90, 270].includes(rotation);
+  return {
+    transform: rotation ? `rotate(${rotation}deg)` : undefined,
+    filter: pageColorFilter(page.colorMode),
+    width: quarterTurn ? `${(width / height) * 100}%` : undefined,
+    height: quarterTurn ? `${(height / width) * 100}%` : undefined,
+  };
 }
 function autoCropForPage(page) {
   const sourceFileId = String(page?.sourceFileId || '').trim();
@@ -1235,42 +1155,80 @@ function autoCropForPage(page) {
   }
   return pages.find(result => Number(result?.page_index) === pageIndex) || null;
 }
-function pageThumbnailFormatStyle(page) {
+function pageThumbnailSize(page) {
+  const fallback = scannerThumbnailFallback.value;
+  const loaded = thumbnailSizes.value.get(page.thumbUrl)
+    || (fallback && fallback.pageId === page.id && thumbnailSizes.value.get(fallback.url));
+  if (loaded) return loaded;
   const crop = autoCropForPage(page);
   const size = crop?.cropped_size_pixels;
   if (!crop?.applied || !Array.isArray(size) || size.length !== 2) {
-    return undefined;
+    return { width: 3, height: 4 };
   }
-  let width = Number(size[0]);
-  let height = Number(size[1]);
+  const width = Number(size[0]);
+  const height = Number(size[1]);
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return undefined;
+    return { width: 3, height: 4 };
   }
-  if ([90, 270].includes(Number(page?.rotation || 0))) {
+  return { width, height };
+}
+function pageThumbnailFormatStyle(page) {
+  let { width, height } = pageThumbnailSize(page);
+  if ([90, 270].includes(thumbnailRotation(page))) {
     [width, height] = [height, width];
   }
-  return { paddingTop: `${(height / width) * 100}%` };
+  return { aspectRatio: `${width} / ${height}` };
 }
 // Die KI-Analyse gilt als abgeschlossen, sobald nichts mehr vorbereitet wird
 // und der Analyse-Status nicht mehr "busy" (läuft) ist. Ein fehlgeschlagener
 // Lauf zählt ebenfalls als abgeschlossen – die Felder lassen sich dann manuell
 // befüllen.
-const isAnalysisComplete = computed(() =>
-  !isUploadingSources.value && aiAnalysis.value.kind !== 'busy'
-);
+
 
 // Notizen sind optional; alle übrigen Metadaten werden vor dem Import geprüft.
 const areRequiredFieldsFilled = computed(() => documents.value.every(doc => Object.keys(validateImportDocument(doc)).length === 0));
+const importReadinessBlockers = computed(() => documents.value.map(doc => {
+  const errors = validateImportDocument(doc);
+  const invalid = validateImportDocument(doc, { requireComplete:false });
+  const labels = { title:'Dokumentname', date:'Dokumentdatum', category:'Dokumenttyp', correspondent:'Korrespondent', tags:'Tags', note:'Notizen', pages:'Seiten' };
+  return { id:doc.id, title:doc.title, fields:Object.keys(errors).map(key => ({ key, label:labels[key], invalid:Boolean(invalid[key]) })) };
+}).filter(item => item.fields.length));
+async function navigateToImportField({ id, field }) {
+  const doc = getDocumentById(id);
+  if (!doc) return;
+  activeDocumentId.value = id;
+  const entry = allPagesFlat.value.find(item => item.doc.id === id);
+  if (entry) selectPage(id, entry.page.id, entry.globalIndex);
+  await nextTick();
+  if (field === 'pages') { openFilePicker(); return; }
+  const row = document.querySelector(`.isd-props [data-field="${field === 'title' ? 'name' : field}"]`);
+  row?.scrollIntoView({ block:'nearest' });
+  row?.querySelector('input:not([type="hidden"]), textarea')?.focus({ preventScroll:true });
+}
 const footerValidationHint = computed(() => {
-  if (validationAttempted.value && !areRequiredFieldsFilled.value) return 'Bitte die markierten Pflichtfelder vervollständigen.';
+  if (validationAttempted.value && Object.keys(fieldErrors.value).length) return 'Bitte die markierten Eingaben korrigieren.';
   return '';
 });
-const isImportActionDisabled = computed(() => totalPages.value <= 0 || isCommitting.value || props.scannerActive || isScanCleanupRunning.value || isUploadingSources.value || sourceRefreshCount.value > 0);
+const processState = computed(() => importProcessState({
+  committing: isCommitting.value, scanning: props.scannerActive, cleanup: isScanCleanupRunning.value,
+  uploading: isUploadingSources.value, refreshing: sourceRefreshCount.value > 0, pages: totalPages.value,
+  analysis: primaryDocument.value?.meta?.analysisState, lookup: primaryDocument.value?.meta?.analysisLookupPending, conflict: draftPersistence.conflict.value,
+}));
+const isImportActionBusy = computed(() => processState.value.blocksCommit);
+// Ein ausstehender Import wird mit seinem bereits geprüften, gespeicherten
+// Request wiederholt. Für neue Importe müssen die aktuellen Felder gültig sein.
+const isImportActionDisabled = computed(() => isImportActionBusy.value || (!stagingStore.pendingCommit && !areRequiredFieldsFilled.value));
 
 /* ── Multi-Selektion ── */
 const multiSelectedPageIds = ref(new Set());
 const hasMultiSelection = computed(() => multiSelectedPageIds.value.size > 0);
 const multiSelectionCount = computed(() => multiSelectedPageIds.value.size);
+const isSelectionImportDisabled = computed(() => {
+  if (isImportActionBusy.value || !hasMultiSelection.value) return true;
+  if (stagingStore.pendingCommit) return false;
+  const entries = commitSubset(documents.value, multiSelectedPageIds.value);
+  return !entries.length || entries.some(({ document, pages }) => Object.keys(validateImportDocument({ ...document, pages })).length > 0);
+});
 const isSelectMode = ref(false);
 const isDeleteEnabled = computed(() => hasMultiSelection.value || hasAnySelectedPage.value);
 
@@ -1284,18 +1242,6 @@ function clearMultiSelection() {
   }
 }
 
-const allPagesSelected = computed(() => {
-  const flat = allPagesFlat.value;
-  return flat.length > 0 && flat.every(({ page }) => multiSelectedPageIds.value.has(page.id));
-});
-
-function toggleSelectAll() {
-  if (allPagesSelected.value) {
-    clearMultiSelection();
-  } else {
-    multiSelectedPageIds.value = new Set(allPagesFlat.value.map(({ page }) => page.id));
-  }
-}
 
 function toggleSelectMode() {
   isSelectMode.value = !isSelectMode.value;
@@ -1409,7 +1355,7 @@ function onMiniatureAreaClick(event) {
 }
 
 async function commitSelectionImport() {
-  if (!hasMultiSelection.value || isImportActionDisabled.value) return;
+  if (isSelectionImportDisabled.value) return;
   await commitImport(new Set(multiSelectedPageIds.value));
 }
 
@@ -1441,6 +1387,24 @@ const {
   isPreviewReady: pageId => selectedPageEntry.value?.id === pageId && !previewIsThumbnail.value,
   animationsEnabled: () => settingsStore.animationsEnabled,
 });
+const {
+  viewport: previewViewport, image: previewImageElement, scrolling: previewScrolling, adjusting: previewAdjusting,
+  zoom: previewZoom, zoomPercent: previewZoomPercent, canZoomIn: canPreviewZoomIn, canZoomOut: canPreviewZoomOut,
+  canvasStyle: previewCanvasStyle, pageStyle: previewPageStyle, imageStyle: previewImageStyle, shouldLoad: shouldLoadPreview,
+  setPageElement: setPreviewPageElement, setImageElement: setPreviewImageElement, onImageLoad: onPreviewImageLoad,
+  onScroll: onPreviewScroll, onScrollEnd: onPreviewScrollEnd, scrollToPage: scrollPreviewToPage,
+  resetZoom: resetPreviewZoom, zoomIn: zoomPreviewIn, zoomOut: zoomPreviewOut, onWheel: onPreviewWheel, onKeydown: onPreviewKeydown,
+  magnifierEnabled: previewMagnifierEnabled, magnifier: previewMagnifier, magnifierStyle: previewMagnifierStyle,
+  hideMagnifier: hidePreviewMagnifier, toggleMagnifier: togglePreviewMagnifier, onPointerMove: onPreviewPointerMove,
+} = useContinuousPagePreview({ pages: () => allPagesFlat.value.map(({ page }) => page), pageId: () => selectedPageEntry.value?.id,
+  source: pagePreviewSource, thumbnail: pagePreviewIsThumbnail, size: pagePreviewSize, onVisiblePage: onPreviewVisiblePage });
+watch(
+  () => [...allPagesFlat.value.map(({ page }) => page.thumbUrl), scannerThumbnailFallback.value?.url, scannerLivePreviewUrl.value],
+  urls => {
+    const used = new Set(urls);
+    for (const url of thumbnailSizes.value.keys()) if (!used.has(url)) thumbnailSizes.value.delete(url);
+  }
+);
 const preparationProgressLabel = computed(() => {
   const total = Math.max(0, Number(preparationProgress.value.total || 0));
   const done = Math.max(0, Number(preparationProgress.value.done || 0));
@@ -1449,9 +1413,10 @@ const preparationProgressLabel = computed(() => {
   }
   return `Vorbereiten: ${Math.min(done, total)}/${total}`;
 });
-const previewImageCache = new Map();
-let previewRenderNonce = 0;
-let previewImageContentKey = '';
+previewImages = useImportPreviewImages({ store: stagingStore, allPagesFlat, selectedPageEntry,
+  scannerPreviewFallback, previewScrolling, previewImageSrc, previewImageLoading, previewIsThumbnail,
+  thumbnailSizes, pageThumbnailSize, thumbnailRotation, renderServerColorPreview, renderLargePreview,
+  hidePreviewMagnifier, diagnostics, sourceElapsed: msSinceImportSourceSeen });
 
 /* ── Dokumentweiter KI-Analyse-Status für den Formularheader ──
  * Spiegelt den titleSuggestionStatus des primären Dokuments auf vier UI-Zustände:
@@ -1521,16 +1486,17 @@ const aiAnalysis = computed(() => {
 // Priorität: erst wird der Scan bereinigt, dann analysiert die KI – nie beides
 // als getrennter Spinner.
 const prepStatus = computed(() => {
-  if (props.scannerActive) {
+  const phase = processState.value.phase;
+  if (phase === 'scanning') {
     return { busy: true, label: 'Scan läuft', description: 'Der Scanner erfasst weitere Seiten für den Import.', kind: 'busy' };
   }
-  if (isScanCleanupRunning.value) {
+  if (phase === 'cleanup') {
     return { busy: true, label: 'Scan wird verbessert', description: 'Die Scan-Seiten werden noch verbessert. Der Import ist verfügbar, sobald die Vorbereitung abgeschlossen ist.', kind: 'busy' };
   }
-  if (sourceRefreshCount.value) {
+  if (phase === 'refreshing') {
     return { busy: true, label: 'Vorschau wird geladen', description: 'Die aktualisierten Seiten werden für die Vorschau vorbereitet.', kind: 'busy' };
   }
-  if (isUploadingSources.value) {
+  if (phase === 'uploading') {
     return { busy: true, label: preparationProgressLabel.value || 'Dateien werden vorbereitet', description: 'Die Seiten werden für die Vorschau und den Import vorbereitet.', kind: 'busy' };
   }
   if (isRetryingAnalysis.value || aiAnalysis.value.kind === 'busy') {
@@ -1601,6 +1567,11 @@ const aiStatusTitle = computed(() => {
 const analysisActionLabel = computed(() => ({ failed: 'Analyse wiederholen', interrupted: 'Analysestatus aktualisieren' })[aiAnalysis.value.kind] || 'Angaben automatisch ausfüllen');
 const analysisHeaderStatus = computed(() => prepStatus.value.busy ? prepStatus.value.label
   : ({ failed: 'Erkennung fehlgeschlagen', interrupted: 'Status nicht verfügbar' })[aiAnalysis.value.kind] || 'Nur Notizen sind optional.');
+const analysisScopeHint = computed(() => {
+  const doc = primaryDocument.value;
+  if (!doc || doc.meta.analysisRevision !== analysisRevision(doc, stagingStore.sourceMetaById)) return '';
+  return importAnalysisScope(doc.meta.titleSuggestionMeta, doc.pages);
+});
 
 async function onImportAnalysisClick() {
   if (prepStatus.value.busy) { preparationHintOpen.value = true; return; }
@@ -1612,26 +1583,6 @@ async function onImportAnalysisClick() {
   }
 }
 
-function hasAiFilledImportFields() {
-  return Boolean(
-    docTitleAiFilled.value ||
-    docDateAiFilled.value ||
-    docCategoryAiFilled.value ||
-    docCorrespondentAiFilled.value ||
-    docTagsAiFilled.value ||
-    docNoteAiFilled.value
-  );
-}
-
-function resetPrimaryAiFillState() {
-  docTitleAiFilled.value = false;
-  docDateAiFilled.value = false;
-  docCategoryAiFilled.value = false;
-  docTagsAiFilled.value = false;
-  docNoteAiFilled.value = false;
-  docCorrespondentAiFilled.value = false;
-  aiFieldGlowActive.value = false;
-}
 
 function resetScanSuggestionMeta(documentEntry) {
   const meta = ensureScanMeta(documentEntry);
@@ -1639,7 +1590,7 @@ function resetScanSuggestionMeta(documentEntry) {
     return null;
   }
   meta.titleSuggestion = '';
-  meta.titleSuggestionStatus = 'idle';
+  setImportAnalysisState(meta, 'idle');
   meta.titleSuggestionUsedFallback = false;
   meta.titleSuggestionPollExhausted = false;
   meta.titleSuggestionMeta = null;
@@ -1664,18 +1615,7 @@ function triggerAiFieldGlow() {
 }
 
 /* ── Datum-Hilfsfunktionen ── */
-function isValidGermanDate(str) {
-  if (!/^\d{2}\.\d{2}\.\d{4}$/.test(str)) return false;
-  const [dd, mm, yyyy] = str.split('.').map(Number);
-  const d = new Date(yyyy, mm - 1, dd);
-  return d.getFullYear() === yyyy && d.getMonth() === mm - 1 && d.getDate() === dd;
-}
 
-function germanDateToIso(str) {
-  if (!str || !isValidGermanDate(str)) return null;
-  const [dd, mm, yyyy] = str.split('.');
-  return `${yyyy}-${mm}-${dd}`;
-}
 
 function isoToGermanDate(iso) {
   if (!iso) return '';
@@ -1731,53 +1671,6 @@ async function ensureStageTagsLoaded(options = {}) {
   await fetchStageTags();
 }
 
-async function createStageTagByName(rawName) {
-  const normalizedName = normalizeTagName(rawName);
-  if (!normalizedName) {
-    return '';
-  }
-  const validationMessage = validateTagName(normalizedName);
-  if (validationMessage) {
-    notify({ type: 'warning', message: validationMessage });
-    return '';
-  }
-  const existingId = findStageTagIdByName(normalizedName);
-  if (existingId) {
-    return existingId;
-  }
-
-  const response = await fetch(`${props.apiBaseUrl}/api/tags`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ name: normalizedName })
-  });
-
-  if (!response.ok) {
-    if (response.status === 409) {
-      await fetchStageTags();
-      return findStageTagIdByName(normalizedName);
-    }
-    throw new Error(await parseResponseError(response));
-  }
-
-  const created = await response.json();
-  const createdId = String(created?.id || '').trim();
-  const createdTagName = normalizeTagName(created?.name || normalizedName);
-  if (!createdId || !createdTagName) {
-    await fetchStageTags();
-    return findStageTagIdByName(normalizedName);
-  }
-
-  stageTagPool.value = [...stageTagPool.value, { id: createdId, name: createdTagName }];
-  stageTagPool.value.sort((left, right) => left.name.localeCompare(right.name, 'de-DE'));
-  return createdId;
-}
-
-function onDocumentTagsUpdate(documentId, tagIds) {
-  stagingStore.setDocumentTags(documentId, tagIds);
-}
 
 function attachPeekGlobalListeners() {
   if (typeof window === 'undefined') {
@@ -1797,42 +1690,55 @@ function detachPeekGlobalListeners() {
   window.removeEventListener('scroll', onGlobalViewportChange, true);
 }
 
+function parkClosedImport(force = false) {
+  if ((!force && props.modelValue) || isUploadingSources.value || isCommitting.value || remoteSourceLoads.value) return;
+  analysisQueue.clear();
+  for (const doc of documents.value) {
+    if (['working', 'pending_ocr'].includes(doc.meta?.titleSuggestionStatus)) setImportAnalysisState(doc.meta, 'idle');
+    if (doc.meta) { doc.meta.analysisPending = false; doc.meta.analysisLookupPending = false; }
+  }
+  const replaced = stagingStore.parkDraft();
+  selected.value = null;
+  peek.value = { open: false, x: 0, y: 0 };
+  peekAnchorEl.value = null;
+  remoteSourceStageBySession.clear();
+  importTimingBySource.clear();
+  previewImageSrc.value = '';
+  previewImageLoading.value = false;
+  previewImages.clear();
+  pdfRenderer.clear();
+  metadataFocus.reset();
+  pageThumbRefs.clear();
+  void draftPersistence.save().then(saved => {
+    if (!saved || !replaced || draftPersistence.conflict.value) return;
+    const kept = new Set([...stagingStore.sourceMetaById.keys(), ...(stagingStore.availableDraft?.sourceMeta || []).map(([id]) => id)]);
+    const removed = replaced.sourceMeta.filter(([id]) => !kept.has(id));
+    if (removed.length) emit('discarded-sources', {
+      sourceFileIds: removed.map(([id]) => id),
+      inboxItems: removed.filter(([, meta]) => meta.inboxItemId).map(([id, meta]) => [id, meta.inboxItemId]),
+    });
+  });
+}
+
 watch(
   () => props.modelValue,
   (open) => {
-    if (open && typeof window !== 'undefined' && closeResetTimer) {
-      window.clearTimeout(closeResetTimer);
-      closeResetTimer = 0;
+    if (open) {
+      // A fast reopen still starts with the source choices after closing.
+      if (closeParkTimer) {
+        window.clearTimeout(closeParkTimer);
+        closeParkTimer = 0;
+        parkClosedImport(true);
+      }
+      void categoryStore.fetchCategories();
+      void correspondentStore.ensureLoaded();
+      return;
     }
-    if (!open && typeof window !== 'undefined' && viewSwitchTimer) {
+    if (viewSwitchTimer) {
       window.clearTimeout(viewSwitchTimer);
       viewSwitchTimer = 0;
       isViewSwitching.value = false;
     }
-    if (open) {
-      isMinimizingToTray = false;
-      // Verfügbare Dokumenttypen für das Dropdown laden (zentral in den Einstellungen gepflegt).
-      void categoryStore.fetchCategories();
-      // Korrespondenten für Auswahl/Auflösung laden.
-      void correspondentStore.ensureLoaded();
-      return;
-    }
-    if (isMinimizingToTray) {
-      discardImportConfirmOpen.value = false;
-      isDropzoneDragOver.value = false;
-      dropDragDepth.value = 0;
-      isBodyFileDragOver.value = false;
-      bodyFileDragDepth.value = 0;
-      isAddPageDragOver.value = false;
-      addPageDragDepth.value = 0;
-      documentDragDepth.value = {};
-      resetPageDragState();
-      clearSettledPage();
-      stopAutoScroll();
-      detachPeekGlobalListeners();
-      return;
-    }
-    discardImportConfirmOpen.value = false;
     isDropzoneDragOver.value = false;
     dropDragDepth.value = 0;
     isBodyFileDragOver.value = false;
@@ -1840,34 +1746,26 @@ watch(
     isAddPageDragOver.value = false;
     addPageDragDepth.value = 0;
     documentDragDepth.value = {};
-    selected.value = null;
-    peek.value = { open: false, x: 0, y: 0 };
-    peekAnchorEl.value = null;
+    correspondentDialogOpen.value = false;
+    correspondentSearch.value = '';
+    correspondentTarget = null;
     resetPageDragState();
     clearSettledPage();
     stopAutoScroll();
-    remoteSourceStageBySession.clear();
-    titleSuggestJobByStage.clear();
-    importTimingBySource.clear();
-    previewImageSrc.value = '';
-    previewImageLoading.value = false;
-    previewImageCache.clear();
-    pageThumbRefs.clear();
-    if (typeof window === 'undefined') {
-      stagingStore.reset();
-      return;
-    }
-    if (closeResetTimer) {
-      window.clearTimeout(closeResetTimer);
-    }
-    closeResetTimer = window.setTimeout(() => {
-      closeResetTimer = 0;
-      if (!props.modelValue) {
-        stagingStore.reset();
-      }
+    detachPeekGlobalListeners();
+    // Keep the visible page and working width through the normal leave animation.
+    window.clearTimeout(closeParkTimer);
+    closeParkTimer = window.setTimeout(() => {
+      closeParkTimer = 0;
+      parkClosedImport();
     }, 280);
   }
 );
+// Uploads and commits may finish after the window has already closed. Their
+// result is parked only once they settle; closing never cancels or loses it.
+watch([isUploadingSources, isCommitting, remoteSourceLoads], () => {
+  if (!props.modelValue && !closeParkTimer) parkClosedImport();
+});
 
 watch(
   isEmpty,
@@ -1961,9 +1859,6 @@ watch(
     if (!open) {
       teardownBodyLayoutObserver();
       addSourceChooserOpen.value = false;
-      if (isMinimizingToTray) {
-        return;
-      }
       retentionExpanded.value = false;
       aiFieldGlowActive.value = false;
       return;
@@ -1971,17 +1866,8 @@ watch(
     nextTick(() => {
       setupBodyLayoutObserver();
       scheduleBodyContentLayoutStateUpdate();
-      // Selbstheilung beim (Wieder-)Öffnen des Dialogs.
-      //
-      // Beim Schließen wird titleSuggestJobByStage geleert (siehe Zeile ~1207),
-      // während stagingStore.reset() um 280 ms verzögert ist. Öffnet der Nutzer den
-      // Dialog schnell wieder (oder nach einem HMR-Update), bleiben Dokumente erhalten,
-      // deren persistierter meta-Status noch 'working'/'pending_ocr'/'error' ist –
-      // ohne zugehörigen Job. Solche Dokumente NICHT als fehlgeschlagen anzeigen
-      // ("Keine automatische Erkennung"), sondern die Analyse erneut anstoßen, damit
-      // die KI-Erkennung beim nächsten Import zuverlässig läuft. Bereits fertige
-      // Dokumente ('ready'/'applied') bleiben unangetastet, der Dedup-Guard in
-      // requestScanTitleSuggestion verhindert Doppelläufe.
+      // Unterbrochene Analysen fortsetzen, ohne bereits fertige Werte zu ändern.
+      // Die Queue verhindert doppelte Jobs für dieselbe Dokumentrevision.
       for (const doc of documents.value) {
         const status = String(doc.meta?.titleSuggestionStatus || '');
         const isTerminalGood = status === 'ready' || status === 'applied';
@@ -1989,7 +1875,7 @@ watch(
         if (!isTerminalGood && hasPages && !titleSuggestJobByStage.has(doc.id)) {
           const recoverMeta = ensureScanMeta(doc);
           if (recoverMeta) {
-            recoverMeta.titleSuggestionStatus = 'idle';
+            setImportAnalysisState(recoverMeta, 'idle');
             recoverMeta.titleSuggestionPollExhausted = false;
           }
           void requestScanTitleSuggestion(doc.id, 'first_page', { silent: true });
@@ -2030,85 +1916,19 @@ watch(
   { immediate: true }
 );
 
-const selectedPreviewRenderKey = computed(() => {
-  const pageEntry = selectedPageEntry.value;
-  if (!pageEntry) {
-    return '';
-  }
-  return [
-    pageEntry.id,
-    pageEntry.sourceFileId,
-    Number(pageEntry.pageIndex || 0),
-    Number(pageEntry.rotation || 0),
-    String(pageEntry.colorMode || 'auto'),
-    pageEntry.thumbUrl,
-    stagingStore.sourceMetaById.get(pageEntry.sourceFileId)?.sourceRevision,
-    scannerPreviewFallback.value?.pageId === pageEntry.id ? scannerPreviewFallback.value.url : ''
-  ].join(':');
-});
+function onPreviewVisiblePage(pageId) {
+  if (!isOpen.value) return;
+  const index = allPagesFlat.value.findIndex(({ page }) => page.id === pageId);
+  const entry = allPagesFlat.value[index];
+  if (!entry || selected.value?.pageId === pageId) return;
+  selectPage(entry.doc.id, pageId, index);
+  closePeek();
+  void nextTick(() => pageThumbRefs.get(pageId)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+}
 
-watch(
-  selectedPreviewRenderKey,
-  async (renderKey, _previous, onCleanup) => {
-    hidePreviewMagnifier();
-    previewRenderNonce += 1;
-    const nonce = previewRenderNonce;
-    const pageEntry = selectedPageEntry.value ? { ...selectedPageEntry.value } : null;
-
-    if (!renderKey || !pageEntry) {
-      previewImageContentKey = '';
-      previewImageSrc.value = '';
-      previewImageLoading.value = false;
-      return;
-    }
-
-    const colorMode = String(pageEntry.colorMode || 'auto');
-    const contentKey = JSON.stringify([pageEntry.id, pageEntry.sourceFileId, pageEntry.pageIndex, pageEntry.rotation || 0, colorMode]);
-    const scanPreview = scannerPreviewFallback.value?.pageId === pageEntry.id ? scannerPreviewFallback.value.url : '';
-    const keepCurrentImage = previewImageContentKey === contentKey && Boolean(previewImageSrc.value)
-      && (!previewIsThumbnail.value || !scanPreview || previewImageSrc.value === scanPreview);
-    previewImageContentKey = contentKey;
-    const sourceRevision = stagingStore.sourceMetaById.get(pageEntry.sourceFileId)?.sourceRevision || '';
-    const cacheKey = `${pageEntry.sourceFileId}:${pageEntry.pageIndex}:r${Number(pageEntry.rotation || 0)}:m${colorMode}:${sourceRevision}:lg`;
-    const cached = previewImageCache.get(cacheKey);
-    if (cached && cached.thumbnail === pageEntry.thumbUrl) {
-      previewImageSrc.value = cached.image;
-      previewIsThumbnail.value = false;
-      previewImageLoading.value = false;
-      return;
-    }
-
-    if (!keepCurrentImage) {
-      previewImageSrc.value = scanPreview || pageEntry.thumbUrl || '';
-      previewIsThumbnail.value = true;
-    }
-    previewImageLoading.value = true;
-    const request = new AbortController();
-    onCleanup(() => request.abort());
-    try {
-      const serverPreview = await renderServerColorPreview(pageEntry, colorMode, request.signal);
-      if (request.signal.aborted) return;
-      const rendered = serverPreview
-        || await renderLargePreview(pageEntry, 1400, Number(pageEntry.rotation || 0));
-      if (nonce !== previewRenderNonce) return;
-      if (rendered) {
-        const image = new Image();
-        image.src = rendered;
-        await image.decode();
-        if (request.signal.aborted || nonce !== previewRenderNonce) return;
-        if (previewImageCache.size >= 24) previewImageCache.delete(previewImageCache.keys().next().value);
-        previewImageCache.set(cacheKey, { image: rendered, thumbnail: pageEntry.thumbUrl });
-        previewImageSrc.value = rendered;
-        previewIsThumbnail.value = false;
-      }
-    } catch {
-      // Das letzte gültige Bild bleibt auch bei einer fehlerhaften Antwort sichtbar.
-    } finally {
-      if (nonce === previewRenderNonce) previewImageLoading.value = false;
-    }
-  },
-  { immediate: true }
-);
+function pagePreviewSource(page) { return previewImages?.pagePreviewSource(page) || page.thumbUrl || ''; }
+function pagePreviewIsThumbnail(page) { return previewImages?.pagePreviewIsThumbnail(page) ?? true; }
+function pagePreviewSize(page) { return previewImages?.pagePreviewSize(page) || pageThumbnailSize(page); }
 
 watch(
   isOpen,
@@ -2144,54 +1964,21 @@ watch(
 );
 
 function requestCloseImport() {
-  if (stagingStore.pendingCommit) { notify({ type: 'warning', message: 'Bitte zuerst den Importstatus prüfen. Der gespeicherte Stand ist noch nicht bestätigt.' }); return; }
-  if (isUploadingSources.value || isCommitting.value) {
-    return;
-  }
-  if (hasStagedPages.value) {
-    discardImportConfirmOpen.value = true;
-    return;
-  }
   isOpen.value = false;
 }
 
-function cancelDiscardImport() {
-  discardImportConfirmOpen.value = false;
+async function openAvailablePages() {
+  if (props.availablePagesLoading || isUploadingSources.value || isCommitting.value) return;
+  const restored = stagingStore.restoreAvailableDraft();
+  await nextTick();
+  if (restored) for (const doc of documents.value) {
+    if (!['ready', 'applied'].includes(doc.meta?.titleSuggestionStatus)) {
+      void requestScanTitleSuggestion(doc.id, 'first_page', { silent: true });
+    }
+  }
+  emit('open-available-pages', { restored });
 }
 
-async function confirmDiscardImport() {
-  discardImportConfirmOpen.value = false;
-  const sources = [...stagingStore.sourceMetaById];
-  isUploadingSources.value = true;
-  let cleanupFailed = false;
-  for (const [sourceId, metadata] of sources) {
-    if (metadata.isImportInbox) continue;
-    try { await apiFetch(`/api/import/source/${encodeURIComponent(sourceId)}`, { method: 'DELETE' }); }
-    catch (error) { if (error.status !== 404 && error.status !== 400) cleanupFailed = true; }
-  }
-  isUploadingSources.value = false;
-  isOpen.value = false;
-  stagingStore.reset();
-  notifyDiscardedSourceFileIds(sources.map(([sourceId]) => sourceId));
-  await draftPersistence.save();
-  if (cleanupFailed) notify({ type: 'warning', message: 'Entwurf verworfen. Einige temporäre Quelldateien konnten noch nicht entfernt werden.' });
-}
-
-function minimizeDialog() {
-  if (isCommitting.value || !hasStagedPages.value) {
-    return;
-  }
-  isMinimizingToTray = true;
-  emit('minimize');
-  isOpen.value = false;
-}
-
-function resolveIcon(name) {
-  if (!name) {
-    return null;
-  }
-  return KNOWN_ICONS.has(name) ? name : null;
-}
 
 function stripPdfSuffix(filename) {
   return String(filename || '').replace(/\.pdf$/i, '').trim();
@@ -2381,6 +2168,18 @@ function upgradeRemoteSourceFile(sourceFileId, originalName, pageCount, { hadFas
         ? stagingStore.collectUsedSourceFileIds()
         : new Set();
       if (!usedSourceIds.has(normalized)) {
+        const draft = stagingStore.availableDraft;
+        const metadata = draft?.sourceMeta.find(([id]) => id === normalized)?.[1];
+        if (metadata && scanCleanupKey(metadata.scanCleanup) === cleanupKeyBeforeDownload) {
+          // A download begun while the window was open still belongs to the
+          // closed draft. Retain its PDF locally without reopening the window.
+          draft.files = draft.files.filter(([id]) => id !== normalized);
+          draft.files.push([normalized, stagingFile]);
+          metadata.pageQuality = thumbnailQuality.get(stagingFile) || [];
+          for (const doc of draft.documents) for (const page of doc.pages) {
+            if (page.sourceFileId === normalized && thumbUrls[page.pageIndex]) page.thumbUrl = thumbUrls[page.pageIndex];
+          }
+        }
         return;
       }
       const currentMeta = stagingStore.sourceMetaById?.get?.(normalized);
@@ -2395,6 +2194,7 @@ function upgradeRemoteSourceFile(sourceFileId, originalName, pageCount, { hadFas
         originalName: originalName || stagingFile.name,
         pageCount: Number(pageCount || 0),
         isImportInbox: true,
+        inboxItemId: currentMeta?.inboxItemId,
         analysis: currentMeta?.analysis,
         scanCleanup: currentMeta?.scanCleanup,
         colorPageIndices: currentMeta?.colorPageIndices,
@@ -2422,104 +2222,6 @@ function upgradeRemoteSourceFile(sourceFileId, originalName, pageCount, { hadFas
       remoteSourceUpgradeInFlight.delete(normalized);
     }
   })();
-}
-
-async function renderPdfThumbnails(file, pageCount) {
-  if (!(file instanceof File) || pageCount <= 0) {
-    return [];
-  }
-
-  const bytes = await file.arrayBuffer();
-  const loadingTask = getDocument({ data: bytes });
-  const pdf = await loadingTask.promise;
-  const thumbs = [];
-  const total = Math.min(12, Number(pageCount) || 0, pdf.numPages || 0);
-  const quality = [];
-
-  try {
-    for (let pageNumber = 1; pageNumber <= total; pageNumber += 1) {
-      try {
-        const page = await pdf.getPage(pageNumber);
-        const baseViewport = page.getViewport({ scale: 1 });
-        const targetWidth = 480; // 2× max grid size (240 px) → scharf auf Retina
-        const scale = targetWidth / Math.max(1, baseViewport.width);
-        const viewport = page.getViewport({ scale });
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d', { alpha: false });
-
-        if (!context) {
-          thumbs.push('');
-          continue;
-        }
-
-        canvas.width = Math.ceil(viewport.width);
-        canvas.height = Math.ceil(viewport.height);
-
-        await page.render({ canvasContext: context, viewport }).promise;
-        quality.push(scanImageQuality(context.getImageData(0, 0, canvas.width, canvas.height)));
-        thumbs.push(canvas.toDataURL('image/webp', 0.82));
-        canvas.width = canvas.height = 0;
-      } catch {
-        thumbs.push('');
-      }
-    }
-  } finally {
-    try {
-      await pdf.cleanup();
-    } catch {
-      // ignore cleanup failures
-    }
-    try {
-      await pdf.destroy();
-    } catch {
-      // ignore cleanup failures
-    }
-  }
-
-  thumbnailQuality.set(file, quality);
-  return thumbs;
-}
-
-async function renderLargePreview(pageEntry, targetLongEdge = 1400, rotation = 0) {
-  const file = stagingStore.stagingFiles.get(pageEntry?.sourceFileId);
-  if (!(file instanceof File)) {
-    return '';
-  }
-
-  const bytes = await file.arrayBuffer();
-  const loadingTask = getDocument({ data: bytes });
-  const pdf = await loadingTask.promise;
-
-  try {
-    const pageNumber = Number(pageEntry?.pageIndex || 0) + 1;
-    const page = await pdf.getPage(pageNumber);
-    const normalizedRotation = ((Number(rotation || 0) % 360) + 360) % 360;
-    const baseViewport = page.getViewport({ scale: 1, rotation: normalizedRotation });
-    const scale = Math.max(0.5, targetLongEdge / Math.max(1, baseViewport.width, baseViewport.height));
-    const viewport = page.getViewport({ scale, rotation: normalizedRotation });
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d', { alpha: false });
-    if (!context) {
-      return '';
-    }
-    canvas.width = Math.ceil(viewport.width);
-    canvas.height = Math.ceil(viewport.height);
-    await page.render({ canvasContext: context, viewport }).promise;
-    return canvas.toDataURL('image/webp', 0.9);
-  } catch {
-    return '';
-  } finally {
-    try {
-      await pdf.cleanup();
-    } catch {
-      // ignore cleanup failures
-    }
-    try {
-      await pdf.destroy();
-    } catch {
-      // ignore cleanup failures
-    }
-  }
 }
 
 async function renderServerColorPreview(pageEntry, colorMode, signal) {
@@ -2737,7 +2439,8 @@ const remoteSourceUpgradeInFlight = new Set();
 const remoteSourceRefreshInFlight = new Map();
 
 function addRemoteSources(payload = []) {
-  const run = remoteSourcesChain.then(() => addRemoteSourcesImpl(payload));
+  remoteSourceLoads.value++;
+  const run = remoteSourcesChain.then(() => addRemoteSourcesImpl(payload)).finally(() => { remoteSourceLoads.value--; });
   // Kette am Leben halten, auch wenn ein Lauf fehlschlägt.
   remoteSourcesChain = run.then(() => {}, () => {});
   return run;
@@ -2829,6 +2532,7 @@ async function addRemoteSourcesImpl(payload = []) {
       sourceRevision: source.source_revision,
       pageCount,
       isImportInbox: true,
+      inboxItemId: source.id,
       sourceType: source.source_type,
       analysis: source?.analysis,
       scanCleanup: normalizeRemoteScanCleanup(source),
@@ -2927,19 +2631,6 @@ async function addRemoteSourcesImpl(payload = []) {
   }
 }
 
-function collectScanSourceFileIds(stageId) {
-  const documentEntry = getDocumentById(stageId);
-  if (!documentEntry) {
-    return [];
-  }
-  const fromPages = Array.isArray(documentEntry.pages)
-    ? documentEntry.pages.map((page) => String(page?.sourceFileId || '').trim()).filter(Boolean)
-    : [];
-  const fromMeta = Array.isArray(documentEntry?.meta?.scanSourceFileIds)
-    ? documentEntry.meta.scanSourceFileIds.map((entry) => String(entry || '').trim()).filter(Boolean)
-    : [];
-  return Array.from(new Set([...fromMeta, ...fromPages]));
-}
 
 function getImportAnalysisCacheKey(analysis) {
   if (!analysis || typeof analysis !== 'object') {
@@ -2980,22 +2671,18 @@ async function applyImportAnalysisPayload(stageId, payload, options = {}) {
   if (!doc || !payload || payload.status === 'unknown') return false;
   const meta = ensureScanMeta(doc);
   const resultMeta = payload.meta || {};
-  const revision = documentRevision(doc, stagingStore.sourceMetaById);
+  const revision = analysisRevision(doc, stagingStore.sourceMetaById);
   const expected = options.documentRevision || resultMeta.document_revision;
   if (expected && expected !== revision || !acceptAnalysisSnapshot(meta, payload, revision)) return false;
   const pending = analysisPending(payload);
-  meta.analysisPending = pending;
-  meta.analysisPhase = resultMeta.progress_phase || (pending ? resultMeta.refinement_pending ? 'llm' : 'ocr' : 'complete');
-  meta.analysisReconnecting = false;
+  const incomingPhase = resultMeta.progress_phase || (resultMeta.refinement_pending ? 'llm' : 'ocr');
+  setImportAnalysisState(meta, pending ? (['queued', 'ocr', 'llm'].includes(incomingPhase) ? incomingPhase : 'ocr') : 'complete');
   const status = String(payload.status || 'ready');
   if (['error', 'failed'].includes(status)) {
-    meta.titleSuggestionStatus = pending ? 'working' : 'error';
+    if (!pending) setImportAnalysisState(meta, 'error');
     return false;
   }
-  if (status === 'pending_ocr') {
-    meta.titleSuggestionStatus = 'pending_ocr';
-    return false;
-  }
+  if (status === 'pending_ocr') return false;
   const form = ensureImportForm(doc);
   const revisions = options.fieldRevisions || { ...form.revisions };
   const token = getImportAnalysisCacheKey(payload);
@@ -3003,11 +2690,15 @@ async function applyImportAnalysisPayload(stageId, payload, options = {}) {
   meta.titleSuggestion = meaningfulSuggestion(payload.suggestion);
   meta.titleSuggestionUsedFallback = Boolean(payload.usedFallback ?? payload.used_fallback);
   meta.titleSuggestionMeta = resultMeta;
-  meta.titleSuggestionStatus = pending ? 'working' : 'ready';
+  if (!pending) setImportAnalysisState(meta, 'complete');
   meta.analysisRevision = revision;
   const origin = field => resultMeta.field_origins?.[field] || (resultMeta.analysis_phase === 'llm' ? 'KI' : 'Regeln');
   let changed = false;
   const apply = (field, value, read, write) => {
+    if (metadataFocus.defer(stageId, field, () => {
+      if (getDocumentById(stageId) !== doc || analysisRevision(doc, stagingStore.sourceMetaById) !== revision) return;
+      if (applyFieldProposal(doc, field, value, revisions[field] || 0, read, write, origin(field))) triggerAiFieldGlow();
+    })) return false;
     const applied = applyFieldProposal(doc, field, value, revisions[field] || 0, read, write, origin(field));
     changed ||= applied;
     return applied;
@@ -3022,7 +2713,7 @@ async function applyImportAnalysisPayload(stageId, payload, options = {}) {
     if (categoryStore.categoryNames.includes(category)) apply('category', category, () => form.category, value => { form.category = value; });
     else if (form.dismissed.category !== category) form.proposals.category = { value: category, origin: origin('category') };
   }
-  const note = String(resultMeta.note || '').trim().slice(0, 10000);
+  const note = usefulAnalysisNote(resultMeta.note, { ...resultMeta, title:doc.title });
   if (note) apply('note', note, () => form.note, value => { form.note = value; });
   if (isRetentionEnabled.value && resultMeta.retention) apply('retention', resultMeta.retention, () => form.retention, value => { form.retention = value; });
   const tagNames = (resultMeta.tags || []).map(name => normalizeTagName(String(name || ''))).filter(name => meaningfulSuggestion(name) && !validateTagName(name));
@@ -3048,14 +2739,15 @@ async function applyImportAnalysisPayload(stageId, payload, options = {}) {
     void Promise.race([correspondentStore.ensureLoaded(), new Promise((_, reject) => {
       timeout = window.setTimeout(() => reject(new Error('lookup timeout')), 10000);
     })]).then(() => {
-      if (!analysisDisposed && getDocumentById(stageId) === doc && meta.analysisFieldsToken === token && revision === documentRevision(doc, stagingStore.sourceMetaById)) applyCorrespondent();
+      if (!analysisDisposed && getDocumentById(stageId) === doc && meta.analysisFieldsToken === token && revision === analysisRevision(doc, stagingStore.sourceMetaById)) applyCorrespondent();
     }).catch(() => {}).finally(() => {
       window.clearTimeout(timeout);
       if (meta.analysisFieldsToken === token) meta.analysisLookupPending = false;
     });
   }
   void ensureStageTagsLoaded().catch(() => {});
-  if (changed) triggerAiFieldGlow();
+  if (changed) { diagnostics.once(`${stageId}:${revision}`, 'first_metadata', { duration_ms: diagnostics.elapsed(`analysis:${stageId}`) }); triggerAiFieldGlow(); }
+  if (!pending) diagnostics.end(`analysis:${stageId}`, 'analysis_complete', { pages: doc.pages.length, ocr_ms: resultMeta.timings?.ocr_ms, ai_ms: resultMeta.timings?.ai_ms });
   return true;
 }
 
@@ -3070,7 +2762,7 @@ async function applyCachedImportAnalysis(stageId, analysis) {
   if (cacheKey && meta.appliedImportAnalysisKey === cacheKey) {
     return false;
   }
-  const applied = await applyImportAnalysisPayload(stageId, analysis, { silent: true, documentRevision: documentRevision(documentEntry, stagingStore.sourceMetaById) });
+  const applied = await applyImportAnalysisPayload(stageId, analysis, { silent: true, documentRevision: analysisRevision(documentEntry, stagingStore.sourceMetaById) });
   if (applied && cacheKey) {
     meta.appliedImportAnalysisKey = cacheKey;
   }
@@ -3099,23 +2791,21 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'all_pages', opti
   const doc = getDocumentById(stageId);
   if (!doc?.pages?.length || props.scannerActive || isCommitting.value) return;
   if (titleSuggestJobByStage.has(stageId)) return titleSuggestJobByStage.get(stageId);
-  const revision = documentRevision(doc, stagingStore.sourceMetaById);
+  const revision = analysisRevision(doc, stagingStore.sourceMetaById);
   const analysisPages = options.analysisPageIds ? doc.pages.filter(page => options.analysisPageIds.has(page.id)) : doc.pages;
-  const pages = sourcePages({ ...doc, pages: analysisPages }, stagingStore.sourceMetaById);
+  const pages = sourcePages({ ...doc, pages: analysisPages }, stagingStore.sourceMetaById).map(page => ({ ...page, color_mode: 'auto' }));
   if (!pages.length) return;
   const sourceFileIds = [...new Set(pages.map(page => page.source_file_id))];
   const meta = ensureScanMeta(doc);
   const fieldRevisions = { ...ensureImportForm(doc).revisions };
   if (options.force) meta.analysisSnapshot = null;
-  meta.titleSuggestionStatus = 'working';
+  setImportAnalysisState(meta, 'queued');
+  diagnostics.start(`analysis:${stageId}`, 'analysis_start');
   meta.titleSuggestionPollExhausted = false;
-  if (!meta.analysisPending) meta.analysisPhase = 'queued';
-  meta.analysisPending = true;
   meta.analysisSlow = false;
-  const job = analysisChain.catch(() => {}).then(async () => {
-    const controller = new AbortController();
-    const current = () => !analysisDisposed && getDocumentById(stageId) === doc
-      && titleSuggestJobByStage.get(stageId) === job && documentRevision(doc, stagingStore.sourceMetaById) === revision;
+  const job = analysisQueue.enqueue(stageId, revision, async signal => {
+    const current = () => !signal.aborted && !analysisDisposed && getDocumentById(stageId) === doc
+      && titleSuggestJobByStage.get(stageId) === job && analysisRevision(doc, stagingStore.sourceMetaById) === revision;
     const slowTimer = window.setTimeout(() => { if (current()) meta.analysisSlow = true; }, 20000);
     let response = null;
     let responseError = null;
@@ -3127,14 +2817,14 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'all_pages', opti
       return suggestImportStageTitle(props.apiBaseUrl, stageId, {
         sourceFileIds, pageScope: oneOriginalPage ? 'first_page' : 'all_pages',
         pages: oneOriginalPage && !options.force && !options.repeatOcr ? [] : pages,
-        documentRevision: revision, force: Boolean(options.force), repeatOcr: Boolean(options.repeatOcr), signal: controller.signal,
+        documentRevision: revision, force: Boolean(options.force), repeatOcr: Boolean(options.repeatOcr), signal: signal,
       }).then(payload => { response = payload; settled = true; }, error => { responseError = error; settled = true; });
     };
     const request = start();
     try {
       // Observe progress while the original request is still running. Its HTTP
       // timeout does not cancel the server job or discard earlier results.
-      await Promise.race([request, new Promise(resolve => window.setTimeout(resolve, 1200))]);
+      await Promise.race([request, abortableDelay(1200, signal)]);
       for (let attempts = 0; attempts < 100 && current(); attempts++) {
         let payload;
         if (settled && !consumed) {
@@ -3146,7 +2836,7 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'all_pages', opti
         }
         if (!payload) {
           try {
-            payload = await readImportStageAnalysis(stageId, { sourceFileIds, documentRevision: revision, signal: controller.signal });
+            payload = await readImportStageAnalysis(stageId, { sourceFileIds, documentRevision: revision, signal: signal });
           } catch (error) {
             if (!transientAnalysisError(error)) throw error;
             meta.analysisReconnecting = true;
@@ -3166,27 +2856,21 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'all_pages', opti
             void start();
           }
         }
-        await new Promise(resolve => window.setTimeout(resolve, Math.min(10000, 1500 + attempts * 500)));
+        await abortableDelay(Math.min(10000, 1500 + attempts * 500), signal);
       }
-      if (current()) { meta.titleSuggestionStatus = 'interrupted'; meta.analysisPending = false; }
+      if (current()) setImportAnalysisState(meta, 'interrupted');
     } catch (error) {
       if (current()) {
-        meta.titleSuggestionStatus = transientAnalysisError(error) ? 'interrupted' : 'error';
-        meta.analysisPending = false;
+        setImportAnalysisState(meta, transientAnalysisError(error) ? 'interrupted' : 'error');
       }
     } finally {
-      controller.abort();
       window.clearTimeout(slowTimer);
-      if (titleSuggestJobByStage.get(stageId) === job) titleSuggestJobByStage.delete(stageId);
-      if (getDocumentById(stageId) === doc && revision !== documentRevision(doc, stagingStore.sourceMetaById)) {
-        meta.titleSuggestionStatus = 'idle';
-        meta.analysisPending = false;
+      if (getDocumentById(stageId) === doc && revision !== analysisRevision(doc, stagingStore.sourceMetaById)) {
+        setImportAnalysisState(meta, 'idle');
         scheduleDocumentAnalysis();
       }
     }
   });
-  analysisChain = job.catch(() => {});
-  titleSuggestJobByStage.set(stageId, job);
   return job;
 }
 
@@ -3196,13 +2880,14 @@ function scheduleDocumentAnalysis() {
   documentAnalysisTimer = window.setTimeout(() => {
     if (props.scannerActive || isCommitting.value || isScanCleanupRunning.value || isUploadingSources.value) return;
     for (const doc of documents.value) {
-      if (doc.pages.length && doc.meta?.analysisRevision !== documentRevision(doc, stagingStore.sourceMetaById)) {
+      if (doc.pages.length && doc.meta?.analysisRevision !== analysisRevision(doc, stagingStore.sourceMetaById)) {
         void requestScanTitleSuggestion(doc.id, 'all_pages', { silent: true });
       }
     }
   }, 700);
 }
-watch(() => [documents.value.map(doc => documentRevision(doc, stagingStore.sourceMetaById)).join('|'), props.scannerActive, isScanCleanupRunning.value, isUploadingSources.value], scheduleDocumentAnalysis);
+watch(() => documents.value.map(doc => [doc.id, analysisRevision(doc, stagingStore.sourceMetaById)]), entries => analysisQueue.reconcile(new Map(entries)));
+watch(() => [documents.value.map(doc => analysisRevision(doc, stagingStore.sourceMetaById)).join('|'), props.scannerActive, isScanCleanupRunning.value, isUploadingSources.value], scheduleDocumentAnalysis);
 
 function onImportTagKeydown(event) {
   if (event.key === 'Enter' && tagInlineValue.value.trim() && !event.target?.getAttribute('aria-activedescendant')) {
@@ -3250,16 +2935,6 @@ async function retryAnalysis(repeatOcr = false) {
   }
 }
 
-function applyScanSuggestion(stageId) {
-  const documentEntry = getDocumentById(stageId);
-  if (!documentEntry || !canOfferTitle(documentEntry)) return;
-  stagingStore.renameDocument(stageId, documentEntry.meta.titleSuggestion);
-  const form = ensureImportForm(documentEntry);
-  form.touched.title = true;
-  form.revisions.title = (form.revisions.title || 0) + 1;
-  delete form.proposals.title;
-  documentEntry.meta.titleSuggestionStatus = 'applied';
-}
 
 function openFilePicker() {
   addSourceChooserOpen.value = false;
@@ -3286,18 +2961,6 @@ function chooseScanSource() {
 }
 
 
-function setCardFileInputRef(documentId, element) {
-  if (!element) {
-    cardFileInputRefs.delete(documentId);
-    return;
-  }
-  cardFileInputRefs.set(documentId, element);
-}
-
-function openCardFilePicker(documentId) {
-  cardFileInputRefs.get(documentId)?.click?.();
-}
-
 function fileListToCandidates(files, source = 'file') {
   return Array.from(files || []).map((file) => ({
     file,
@@ -3322,22 +2985,6 @@ async function onFileInputChange(event) {
   }
 }
 
-async function onCardFileInputChange(event, documentId) {
-  const candidates = fileListToCandidates(event.target?.files, 'file');
-  event.target.value = '';
-  if (candidates.length <= 0) {
-    return;
-  }
-
-  try {
-    await addFilesToStaging(candidates, {
-      targetDocumentId: documentId,
-      showSelectionSummary: false
-    });
-  } catch (error) {
-    notify({ type: 'error', message: mapApiError(error, 'PDFs konnten nicht hinzugefügt werden.') });
-  }
-}
 
 function onDropzoneDragEnter(event) {
   if (!hasFileDragPayload(event)) {
@@ -3437,13 +3084,6 @@ async function collectDropCandidates(dataTransfer) {
   return Array.from(dataTransfer?.files || []).map((file) => ({ file, relativePath: '' }));
 }
 
-async function addNewDocumentsFromTransfer(dataTransfer, options = {}) {
-  const candidates = await collectDropCandidates(dataTransfer);
-  await addFilesToStaging(candidates, {
-    insertIndex: options.insertIndex,
-    showSelectionSummary: false
-  });
-}
 
 async function onDropzoneDrop(event) {
   event.stopPropagation();
@@ -3512,13 +3152,6 @@ async function onMiniatureDrop(event) {
   }
 }
 
-function setTitleInputRef(documentId, element) {
-  if (!element) {
-    titleInputRefs.delete(documentId);
-    return;
-  }
-  titleInputRefs.set(documentId, element);
-}
 
 function focusDocumentTitle(documentId) {
   const target = titleInputRefs.get(documentId);
@@ -3526,26 +3159,6 @@ function focusDocumentTitle(documentId) {
   target?.select?.();
 }
 
-function onDocumentTitleInput(documentId, event) {
-  stagingStore.setDocumentTitleDraft(documentId, event.target?.value || '');
-}
-
-function onDocumentTitleBlur(documentId) {
-  const documentEntry = documents.value.find((entry) => entry.id === documentId);
-  stagingStore.renameDocument(documentId, documentEntry?.title || 'Neues Dokument');
-}
-
-function onDocumentTitleEnter(event, documentId) {
-  const input = event.target;
-  input?.blur?.();
-  onDocumentTitleBlur(documentId);
-}
-
-function handleDocumentTitleShortcut(event, documentId) {
-  handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, () => onDocumentTitleEnter(event, documentId), {
-    ignoreEditable: false
-  });
-}
 
 function addEmptyDocument() {
   const created = stagingStore.addEmptyDocument();
@@ -3582,24 +3195,6 @@ function setImportColorMode(colorMode) {
   stagingStore.setAllPagesColorMode(colorMode);
 }
 
-function addPrimaryDocTagById(tagId) {
-  if (!primaryDocument.value) return;
-  const current = primaryDocument.value.tags || [];
-  if (!current.includes(tagId)) {
-    onDocumentTagsUpdate(primaryDocument.value.id, [...current, tagId]);
-  }
-}
-function removePrimaryDocTag(tagId) {
-  if (!primaryDocument.value) return;
-  onDocumentTagsUpdate(primaryDocument.value.id, (primaryDocument.value.tags || []).filter(id => id !== tagId));
-}
-function onTagInputBackspace() {
-  if (tagSearchInput.value === '' && primaryDocument.value?.tags?.length > 0) {
-    const tags = primaryDocument.value.tags;
-    removePrimaryDocTag(tags[tags.length - 1]);
-  }
-}
-function focusTagInput() { tagInputRef.value?.focus(); }
 
 function onTagNamesChange(newNames) {
   if (!primaryDocument.value) return;
@@ -3641,28 +3236,6 @@ function normalizeSourceFileId(sourceFileId) {
   return String(sourceFileId || '').trim();
 }
 
-function collectDocumentSourceFileIds(documentId) {
-  const documentEntry = documents.value.find((entry) => entry.id === documentId);
-  if (!documentEntry) {
-    return [];
-  }
-  const ids = new Set();
-  for (const page of documentEntry.pages || []) {
-    const sourceFileId = normalizeSourceFileId(page?.sourceFileId);
-    if (sourceFileId) {
-      ids.add(sourceFileId);
-    }
-  }
-  if (Array.isArray(documentEntry.meta?.scanSourceFileIds)) {
-    for (const sourceFileId of documentEntry.meta.scanSourceFileIds) {
-      const normalized = normalizeSourceFileId(sourceFileId);
-      if (normalized) {
-        ids.add(normalized);
-      }
-    }
-  }
-  return Array.from(ids);
-}
 
 function notifyDiscardedSourceFileIds(sourceFileIds = []) {
   const candidates = Array.from(new Set((sourceFileIds || []).map(normalizeSourceFileId).filter(Boolean)));
@@ -3670,39 +3243,17 @@ function notifyDiscardedSourceFileIds(sourceFileIds = []) {
     return;
   }
   const usedSourceIds = stagingStore.collectUsedSourceFileIds();
+  for (const [id] of stagingStore.availableDraft?.sourceMeta || []) usedSourceIds.add(id);
   const discarded = candidates.filter((sourceFileId) => !usedSourceIds.has(sourceFileId));
   if (discarded.length > 0) {
     emit('discarded-sources', { sourceFileIds: discarded });
   }
 }
 
-function countPagesForSourceFile(sourceFileId) {
-  const normalized = normalizeSourceFileId(sourceFileId);
-  if (!normalized) {
-    return 0;
-  }
-  return documents.value.reduce(
-    (sum, documentEntry) =>
-      sum + (documentEntry.pages || []).filter((page) => normalizeSourceFileId(page?.sourceFileId) === normalized).length,
-    0
-  );
-}
-
-function isImportInboxSourceFile(sourceFileId) {
-  const normalized = normalizeSourceFileId(sourceFileId);
-  return Boolean(normalized && stagingStore.sourceMetaById?.get?.(normalized)?.isImportInbox);
-}
 
 function clearPreviewCacheForSource(sourceFileId) {
-  const normalized = normalizeSourceFileId(sourceFileId);
-  if (!normalized) {
-    return;
-  }
-  for (const cacheKey of Array.from(previewImageCache.keys())) {
-    if (String(cacheKey).startsWith(`${normalized}:`)) {
-      previewImageCache.delete(cacheKey);
-    }
-  }
+  pdfRenderer.invalidate(sourceFileId);
+  previewImages.invalidate(sourceFileId);
 }
 
 async function refreshImportInboxSourceFile(sourceFileId, pageCount, metaPatch = {}) {
@@ -3727,10 +3278,12 @@ async function refreshImportInboxSourceFile(sourceFileId, pageCount, metaPatch =
       const nextScanCleanup = Object.prototype.hasOwnProperty.call(metaPatch, 'scanCleanup')
         ? metaPatch.scanCleanup
         : sourceMeta.scanCleanup;
+      if (!stagingStore.sourceMetaById.has(normalized)) return;
       stagingStore.setStagingFile(normalized, refreshedFile, {
         originalName: sourceMeta.originalName || refreshedFile.name,
         pageCount: Number(pageCount || sourceMeta.pageCount || 0),
         isImportInbox: true,
+        inboxItemId: sourceMeta.inboxItemId,
         analysis: sourceMeta.analysis,
         scanCleanup: nextScanCleanup,
         colorPageIndices: sourceMeta.colorPageIndices,
@@ -3775,12 +3328,12 @@ function deleteDocument(documentId) {
 async function retryThumbnail(page) {
   if (lazyThumbnailJobs.has(page.id)) return;
   lazyThumbnailJobs.add(page.id);
-  const revision = `${page.sourceFileId}:${page.pageIndex}:${page.rotation}:${page.colorMode}`;
+  const revision = pageDisplayRevision(page, stagingStore.sourceMetaById);
   const task = thumbnailRenderChain.catch(() => {}).then(async () => {
     try {
       if (!stagingStore.findPageLocation(page.id)) return;
       const rendered = await renderServerColorPreview(page, page.colorMode || 'auto');
-      if (revision !== `${page.sourceFileId}:${page.pageIndex}:${page.rotation}:${page.colorMode}`) return;
+      if (revision !== pageDisplayRevision(page, stagingStore.sourceMetaById)) return;
       if (rendered) { page.thumbUrl = rendered; page.previewError = false; }
       else page.previewError = true;
     } finally { lazyThumbnailJobs.delete(page.id); }
@@ -3917,6 +3470,7 @@ function onPageClick(event, documentId, pageId, pageIndex) {
   const anchorEl = event?.currentTarget instanceof HTMLElement ? event.currentTarget : getSelectedAnchorEl();
   selectPage(documentId, pageId, pageIndex, { anchorEl });
   closePeek();
+  void scrollPreviewToPage(pageId);
 }
 
 function onPageDoubleClick(event, documentId, pageId, pageIndex) {
@@ -3939,25 +3493,6 @@ function resolveSelectedPage(documentId) {
   return documentEntry.pages.find((page) => page.id === selected.value?.pageId) || null;
 }
 
-function hasSelectedPage(documentId) {
-  return Boolean(resolveSelectedPage(documentId));
-}
-
-function resolveSplitTargetPage(documentId) {
-  const documentEntry = documents.value.find((entry) => entry.id === documentId);
-  if (!documentEntry || documentEntry.pages.length <= 1) {
-    return null;
-  }
-  const selectedPage = resolveSelectedPage(documentId);
-  if (selectedPage) {
-    return selectedPage;
-  }
-  return null;
-}
-
-function canSplitPage(documentId) {
-  return Boolean(resolveSplitTargetPage(documentId));
-}
 
 function isPageSelected(documentId, pageId) {
   return (
@@ -3970,25 +3505,6 @@ function isDraggingPage(pageId) {
   return pageDragState.value.active && pageDragState.value.pageId === String(pageId || '');
 }
 
-function isDropHoverPage(documentId, pageId) {
-  return (
-    pageDragState.value.active &&
-    pageDragState.value.overDocId === String(documentId || '') &&
-    pageDragState.value.hoverPageId === String(pageId || '')
-  );
-}
-
-function isPageDropMarkerVisible(documentId) {
-  return (
-    pageDragState.value.active &&
-    pageDropMarker.value.docId === String(documentId || '') &&
-    pageDropMarker.value.index >= 0
-  );
-}
-
-function isSettledPage(pageId) {
-  return settledPageId.value === String(pageId || '');
-}
 
 function rotateSelectedPage(documentId, delta) {
   const selectedPage = resolveSelectedPage(documentId);
@@ -3998,122 +3514,20 @@ function rotateSelectedPage(documentId, delta) {
   stagingStore.rotatePage(selectedPage.id, Number(delta) < 0 ? 'left' : 'right');
 }
 
-async function splitSelectedPage(documentId) {
-  const targetPage = resolveSplitTargetPage(documentId);
-  if (!targetPage) {
-    return;
-  }
 
-  const created = stagingStore.splitPageToNewDocument(targetPage.id);
-  const createdPage = created?.pages?.[0] || null;
-  if (!created || !createdPage) {
-    return;
-  }
-
-  await nextTick();
-  const anchorEl = pageThumbRefs.get(createdPage.id) || null;
-  selectPage(created.id, createdPage.id, 0, { anchorEl });
-  closePeek();
-}
-
-function onDocumentCollapseToggle(documentId) {
-  const documentEntry = documents.value.find((entry) => entry.id === documentId);
-  const willCollapse = Boolean(documentEntry && !documentEntry.collapsed);
-  stagingStore.toggleDocumentCollapsed(documentId);
-  if (willCollapse && selected.value?.stageId === documentId) {
-    clearActiveSelection();
-  }
-}
-
-function onStageBodyBeforeEnter(element) {
-  if (!(element instanceof HTMLElement)) {
-    return;
-  }
-  element.style.height = '0px';
-  element.style.opacity = '0';
-  element.style.overflow = 'hidden';
-}
-
-function onStageBodyEnter(element, done) {
-  if (!(element instanceof HTMLElement)) {
-    done();
-    return;
-  }
-  const targetHeight = element.scrollHeight;
-  const onTransitionEnd = (event) => {
-    if (event.target !== element || event.propertyName !== 'height') {
-      return;
-    }
-    element.removeEventListener('transitionend', onTransitionEnd);
-    done();
-  };
-  element.addEventListener('transitionend', onTransitionEnd);
-  requestAnimationFrame(() => {
-    element.style.height = `${targetHeight}px`;
-    element.style.opacity = '1';
-  });
-}
-
-function onStageBodyAfterEnter(element) {
-  if (!(element instanceof HTMLElement)) {
-    return;
-  }
-  element.style.height = 'auto';
-  element.style.opacity = '1';
-  element.style.overflow = '';
-  scheduleBodyContentLayoutStateUpdate();
-}
-
-function onStageBodyBeforeLeave(element) {
-  if (!(element instanceof HTMLElement)) {
-    return;
-  }
-  element.style.height = `${element.scrollHeight}px`;
-  element.style.opacity = '1';
-  element.style.overflow = 'hidden';
-}
-
-function onStageBodyLeave(element, done) {
-  if (!(element instanceof HTMLElement)) {
-    done();
-    return;
-  }
-  const onTransitionEnd = (event) => {
-    if (event.target !== element || event.propertyName !== 'height') {
-      return;
-    }
-    element.removeEventListener('transitionend', onTransitionEnd);
-    done();
-  };
-  element.addEventListener('transitionend', onTransitionEnd);
-  requestAnimationFrame(() => {
-    element.style.height = '0px';
-    element.style.opacity = '0';
-  });
-}
-
-function onStageBodyAfterLeave(element) {
-  if (!(element instanceof HTMLElement)) {
-    return;
-  }
-  element.style.height = '';
-  element.style.opacity = '';
-  element.style.overflow = '';
-  scheduleBodyContentLayoutStateUpdate();
-}
-
-function shiftSelection(step) {
+function shiftSelection(step, { focus = true } = {}) {
   const flat = allPagesFlat.value;
   const currentIndex = flat.findIndex(({ page }) => page.id === selected.value?.pageId);
   const nextIndex = Math.max(0, Math.min(flat.length - 1, currentIndex + step));
   const next = flat[nextIndex];
-  if (!next || nextIndex === currentIndex) return;
+  if (!next || nextIndex === currentIndex) return false;
   selectPage(next.doc.id, next.page.id, nextIndex, { anchorEl: pageThumbRefs.get(next.page.id) || null });
   void nextTick(() => {
     const element = pageThumbRefs.get(next.page.id);
-    element?.focus({ preventScroll: true });
+    if (focus) element?.focus({ preventScroll: true });
     element?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   });
+  return true;
 }
 
 function onGlobalPointerDown(event) {
@@ -4137,9 +3551,12 @@ function onGlobalViewportChange() {
 }
 
 function onGlobalKeydown(event) {
-  if (!isOpen.value) {
+  if (!isOpen.value || correspondentDialogOpen.value || event.defaultPrevented
+    || event.target?.closest?.('.isd-field-proposal, .isd-readiness-card')) {
     return;
   }
+  // Enter activates the focused button. It must not also submit the import.
+  if (event.key !== 'Escape' && event.target?.closest?.('button')) return;
   if (isEditableShortcutTarget(event.target) && !handleShortcut(event, SHORTCUT_ACTIONS.CANCEL, null, {
     prevent: false,
     ignoreEditable: false
@@ -4196,9 +3613,6 @@ function readDragPayload(event) {
   }
 }
 
-function onDocumentDragStart(event, documentId) {
-  writeDragPayload(event, { type: 'document', documentId });
-}
 
 function clearSettledPage() {
   if (settlePageTimer) {
@@ -4236,21 +3650,6 @@ function resetPageDragState() {
   };
 }
 
-function clearPageDropMarker() {
-  pageDropMarker.value = {
-    docId: '',
-    index: -1,
-    left: 0,
-    top: 0,
-    height: 0
-  };
-  pageDragState.value = {
-    ...pageDragState.value,
-    overDocId: '',
-    dropIndex: -1,
-    hoverPageId: ''
-  };
-}
 
 function runAutoScroll() {
   if (!autoScrollState.container) {
@@ -4434,13 +3833,6 @@ function onPageDragEnd() {
   resetPageDragState();
 }
 
-function setDocumentDragDepth(documentId, nextDepth) {
-  const nextValue = Math.max(0, Number(nextDepth || 0));
-  documentDragDepth.value = {
-    ...documentDragDepth.value,
-    [documentId]: nextValue
-  };
-}
 
 function clearDocumentDragDepth(documentId) {
   if (!(documentId in documentDragDepth.value)) {
@@ -4451,150 +3843,6 @@ function clearDocumentDragDepth(documentId) {
   documentDragDepth.value = nextState;
 }
 
-function isDocumentDragActive(documentId) {
-  return Number(documentDragDepth.value[documentId] || 0) > 0;
-}
-
-function onInterDropDragOver(event) {
-  event.dataTransfer.dropEffect = hasFileDragPayload(event) ? 'copy' : 'move';
-  if (!hasFileDragPayload(event) && pageDragState.value.active) {
-    clearPageDropMarker();
-  }
-}
-
-function onDocsContainerDragOver(event) {
-  if (hasFileDragPayload(event)) {
-    event.dataTransfer.dropEffect = 'copy';
-    return;
-  }
-  event.dataTransfer.dropEffect = 'move';
-  if (pageDragState.value.active) {
-    clearPageDropMarker();
-  }
-}
-
-async function onDocsContainerDrop(event) {
-  if (hasFileDragPayload(event)) {
-    return;
-  }
-  await onInterDocumentDrop(event, documents.value.length);
-}
-
-function onDocumentDragEnter(event, documentId) {
-  if (!event.dataTransfer) {
-    return;
-  }
-  event.stopPropagation();
-  setDocumentDragDepth(documentId, Number(documentDragDepth.value[documentId] || 0) + 1);
-}
-
-function onDocumentBodyDragOver(event, documentId) {
-  event.stopPropagation();
-  event.dataTransfer.dropEffect = hasFileDragPayload(event) ? 'copy' : 'move';
-  if (!hasFileDragPayload(event)) {
-    updateAutoScroll(resolveAutoScrollContainer(event.currentTarget), event.clientX, event.clientY);
-  }
-  if (!isDocumentDragActive(documentId)) {
-    setDocumentDragDepth(documentId, 1);
-  }
-}
-
-function onDocumentDragLeave(event, documentId) {
-  if (!event.dataTransfer) {
-    return;
-  }
-  event.stopPropagation();
-  const nextDepth = Number(documentDragDepth.value[documentId] || 0) - 1;
-  if (nextDepth <= 0) {
-    clearDocumentDragDepth(documentId);
-    if (pageDragState.value.active && pageDropMarker.value.docId === documentId) {
-      clearPageDropMarker();
-    }
-    return;
-  }
-  setDocumentDragDepth(documentId, nextDepth);
-}
-
-async function onInterDocumentDrop(event, targetIndex) {
-  event.stopPropagation();
-  stopAutoScroll();
-
-  if (hasFileDragPayload(event)) {
-    try {
-      const targetDocumentId =
-        documents.value[targetIndex]?.id ||
-        documents.value[Math.max(0, targetIndex - 1)]?.id ||
-        null;
-      if (!targetDocumentId) {
-        await addNewDocumentsFromTransfer(event.dataTransfer, { insertIndex: targetIndex });
-        return;
-      }
-      const candidates = await collectDropCandidates(event.dataTransfer);
-      await addFilesToStaging(candidates, {
-        targetDocumentId,
-        showSelectionSummary: false
-      });
-    } catch (error) {
-      notify({ type: 'error', message: mapApiError(error, 'PDFs konnten nicht hinzugefügt werden.') });
-    }
-    return;
-  }
-
-  const payload = readDragPayload(event);
-  if (!payload) {
-    const draggedPageId = resolveDraggedPageId(event);
-    if (draggedPageId) {
-      stagingStore.movePageToNewDocument(draggedPageId, targetIndex, 'Neues Dokument');
-      markSettledPage(draggedPageId);
-      resetPageDragState();
-    }
-    return;
-  }
-
-  if (payload.type === 'document' && payload.documentId) {
-    stagingStore.moveDocument(payload.documentId, targetIndex);
-    resetPageDragState();
-    return;
-  }
-
-  if (payload.type === 'page' && payload.pageId) {
-    stagingStore.movePageToNewDocument(payload.pageId, targetIndex, 'Neues Dokument');
-    markSettledPage(payload.pageId);
-    resetPageDragState();
-  }
-}
-
-async function onDocumentBodyDrop(event, targetDocId) {
-  event.stopPropagation();
-  stopAutoScroll();
-  clearDocumentDragDepth(targetDocId);
-
-  if (hasFileDragPayload(event)) {
-    try {
-      const candidates = await collectDropCandidates(event.dataTransfer);
-      await addFilesToStaging(candidates, {
-        targetDocumentId: targetDocId,
-        showSelectionSummary: false
-      });
-    } catch (error) {
-      notify({ type: 'error', message: mapApiError(error, 'PDFs konnten nicht hinzugefügt werden.') });
-    }
-    return;
-  }
-
-  const payload = readDragPayload(event);
-  const draggedPageId =
-    payload?.type === 'page' && payload?.pageId
-      ? String(payload.pageId)
-      : resolveDraggedPageId(event);
-  if (!draggedPageId) {
-    return;
-  }
-
-  stagingStore.movePage(draggedPageId, targetDocId, null);
-  markSettledPage(draggedPageId);
-  resetPageDragState();
-}
 
 function readPagePayload(event) {
   const payload = readDragPayload(event);
@@ -4778,87 +4026,16 @@ async function onPagesContainerDrop(event, targetDocId) {
   resetPageDragState();
 }
 
-function onBodyShellDragEnter(event) {
-  if (!hasFileDragPayload(event)) {
-    return;
-  }
-  event.stopPropagation();
-  bodyFileDragDepth.value += 1;
-  isBodyFileDragOver.value = true;
-}
 
-function onBodyShellDragOver(event) {
-  if (!hasFileDragPayload(event)) {
-    return;
-  }
-  event.stopPropagation();
-  event.dataTransfer.dropEffect = 'copy';
-  isBodyFileDragOver.value = true;
-}
-
-function onBodyShellDragLeave(event) {
-  if (!hasFileDragPayload(event)) {
-    return;
-  }
-  event.stopPropagation();
-  bodyFileDragDepth.value = Math.max(0, bodyFileDragDepth.value - 1);
-  if (bodyFileDragDepth.value === 0) {
-    isBodyFileDragOver.value = false;
-  }
-}
-
-async function onBodyShellDrop(event) {
-  if (!hasFileDragPayload(event)) {
-    return;
-  }
-  event.stopPropagation();
-  isBodyFileDragOver.value = false;
-  bodyFileDragDepth.value = 0;
-  try {
-    await addNewDocumentsFromTransfer(event.dataTransfer, { insertIndex: documents.value.length });
-  } catch (error) {
-    notify({ type: 'error', message: mapApiError(error, 'PDFs konnten nicht hinzugefügt werden.') });
-  }
-}
-
-function onListSurfaceDragOver(event) {
-  event.dataTransfer.dropEffect = hasFileDragPayload(event) ? 'copy' : 'move';
-}
-
-async function onListSurfaceDrop(event) {
-  event.stopPropagation();
-  isBodyFileDragOver.value = false;
-  bodyFileDragDepth.value = 0;
-  if (!hasFileDragPayload(event)) {
-    return;
-  }
-
-  try {
-    await addNewDocumentsFromTransfer(event.dataTransfer, { insertIndex: documents.value.length });
-  } catch (error) {
-    notify({ type: 'error', message: mapApiError(error, 'PDFs konnten nicht hinzugefügt werden.') });
-  }
-}
-
-function onModalSurfaceDragOver(event) {
-  event.dataTransfer.dropEffect = hasFileDragPayload(event) ? 'copy' : 'move';
-}
-
-async function onModalSurfaceDrop(event) {
-  isBodyFileDragOver.value = false;
-  bodyFileDragDepth.value = 0;
-  if (!hasFileDragPayload(event)) {
-    return;
-  }
-  try {
-    await addNewDocumentsFromTransfer(event.dataTransfer, { insertIndex: documents.value.length });
-  } catch (error) {
-    notify({ type: 'error', message: mapApiError(error, 'PDFs konnten nicht hinzugefügt werden.') });
-  }
-}
+const commitTransaction = useImportCommit({
+  store: stagingStore, correspondents: correspondentStore, settings: settingsStore, retentionEnabled: isRetentionEnabled,
+  autoEmbed: () => props.autoEmbed, persistence: draftPersistence, notify, diagnostics,
+  onCreated: payload => emit('committed', payload), onEmpty: () => { isOpen.value = false; },
+  onSelectionCleared: () => { clearMultiSelection(); clearActiveSelection(); },
+});
 
 async function commitImport(selectedPageIds = null) {
-  if (isImportActionDisabled.value) return;
+  if (isImportActionBusy.value) return;
   const entries = commitSubset(documents.value, selectedPageIds instanceof Set ? selectedPageIds : null);
   if (!entries.length) return;
   validationAttempted.value = true;
@@ -4868,84 +4045,15 @@ async function commitImport(selectedPageIds = null) {
     const page = invalid.pages[0];
     selectPage(invalid.document.id, page.id, allPagesFlat.value.findIndex(entry => entry.page.id === page.id));
     await nextTick();
-    const invalidInput = document.querySelector('.isd-props input[aria-invalid="true"], .isd-props textarea[aria-invalid="true"]');
+    const invalidField = Object.keys(validateImportDocument({ ...invalid.document, pages: invalid.pages }))[0];
+    const row = document.querySelector(`.isd-props [data-field="${invalidField === 'title' ? 'name' : invalidField}"]`);
+    const invalidInput = row?.querySelector('input:not([type="hidden"]), textarea');
     (invalidInput || document.querySelector('.isd-props input'))?.focus();
     return;
   }
   isCommitting.value = true;
-  try {
-    if (!stagingStore.pendingCommit) {
-      await correspondentStore.ensureLoaded();
-      const bodyDocuments = [];
-      const submitted = {};
-      const remainingSources = new Set();
-      const selectedIds = new Set(entries.flatMap(entry => entry.pages.map(page => page.id)));
-      for (const doc of documents.value) for (const page of doc.pages) if (!selectedIds.has(page.id)) remainingSources.add(page.sourceFileId);
-      for (const { document: doc, pages } of entries) {
-        const form = ensureImportForm(doc);
-        const parsed = parseDocumentDateInput(form.date);
-        const rawCorrespondent = normalizeCorrespondentInput(form.correspondentId);
-        const correspondent = rawCorrespondent ? correspondentStore.findById(rawCorrespondent) || correspondentStore.findByName(rawCorrespondent) : null;
-        if (rawCorrespondent && !correspondent) throw new Error('Bitte einen vorhandenen Korrespondenten wählen.');
-        const clientId = doc.id;
-        submitted[clientId] = pages.map(page => page.id);
-        bodyDocuments.push({ client_document_id: clientId, title: doc.title.trim(),
-          manual_fields: Object.entries(form.touched).filter(([, touched]) => touched).map(([field]) => field),
-          tag_ids: doc.tags || [], tag_names: doc.meta?.pendingTagNames || [], pages: sourcePages({ ...doc, pages }, stagingStore.sourceMetaById),
-          document_type: form.category || null, correspondent_id: correspondent?.id || null,
-          note: String(form.note || '').trim() || null, date: parsed.iso,
-          retention: isRetentionEnabled.value && form.retention ? {
-            status: form.retention.status || 'manual', period_years: form.retention.period_years ?? null,
-            paper_original: form.retention.paper_original || 'unclear', reason: form.retention.reason || null,
-          } : null,
-        });
-      }
-      stagingStore.pendingCommit = { body: {
-        request_id: crypto.randomUUID(), documents: bodyDocuments, preserve_source_ids: [...remainingSources],
-        options: { auto_ocr: Boolean(settingsStore.settings.documents.auto_ocr),
-          auto_index: Boolean(settingsStore.settings.documents.auto_tagging && settingsStore.settings.documents.auto_ocr), auto_embed: Boolean(props.autoEmbed) },
-      }, submitted };
-    }
-    const attempt = stagingStore.pendingCommit;
-    await draftPersistence.save();
-    const payload = await apiFetch('/api/import/commit', { method: 'POST', body: JSON.stringify(attempt.body), timeoutMs: 180000 });
-    const created = payload.created || [];
-    const errors = payload.errors || [];
-    for (const warning of created.flatMap(item => item.warnings || [])) notify({ type: 'warning', message: warning });
-    const completedPageIds = created.flatMap(item => attempt.submitted[item.client_document_id] || []);
-    // Only remove the pages acknowledged by this exact submission. New scanner
-    // pages and unselected pages retain their own draft and source references.
-    if (created.length) {
-      const completedIds = new Set(completedPageIds);
-      const remainingSources = new Set(documents.value.flatMap(doc => doc.pages.filter(page => !completedIds.has(page.id)).map(page => page.sourceFileId)));
-      const createdIds = new Set(created.map(item => item.client_document_id));
-      const completedSources = [...new Set(attempt.body.documents.filter(doc => createdIds.has(doc.client_document_id)).flatMap(doc => doc.pages.map(page => page.source_file_id)))].filter(sourceId => !remainingSources.has(sourceId));
-      emit('committed', { ...payload, remaining: totalPages.value > completedPageIds.length, completed_source_ids: completedSources });
-      if (!errors.length && remainingSources.size === 0) isOpen.value = false;
-      stagingStore.completePages(completedPageIds);
-      clearMultiSelection();
-      clearActiveSelection();
-    }
-    for (const error of errors) {
-      const doc = getDocumentById(error.client_document_id);
-      if (doc) doc.meta.commitError = error;
-    }
-    stagingStore.pendingCommit = null;
-    await draftPersistence.save();
-    if (!errors.length && !totalPages.value) {
-      notify({ type: 'success', message: created.some(item => item.processing_queued) ? 'Import gespeichert. Die Texterkennung läuft im Hintergrund.' : 'Import gespeichert.' });
-      isOpen.value = false;
-    } else if (errors.length) {
-      notify({ type: 'warning', message: `${created.length ? `${created.length} Dokumente gespeichert. ` : ''}${errors[0].message}` });
-    } else notify({ type: 'success', message: 'Auswahl importiert. Übrige Seiten bleiben im Entwurf.' });
-  } catch (error) {
-    // Keep the exact request until a definitive response is received. Replaying
-    // after a lost response retrieves its receipt instead of importing twice.
-    if ([400, 403, 409, 413, 422].includes(error.status)) stagingStore.pendingCommit = null;
-    notify({ type: 'error', message: mapApiError(error, 'Importstatus konnte nicht bestätigt werden. Bitte erneut prüfen; alle Seiten bleiben erhalten.') });
-  } finally {
-    isCommitting.value = false;
-  }
+  try { await commitTransaction.run(entries); }
+  finally { isCommitting.value = false; }
 }
 
 async function openWithFiles(files) {
@@ -4955,8 +4063,8 @@ async function openWithFiles(files) {
   }
 
   try {
-    await addFilesToStaging(candidates);
     isOpen.value = true;
+    await addFilesToStaging(candidates);
   } catch (error) {
     notify({ type: 'error', message: mapApiError(error, 'Import-Quellen konnten nicht hochgeladen werden.') });
   }
@@ -5055,14 +4163,16 @@ defineExpose({
   openDialog,
   openWithFiles,
   openWithRemoteSources,
-  getFlightOrigin
+  getFlightOrigin,
+  diagnostics: () => diagnostics.snapshot()
 });
 
 onBeforeUnmount(() => {
   analysisDisposed = true;
-  if (typeof window !== 'undefined' && closeResetTimer) {
-    window.clearTimeout(closeResetTimer);
-    closeResetTimer = 0;
+  analysisQueue.close();
+  if (typeof window !== 'undefined' && closeParkTimer) {
+    window.clearTimeout(closeParkTimer);
+    closeParkTimer = 0;
   }
   if (typeof window !== 'undefined' && viewSwitchTimer) {
     window.clearTimeout(viewSwitchTimer);
@@ -5089,7 +4199,7 @@ onBeforeUnmount(() => {
   }
   thumbnailObserver?.disconnect();
   pageThumbRefs.clear();
-  previewImageCache.clear();
+  previewImages.clear();
   window.clearTimeout(documentAnalysisTimer);
 });
 </script>
@@ -5139,15 +4249,6 @@ onBeforeUnmount(() => {
 
 .isd-card.pm-dialog .pm-dialog__header {
   flex: 0 0 auto;
-}
-
-.isd-card.pm-dialog .isd-minimize-btn {
-  flex: 0 0 auto;
-  color: rgba(var(--v-theme-on-surface), 0.68);
-}
-
-.isd-card.pm-dialog .isd-minimize-btn:hover {
-  color: rgba(var(--v-theme-on-surface), 0.92);
 }
 
 .isd-card.pm-dialog .pm-dialog__content-wrap {
@@ -5207,6 +4308,9 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped>
+.isd-dropzone__available-arrow { margin-left:auto; flex:none; opacity:.6; }
+.isd-create-correspondent { display:flex; align-items:center; gap:12px; padding:12px 16px; width:100%; text-align:left; color:inherit; }
+.isd-create-correspondent:hover, .isd-create-correspondent:focus-visible { background:rgba(var(--v-theme-on-surface), .06); }
 /* ── Seitenliste, Arbeitsvorschau und Dokumentdetails ── */
 .isd-body {
   display: flex;
@@ -5234,23 +4338,25 @@ onBeforeUnmount(() => {
 
 .isd-pages-footer {
   grid-area: pages-footer;
-  opacity: .78;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   padding: 0 12px;
+  background: var(--pm-import-pages-footer-bg);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
   border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
   border-right: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
 }
-.isd-pages-footer:hover, .isd-pages-footer:focus-within,
-.isd-pages-footer:has(.isd-toolbar-select-btn--active) { opacity: 1; }
 .isd-pages-footer strong { font-size: 12px; font-weight: 650; }
 .isd-pages-footer .isd-toolbar-select-btn { margin-left: auto; }
 .isd-pages-footer .isd-page-count { padding: 2px 6px; }
 
 .isd-grid-scroll {
   grid-area: pages;
+  grid-row: 1 / 3;
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
@@ -5259,10 +4365,18 @@ onBeforeUnmount(() => {
   overscroll-behavior: contain;
   scrollbar-width: thin;
   padding: 16px;
+  padding-bottom: calc(16px + var(--isd-bar-height));
+  scroll-padding-bottom: calc(12px + var(--isd-bar-height));
   border-right: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
   background: rgba(var(--v-theme-on-surface), .018);
 }
-.isd-card--empty .isd-grid-scroll { padding: 40px; border-right: 0; background: transparent; }
+.isd-card--empty .isd-grid-scroll {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  border-right: 0;
+  background: transparent;
+}
 .isd-workspace-error { grid-area: error; }
 
 /* ── Dropzone ── */
@@ -5298,14 +4412,14 @@ onBeforeUnmount(() => {
 .isd-dropzone {
   position: relative;
   width: 100%;
-  height: 100%;
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0;
   padding: 30px;
-  overflow: hidden;
+  overflow: visible;
   text-align: center;
   border: 1px solid transparent;
   border-radius: 18px;
@@ -5686,6 +4800,7 @@ onBeforeUnmount(() => {
 }
 
 .isd-dropzone__text-shell {
+  flex: none;
   width: 100%;
   min-height: 58px;
   display: grid;
@@ -5719,6 +4834,7 @@ onBeforeUnmount(() => {
 }
 
 .isd-dropzone__actions {
+  flex: none;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
@@ -5729,6 +4845,13 @@ onBeforeUnmount(() => {
 
 .isd-dropzone__actions--single {
   width: 400px;
+}
+
+.isd-dropzone__source-divider {
+  width: 100%;
+  margin: 2px 0;
+  border: 0;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.12);
 }
 
 .isd-dropzone__action {
@@ -5992,15 +5115,15 @@ button.isd-dropzone__action--supplemental:focus-visible {
 /* ── Thumbnail ── */
 .isd-page-thumb-wrap {
   position: relative;
+  box-sizing: border-box;
   width: 100%;
-  padding-top: 133%; /* 3:4 portrait ratio */
+  aspect-ratio: 3 / 4;
   background: rgba(var(--v-theme-on-surface), 0.05);
   border-radius: 4px;
   overflow: hidden;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
-  transition:
-    padding-top 240ms cubic-bezier(0.2, 0.82, 0.24, 1),
-    border-color 0.12s;
+  border: 0;
+  box-shadow: inset 0 0 0 1px rgba(var(--v-theme-on-surface), 0.1);
+  transition: box-shadow 0.12s;
 }
 
 .isd-page-thumb-inner {
@@ -6034,6 +5157,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
 }
 
 .isd-page-thumb {
+  flex: 0 0 auto;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -6051,19 +5175,13 @@ button.isd-dropzone__action--supplemental:focus-visible {
 
 .isd-scan-thumbnail-fallback {
   position: absolute;
-  inset: 0;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
   width: 100%;
   height: 100%;
   object-fit: contain;
   background: #fff;
-}
-
-.isd-scan-frame-leave-active {
-  transition: opacity 180ms ease;
-}
-
-.isd-scan-frame-leave-to {
-  opacity: 0;
 }
 
 .isd-scan-flight-layer {
@@ -6221,8 +5339,9 @@ button.isd-dropzone__action--supplemental:focus-visible {
 
 .isd-scanning-page-thumb-wrap {
   position: relative;
-  width: 100%;
-  padding-top: 133%;
+  box-sizing: content-box;
+  width: calc(100% - 4px);
+  aspect-ratio: 3 / 4;
   background: rgba(var(--v-theme-primary), 0.06);
   border-radius: 4px;
   border: 2px solid rgba(var(--v-theme-primary), 0.3);
@@ -6230,6 +5349,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
 }
 
 .isd-scanning-page-thumb-wrap--live {
+  width: calc(100% - 2px);
   border-width: 1px;
   background: #fff;
   animation: none;
@@ -6324,10 +5444,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
   color: rgba(var(--v-theme-on-surface), .72);
 }
 
-.isd-ai-status-btn--failed {
-  color: rgb(var(--v-theme-warning)) !important;
-}
-
 .isd-ai-status-ring {
   position: absolute;
   inset: 0;
@@ -6359,8 +5475,8 @@ button.isd-dropzone__action--supplemental:focus-visible {
 
 /* Rechts bleiben die Formulare unabhängig von der Seitenliste scrollbar. */
 .isd-props {
-  flex: 0 0 360px;
-  max-width: 36%;
+  flex: 0 0 var(--isd-props-width, 360px);
+  max-width: 50%;
   min-width: 0;
   position: relative;
   display: flex;
@@ -6371,33 +5487,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
 
 /* Rechte Leiste einblenden, sobald die erste Seite da ist: aus 0-Breite
    aufziehen + einblenden/hereinschieben. Umgekehrt beim Leeren. */
-.isd-props-reveal-enter-active {
-  transition:
-    flex-basis 0.34s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.3s ease 0.04s,
-    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
-  overflow: hidden;
-}
-
-.isd-props-reveal-leave-active {
-  transition:
-    flex-basis 0.24s cubic-bezier(0.4, 0, 1, 1),
-    opacity 0.18s ease,
-    transform 0.24s ease;
-  overflow: hidden;
-}
-
-.isd-props-reveal-enter-from,
-.isd-props-reveal-leave-to {
-  flex-basis: 0 !important;
-  opacity: 0;
-  transform: translateX(18px);
-}
-
-:global(.pm-no-animations) .isd-props-reveal-enter-active,
-:global(.pm-no-animations) .isd-props-reveal-leave-active {
-  transition: none;
-}
 
 @keyframes isd-ai-field-glow {
   0% {
@@ -6469,6 +5558,9 @@ button.isd-dropzone__action--supplemental:focus-visible {
   padding: 0;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  overflow-anchor: none;
+  scroll-snap-type: y mandatory;
+  cursor: default;
 }
 
 .isd-preview-stage--magnify:has(.isd-preview-image:hover) {
@@ -6484,7 +5576,27 @@ button.isd-dropzone__action--supplemental:focus-visible {
   justify-content: center;
 }
 
-.isd-preview-image {
+.isd-preview-pages {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding-inline: 12px;
+  box-sizing: border-box;
+  min-width: 100%;
+}
+
+.isd-preview-page {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  scroll-snap-align: center;
+}
+
+.isd-preview-page-image {
   display: block;
   flex: 0 0 auto;
   object-fit: contain;
@@ -6547,100 +5659,8 @@ button.isd-dropzone__action--supplemental:focus-visible {
 
 /* ── Fields ── */
 /* Aufbewahrung: farblich abgehobene, fest integrierte Sektion in der Feldspalte. */
-.isd-retention {
-  --isd-amber: 200, 145, 47;
-  /* Feld-Variablen lokal setzen, damit RetentionForm konsistent geboxte Felder rendert. */
-  --pm-detail-field-bg: rgb(var(--v-theme-surface));
-  --pm-detail-field-border: rgba(var(--v-theme-on-surface), 0.16);
-  --pm-detail-field-focus-border: rgb(var(--v-theme-primary));
-  /* In der Flex-Spalte nicht schrumpfen (overflow:hidden würde die Min-Höhe sonst auf 0 setzen). */
-  flex: 0 0 auto;
-  margin: 2px 0;
-  border: 1px solid rgba(var(--isd-amber), 0.45);
-  background: rgba(var(--isd-amber), 0.08);
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.isd-retention__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 10px 9px 12px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.isd-retention__head:focus-visible {
-  outline: 2px solid rgba(var(--isd-amber), 0.6);
-  outline-offset: -2px;
-  border-radius: 10px;
-}
-
-.isd-retention__title {
-  font-weight: 600;
-  font-size: 12.5px;
-  color: rgba(var(--v-theme-on-surface), 0.9);
-  flex-shrink: 0;
-}
-
-.isd-retention__summary {
-  font-size: 12px;
-  color: rgba(var(--v-theme-on-surface), 0.6);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-.isd-retention__chev {
-  flex-shrink: 0;
-  color: rgba(var(--v-theme-on-surface), 0.5) !important;
-  transition: transform 0.2s ease;
-}
-
-.isd-retention__chev--open {
-  transform: rotate(180deg);
-}
-
-.isd-retention__spacer {
-  flex: 1;
-}
-
-.isd-retention__accept {
-  flex-shrink: 0;
-  font-weight: 600;
-  font-size: 12px;
-  color: rgb(var(--v-theme-primary));
-  background: transparent;
-  border: none;
-  padding: 2px 4px;
-  cursor: pointer;
-}
 
 /* Formularkörper: Trenner zur Kopfzeile, gleichmäßige Flucht der Felder. */
-.isd-retention :deep(.retention-form) {
-  background: transparent;
-  border-top: 1px solid rgba(var(--isd-amber), 0.22);
-  border-radius: 0;
-  padding: 12px;
-}
-
-.isd-retention :deep(.retention-form__grid) {
-  margin-bottom: 14px;
-}
-
-.isd-retention :deep(.retention-toggle-row) {
-  margin-bottom: 14px;
-}
-
-.isd-retention :deep(.retention-form__static) {
-  min-height: 40px;
-}
-
-.isd-retention :deep(.retention-form__disclaimer) {
-  margin-bottom: 0;
-}
 
 .isd-field {
   display: flex;
@@ -6651,119 +5671,11 @@ button.isd-dropzone__action--supplemental:focus-visible {
   border-radius: 8px;
 }
 
-.isd-field--ai-filled {
-  animation: isd-ai-field-glow 1.35s ease-out;
-}
-
-:global(.pm-no-animations) .isd-field--ai-filled {
-  animation: none;
-}
-
-.isd-field-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  color: rgba(var(--v-theme-on-surface), 0.7);
-}
-
-.isd-field-info {
-  color: rgba(var(--v-theme-on-surface), 0.35) !important;
-  cursor: default;
-  flex-shrink: 0;
-  transition: color 0.15s;
-}
-
-.isd-field-info:hover {
-  color: rgba(var(--v-theme-on-surface), 0.65) !important;
-}
-
-.isd-field-row {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-
 /* Neues, noch nicht angelegtes Tag: gestrichelter Rahmen + transparenter Grund,
    damit sofort erkennbar ist, dass es beim Import erst erstellt würde. */
-:deep(.isd-tag-chip--new.v-chip) {
-  background: transparent !important;
-  border: 1px dashed rgba(var(--v-theme-primary), 0.6) !important;
-  color: rgb(var(--v-theme-primary));
-}
-
-
-.isd-ai-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  align-self: flex-start;
-  padding: 3px 9px;
-  background: transparent;
-  border: 1px dashed rgba(var(--v-theme-on-surface), 0.28);
-  border-radius: 20px;
-  color: rgba(var(--v-theme-on-surface), 0.5);
-  font-size: 11px;
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-.isd-ai-chip:hover {
-  border-color: rgba(var(--v-theme-on-surface), 0.5);
-  color: rgba(var(--v-theme-on-surface), 0.75);
-}
-.isd-ai-chip__action { font-weight: 600; }
 
 
 /* ── Divider & Toggles ── */
-.isd-divider {
-  height: 1px;
-  background: rgba(var(--v-theme-on-surface), 0.08);
-  margin: 2px 0;
-}
-
-.isd-toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.isd-toggle-lbl {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.isd-toggle-lbl span { font-size: 13px; font-weight: 400; }
-.isd-toggle-lbl small { font-size: 11px; color: rgba(var(--v-theme-on-surface), 0.54); }
-
-.isd-toggle {
-  flex: 0 0 auto;
-  position: relative;
-  width: 38px;
-  height: 21px;
-  border-radius: 11px;
-  border: none;
-  background: rgba(var(--v-theme-on-surface), 0.2);
-  cursor: pointer;
-  transition: background 0.2s;
-  appearance: none;
-}
-.isd-toggle::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.2s;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-.isd-toggle--on { background: rgb(var(--v-theme-primary)); }
-.isd-toggle--on::after { transform: translateX(17px); }
-.isd-toggle--dis { opacity: 0.38; cursor: not-allowed; }
 
 /* ── Footer ── */
 .isd-footer {
@@ -6783,13 +5695,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
 .isd-footer-status {
   font-size: 13px;
   color: rgba(var(--v-theme-on-surface), 0.54);
-}
-
-.isd-discard-confirm__text {
-  margin: 0;
-  font-size: 0.92rem;
-  line-height: 1.45;
-  color: rgba(var(--v-theme-on-surface), 0.68);
 }
 
 /* ── Import-Button: Zustände klar differenzieren ──────────────────────────
@@ -6818,13 +5723,25 @@ button.isd-dropzone__action--supplemental:focus-visible {
   box-shadow: 0 2px 12px rgba(var(--v-theme-primary), 0.42) !important;
 }
 
-@media (max-height: 760px) and (min-width: 601px) {
-  .isd-card--empty .isd-grid-scroll {
-    padding: 24px;
-  }
+/* Three source choices need the compact illustration at every window height.
+   The start screen grows with its content; its outer area scrolls when needed. */
+.isd-dropzone--available-pages {
+  padding-block: 10px;
+}
 
+.isd-dropzone--available-pages .isd-dropzone__actions {
+  margin-top: 14px;
+}
+
+.isd-dropzone--available-pages:not(.isd-dropzone--scanning) .isd-dz-scene {
+  height: 104px;
+  margin: 0 0 12px;
+  transform: scale(0.54);
+  transform-origin: top center;
+}
+
+@media (max-height: 760px) and (min-width: 601px) {
   .isd-dropzone {
-    height: auto;
     min-height: 430px;
     padding: 22px;
     overflow: visible;
@@ -6844,6 +5761,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
   .isd-dropzone__actions {
     margin-top: 14px;
   }
+
 }
 
 @media (max-width: 600px) {
@@ -6852,8 +5770,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
   }
 
   .isd-dropzone {
-    height: auto;
-    min-height: 100%;
     padding: 24px 18px;
     overflow: visible;
   }
@@ -6929,13 +5845,28 @@ button.isd-dropzone__action--supplemental:focus-visible {
 :global(.pm-no-animations) .isd-page-thumb-wrap {
   transition: none;
 }
-
-:global(.pm-no-animations) .isd-scan-frame-leave-active {
-  transition: none;
-}
 </style>
 
 <style>
+.isd-document-boundary { padding:12px 0 8px; border-top:1px solid var(--pm-divider-soft); font-size:11px; font-weight:600; color:var(--pm-muted); overflow-wrap:anywhere; }
+.isd-document-boundary:first-child { padding-top:0; border-top:0; }
+.isd-analysis-scope { display:block; margin-top:8px; font-size:12px; }
+@media (min-width:961px) { .isd-card:not(.isd-card--empty) .isd-left { border-right:0; } }
+@media (any-pointer:coarse) {
+  .isd-card .isd-tool-btn { width:44px; height:44px; }
+  .isd-card .isd-toolbar { gap:2px; padding:4px; border-radius:24px; }
+  .isd-card .isd-toolbar .isd-direct-tools, .isd-card .isd-toolbar .isd-color-group { display:contents; }
+  .isd-card .isd-toolbar .pm-preview-toolbar__divider { display:none; }
+  .isd-card .isd-toolbar .pdf-preview__zoom-seg { width:44px; height:44px; }
+  .isd-card .isd-toolbar .pdf-preview__zoom-value { min-width:44px; height:44px; }
+  .isd-card .isd-ai-status-btn.v-btn, .isd-card .isd-toolbar-select-btn.v-btn,
+  .isd-card .pm-dialog__close-btn.v-btn { min-width:44px; min-height:44px; width:44px; height:44px; }
+  .isd-card .isd-props .pm-metadata-row { row-gap:12px; }
+  .isd-card .isd-props .pm-metadata-control .v-field__input { min-height:44px; }
+  .isd-card .isd-props .v-field__clearable .v-icon { width:44px; height:44px; }
+  .isd-card .isd-props .pm-tags-input__chip { min-height:44px; }
+  .isd-card .isd-props .pm-tags-input__chip .v-chip__close { min-width:44px; min-height:44px; }
+}
 .isd-import-error { padding:10px 16px; color:rgb(var(--v-theme-error)); background:rgba(var(--v-theme-error),.06); }
 .isd-review-hint, .isd-page-review { font-size:12px; color:var(--pm-muted,#687076); margin:8px 0; }
 .isd-page-review { display:block; text-align:center; }
@@ -6944,7 +5875,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
 .isd-card .isd-props { container-type:inline-size; }
 @media (max-width:1100px) and (min-width:961px) {
   .isd-card .isd-left { --isd-rail-width: 128px; }
-  .isd-card .isd-props { flex-basis: 330px; }
+  .isd-card .isd-props { flex-basis: var(--isd-props-width, 330px); }
 }
 @media (max-width:960px) {
   .isd-card:not(.isd-card--empty) .isd-body { flex-direction:column; overflow-y:auto; }
@@ -6956,6 +5887,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
 @media (max-width:600px) {
   .isd-card:not(.isd-card--empty) .isd-left { --isd-rail-width:88px; flex-basis:clamp(260px, 40vh, 340px); }
   .isd-card .isd-grid-scroll { padding:12px; }
+  .isd-card:not(.isd-card--empty) .isd-grid-scroll { padding-bottom:calc(12px + var(--isd-bar-height)); }
   .isd-card .isd-pages-footer { justify-content:center; gap:4px; padding:0 6px; }
   .isd-card .isd-pages-footer strong { display:none; }
   .isd-card .isd-pages-footer .isd-toolbar-select-btn { margin-left:0; }

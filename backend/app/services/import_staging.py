@@ -1834,6 +1834,7 @@ class ImportStagingService:
         doc_type_vocab = load_active_document_type_vocab(self.db, self.owner_id)
         active_doc_type_names = document_type_names(doc_type_vocab)
         ollama_rich: dict[str, object] | None = None
+        ai_duration_ms = 0.0
         if use_ollama and ollama_cfg.get("enabled"):
             rough_doc_type = self._detect_document_type_improved(extracted_text)
             rough_correspondent = self._resolve_correspondent(None, extracted_text)
@@ -1841,6 +1842,7 @@ class ImportStagingService:
                 document_type=rough_doc_type,
                 correspondent_id=(rough_correspondent or {}).get("id"),
             )
+            ai_started = now_perf()
             ollama_rich = self._call_ollama_for_staging(
                 extracted_text,
                 base_url=str(ollama_cfg.get("base_url") or "http://localhost:11434"),
@@ -1852,6 +1854,7 @@ class ImportStagingService:
                 doc_type_hints=document_type_hint_map(doc_type_vocab),
                 naming_examples=naming_examples,
             )
+            ai_duration_ms = elapsed_ms(ai_started)
             if ollama_rich:
                 logger.info("SuggestTitle: ollama extraction succeeded stage=%s", str(stage_id or "").strip() or "-")
 
@@ -2000,6 +2003,7 @@ class ImportStagingService:
                 "analysis_status": "ready",
                 "analysis_phase": analysis_phase,
                 "field_origins": field_origins,
+                "timings": {"ocr_ms": max(0, float(ocr_diagnostics.get("duration_ms") or 0)), "ai_ms": ai_duration_ms},
                 "refinement_pending": bool(not use_ollama and ollama_cfg.get("enabled")),
                 "ocr": public_ocr,
                 "evidence": {key: evidence for key, value in {"title": subject, "correspondent": issuer_raw, "date": final_date}.items() if (evidence := evidence_for(value, extracted_text))},
@@ -2125,6 +2129,7 @@ class ImportStagingService:
         if repeat_ocr or text_quality(extracted_text) < 45:
             ocr_started = now_perf()
             ocr_text, ocr_diagnostics = self._extract_text_with_ocr_fallback(normalized_ids, page_scope=normalized_scope)
+            ocr_diagnostics["duration_ms"] = elapsed_ms(ocr_started)
             if repeat_ocr or text_quality(ocr_text) > text_quality(extracted_text):
                 extracted_text = ocr_text
             if len(extracted_text) > 12000:
@@ -2227,6 +2232,7 @@ class ImportStagingService:
         if not extracted_text:
             ocr_started = now_perf()
             extracted_text, ocr_diagnostics = self._extract_text_with_ocr_fallback(normalized_ids, page_scope=normalized_scope)
+            ocr_diagnostics["duration_ms"] = elapsed_ms(ocr_started)
             if len(extracted_text) > 12000:
                 extracted_text = extracted_text[:12000].rstrip()
             if not extracted_text:
@@ -2335,6 +2341,7 @@ class ImportStagingService:
             reader = PdfReader(str(path))
             texts = []
             diagnostics = {"status": "ready", "attempts": [], "errors": []}
+            ocr_duration_ms = 0.0
             for index, pdf_page in enumerate(reader.pages):
                 embedded = pdf_page.extract_text() or ""
                 best = "" if repeat_ocr else embedded
@@ -2342,6 +2349,7 @@ class ImportStagingService:
                     for attempt in _STAGING_OCR_ATTEMPTS[:2]:
                         # One failed OCR attempt must not discard the embedded
                         # text, earlier attempts or the other selected pages.
+                        ocr_started = now_perf()
                         try:
                             candidate = run_ocr_lite(path, page_index=index,
                                 language="deu+eng", max_long_side_px=int(attempt["max_long_side_px"]),
@@ -2351,12 +2359,15 @@ class ImportStagingService:
                             diagnostics["errors"].append(message[:500])
                             logger.warning("stage selection ocr lite failed %s", message)
                             continue
+                        finally:
+                            ocr_duration_ms += elapsed_ms(ocr_started)
                         diagnostics["attempts"].append({"page_index": index, "chars": len(candidate or "")})
                         if text_quality(candidate or "") > text_quality(best):
                             best = candidate
                         if text_quality(best) >= 120:
                             break
                 texts.append(best)
+            diagnostics["duration_ms"] = ocr_duration_ms
             extracted = "\n\n".join(texts)[:12000]
             if not extracted.strip() and diagnostics["errors"]:
                 diagnostics["status"] = "ocr_failed"

@@ -194,7 +194,8 @@ test('selecting another page during the enlargement removes the floating scan fr
   }, otherPreview);
   await page.locator('.isd-page-card').nth(1).click();
   await expect(page.locator('.isd-scan-flight')).toHaveCount(0);
-  await expect(page.locator('.isd-preview-scan-frame')).toHaveCount(0);
+  await expect(page.locator('.isd-preview-page--active .isd-preview-scan-frame')).toHaveCount(0);
+  await expect(page.locator('.isd-preview-page').first().locator('.isd-preview-scan-frame')).toHaveCount(1);
   await expect(page.locator('.isd-preview-image')).toHaveAttribute('src', otherPreview);
   await expect(page.locator('.isd-preview-image')).toBeVisible();
 });
