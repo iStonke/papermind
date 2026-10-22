@@ -2264,9 +2264,10 @@ async function importFullNote(event) {
   event.target.value = '';
   if (!file || archiveBusy.value) return;
   archiveBusy.value = true;
+  const collectionId = notesStore.showAllCollections ? null : notesStore.activeCollectionId;
   try {
     if (file.size > 100 * 1024 * 1024) throw new Error('Die Notizdatei darf höchstens 100 MB groß sein.');
-    const note = await importNoteArchive(file);
+    const note = await importNoteArchive(file, { collectionId });
     emit('imported', note);
     notify({ message: 'Notiz vollständig importiert.', type: 'success' });
   } catch (error) {

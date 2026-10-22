@@ -1385,6 +1385,7 @@ async function onNoteImportDrop(event) {
   }
 
   noteImportBusy.value = true;
+  const collectionId = notesStore.showAllCollections ? null : notesStore.activeCollectionId;
   const importedNotes = [];
   let firstError = null;
   try {
@@ -1394,7 +1395,7 @@ async function onNoteImportDrop(event) {
         continue;
       }
       try {
-        importedNotes.push(await importNoteArchive(file));
+        importedNotes.push(await importNoteArchive(file, { collectionId }));
       } catch (error) {
         firstError ||= error;
       }

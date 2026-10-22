@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -59,7 +59,7 @@ router = APIRouter(prefix="/api/notes", tags=["Notes"])
 
 @router.post("/import", response_model=NoteRead, status_code=201)
 def import_note_archive(file: UploadFile = File(...), db: Session = Depends(get_db, scope="function"),
-                        user: User = Depends(get_current_user)):
+                        user: User = Depends(get_current_user), collection_id: uuid.UUID | None = Form(default=None)):
     from pydantic import ValidationError
     from app.core.errors import BadRequestError, PayloadTooLargeError
     from app.services.note_archive import NoteArchive, NoteArchiveService, MAX_ARCHIVE_BYTES
@@ -71,7 +71,7 @@ def import_note_archive(file: UploadFile = File(...), db: Session = Depends(get_
     except (ValidationError, ValueError) as exc:
         raise BadRequestError("Keine gültige PaperMind-Notizdatei oder unbekannte Formatversion") from exc
     try:
-        return NoteArchiveService(db, user.id).import_archive(archive)
+        return NoteArchiveService(db, user.id).import_archive(archive, target_collection_id=collection_id)
     except (TypeError, ValueError, AttributeError, RecursionError) as exc:
         raise BadRequestError("Ungültiger Inhalt in der Notizdatei") from exc
 

@@ -744,6 +744,90 @@ test('updated note editor accepts text and restores it after reload', async ({ p
   expect(errors).toEqual([]);
 });
 
+const noteImportCollectionId = '50000000-0000-4000-8000-000000000001';
+const archiveCollectionId = '50000000-0000-4000-8000-000000000002';
+const noteImportArchive = title => ({ format:'papermind-note', version:1,
+  source_id:'50000000-0000-4000-8000-000000000010', title,
+  body_json:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Importierter Inhalt'}]}]},
+  revision:1,is_template:false,created_at:'2026-10-22T10:00:00Z',updated_at:'2026-10-22T10:00:00Z',
+  tags:[],collection:{name:'Archivsammlung'},notebook:null,history:[],images:[],
+});
+
+async function openNotesForArchiveImport(page,{allCollections=false}={}) {
+  await mockApi(page);
+  await page.addInitScript(({collectionId,allCollections})=>{
+    localStorage.setItem('pm-notes-active-collection-v1',collectionId);
+    localStorage.setItem('pm-notes-all-collections-v1',allCollections?'1':'0');
+    localStorage.setItem('pm-notes-list-collapsed','0');
+  },{collectionId:noteImportCollectionId,allCollections});
+  const notes=[{id:'50000000-0000-4000-8000-000000000011',title:'Vorhandene Notiz',collection_id:noteImportCollectionId,
+    notebook_id:null,is_template:false,is_deleted:false,revision:1,tags:[],preview:'Ausgangsnotiz',
+    body_json:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Ausgangsnotiz'}]}]},
+    created_at:'2026-10-22T09:00:00Z',updated_at:'2026-10-22T09:00:00Z'}];
+  const uploads=[];
+  await page.route('**/api/notes**',async route=>{
+    const request=route.request(),url=new URL(request.url()),path=url.pathname;
+    const json=body=>route.fulfill({json:body});
+    if(path==='/api/notes/collections') return json({items:[
+      {id:noteImportCollectionId,name:'Arbeit',note_count:notes.filter(note=>note.collection_id===noteImportCollectionId).length},
+      {id:archiveCollectionId,name:'Archivsammlung',note_count:notes.filter(note=>note.collection_id===archiveCollectionId).length},
+    ]});
+    if(path==='/api/notes/notebooks') return json({items:[]});
+    if(path==='/api/notes/import') {
+      const form=await new Response(request.postDataBuffer(),{headers:{'Content-Type':request.headers()['content-type']}}).formData();
+      // WebKit omits file bytes from intercepted multipart requests. The file
+      // name identifies the synthetic archive; collection_id is read on the wire.
+      const archive=noteImportArchive(form.get('file').name.replace(/\.papermind\.json$/,'')),collectionId=form.get('collection_id');
+      uploads.push({collectionId,title:archive.title});
+      const note={...notes[0],id:`50000000-0000-4000-8000-${String(20+uploads.length).padStart(12,'0')}`,
+        title:archive.title,body_json:archive.body_json,collection_id:collectionId||archiveCollectionId};
+      notes.push(note);return json(note);
+    }
+    if(path==='/api/notes') return json({items:notes.filter(note=>(!url.searchParams.has('collection_id')||note.collection_id===url.searchParams.get('collection_id'))
+      && Boolean(note.is_template)===(url.searchParams.get('templates')==='true')),has_more:false});
+    const note=notes.find(note=>path===`/api/notes/${note.id}`||path===`/api/notes/${note.id}/opened`);
+    if(note) return json(path.endsWith('/opened')?{id:note.id,last_opened_at:'2026-10-22T12:00:00Z'}:note);
+    return route.fallback();
+  });
+  await login(page);await page.getByText('Alle Notizen',{exact:true}).click();
+  await expect(page.getByRole('textbox',{name:'Titel der Notiz',exact:true})).toHaveValue('Vorhandene Notiz');
+  return {uploads,notes};
+}
+
+test('note archive file selection imports into the currently opened collection',async({page})=>{
+  const {uploads,notes}=await openNotesForArchiveImport(page);
+  await page.locator('.note-workspace-editor__more-btn').click();
+  const chooser=page.waitForEvent('filechooser');
+  await page.getByRole('menuitem',{name:'Notiz importieren',exact:true}).click();
+  await (await chooser).setFiles({name:'Aus dem Archiv.papermind.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(noteImportArchive('Aus dem Archiv')))});
+  await expect.poll(()=>uploads).toEqual([{collectionId:noteImportCollectionId,title:'Aus dem Archiv'}]);
+  await expect(page.getByRole('textbox',{name:'Titel der Notiz',exact:true})).toHaveValue('Aus dem Archiv');
+  expect(notes.at(-1).collection_id).toBe(noteImportCollectionId);
+  await expect(page.locator('.notes-ws__collection-switch .notes-ws__collection-name')).toHaveText('Arbeit');
+});
+
+test('dropping several note archives places every note in the opened collection',async({page})=>{
+  const {uploads}=await openNotesForArchiveImport(page);
+  const transfer=await page.evaluateHandle(archives=>{
+    const transfer=new DataTransfer();
+    for(const archive of archives) transfer.items.add(new File([JSON.stringify(archive)],`${archive.title}.papermind.json`,{type:'application/json'}));
+    return transfer;
+  },[noteImportArchive('Erste Notiz'),noteImportArchive('Zweite Notiz')]);
+  await page.locator('.notes-ws__list-dropzone').dispatchEvent('drop',{dataTransfer:transfer});
+  await expect.poll(()=>uploads).toEqual([{collectionId:noteImportCollectionId,title:'Erste Notiz'},{collectionId:noteImportCollectionId,title:'Zweite Notiz'}]);
+  await expect(page.getByRole('textbox',{name:'Titel der Notiz',exact:true})).toHaveValue('Zweite Notiz');
+  await expect(page.locator('.notes-ws__collection-switch .notes-ws__collection-name')).toHaveText('Arbeit');
+});
+
+test('note archive import in all collections keeps the archived collection',async({page})=>{
+  const {uploads}=await openNotesForArchiveImport(page,{allCollections:true});
+  await page.locator('input[accept=".papermind.json,application/json"]').setInputFiles({name:'In der Archivsammlung.papermind.json',mimeType:'application/json',
+    buffer:Buffer.from(JSON.stringify(noteImportArchive('In der Archivsammlung')))});
+  await expect.poll(()=>uploads).toEqual([{collectionId:null,title:'In der Archivsammlung'}]);
+  await expect(page.getByRole('textbox',{name:'Titel der Notiz',exact:true})).toHaveValue('In der Archivsammlung');
+  await expect(page.locator('.notes-ws__collection-switch .notes-ws__collection-name')).toHaveText('Alle Sammlungen');
+});
+
 test('dropping a PDF uploads and commits the selected pages', async ({ page }) => {
   const { imports } = await mockApi(page);
   await login(page);

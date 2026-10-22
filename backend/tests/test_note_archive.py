@@ -10,7 +10,10 @@ from sqlalchemy import select, text
 from app.db.session import SessionLocal
 from app.models.note import NoteRevision
 from app.models.user import User
-from app.schemas.notes import NoteCreateRequest, NoteUpdateRequest
+from app.schemas.notes import CollectionCreateRequest, NoteCreateRequest, NoteUpdateRequest
+from app.models.note_collection import NoteCollection
+from app.models.note_notebook import NoteNotebook
+from app.services.note_collection_service import NoteCollectionService
 from app.services.note_service import NoteService
 from app.services.note_images import NoteImageService, NoteImageStorage
 from app.services.note_archive import NoteArchiveService, NoteArchive
@@ -160,3 +163,80 @@ def test_repeated_import_preserves_notebook_and_history(archive_service):
     assert exported.collection == archive.collection
     assert exported.notebook == archive.notebook
     assert exported.history == archive.history
+
+
+def test_explicit_destination_overrides_archive_collection_and_keeps_notebook_in_target(archive_service):
+    from app.services.note_archive import Folder
+    svc = archive_service
+    original = svc.notes.create_note(NoteCreateRequest(title='Aus einer anderen Sammlung'))
+    archive = svc.export(original.id)
+    archive.collection = Folder(name='Sammlung aus der Datei')
+    archive.notebook = Folder(name='Importiertes Notizbuch')
+    target = NoteCollectionService(svc.db, svc.owner_id).create_collection(CollectionCreateRequest(name='Aktuelle Sammlung'))
+
+    first = svc.import_archive(archive, target_collection_id=target.id)
+    second = svc.import_archive(archive, target_collection_id=target.id)
+
+    assert first.collection_id == second.collection_id == target.id
+    assert first.notebook_id == second.notebook_id
+    notebook = svc.db.get(NoteNotebook, first.notebook_id)
+    assert notebook.collection_id == target.id
+    assert svc.db.scalar(select(NoteCollection).where(NoteCollection.owner_id == svc.owner_id, NoteCollection.name == archive.collection.name)) is None
+    assert original.collection_id != target.id
+    result = svc.export(first.id)
+    assert result.body_json == archive.body_json
+    assert result.history == archive.history
+    assert result.created_at == archive.created_at
+
+
+def test_explicit_destination_allows_archive_without_a_collection(archive_service):
+    svc = archive_service
+    original = svc.notes.create_note(NoteCreateRequest(title='Ohne Archivsammlung'))
+    archive = svc.export(original.id)
+    archive.collection = None
+    imported = svc.import_archive(archive, target_collection_id=original.collection_id)
+    assert imported.collection_id == original.collection_id
+
+
+def test_missing_or_foreign_destination_does_not_create_a_note(archive_service):
+    svc = archive_service
+    original = svc.notes.create_note(NoteCreateRequest(title='Original'))
+    archive = svc.export(original.id)
+    with pytest.raises(NotFoundError):
+        svc.import_archive(archive, target_collection_id=uuid.uuid4())
+    with pytest.raises(NotFoundError):
+        NoteArchiveService(svc.db, uuid.uuid4()).import_archive(archive, target_collection_id=original.collection_id)
+    assert len(svc.notes.list_notes()) == 1
+
+
+def test_templates_remain_global_with_an_explicit_import_destination(archive_service):
+    svc = archive_service
+    original = svc.notes.create_note(NoteCreateRequest(title='Original'))
+    template = svc.notes.create_note(NoteCreateRequest(title='Vorlage', is_template=True))
+    imported = svc.import_archive(svc.export(template.id), target_collection_id=original.collection_id)
+    assert imported.is_template
+    assert imported.collection_id is None
+    assert imported.notebook_id is None
+
+
+def test_import_endpoint_accepts_the_destination_as_a_multipart_form_field(archive_service):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from types import SimpleNamespace
+    from app.core.deps import get_current_user
+    from app.db import get_db
+    from app.routers.notes import router
+
+    svc = archive_service
+    original = svc.notes.create_note(NoteCreateRequest(title='Über die Dateiauswahl'))
+    archive = svc.export(original.id)
+    target = NoteCollectionService(svc.db, svc.owner_id).create_collection(CollectionCreateRequest(name='Ziel'))
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: svc.db
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=svc.owner_id)
+    with TestClient(app) as client:
+        response = client.post('/api/notes/import', data={'collection_id': str(target.id)},
+            files={'file': ('Notiz.papermind.json', archive.model_dump_json(), 'application/json')})
+    assert response.status_code == 201, response.text
+    assert response.json()['collection_id'] == str(target.id)

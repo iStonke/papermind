@@ -172,9 +172,10 @@ export function streamNoteReview(payload, options = {}) {
 }
 
 export const exportNoteArchive = (id) => apiGet(`/api/notes/${id}/export`);
-export const importNoteArchive = (file) => {
+export const importNoteArchive = (file, { collectionId = null } = {}) => {
   const body = new FormData();
   body.append('file', file);
+  if (collectionId) body.append('collection_id', collectionId);
   return apiFetch('/api/notes/import', { method: 'POST', body });
 };
 

@@ -17,6 +17,7 @@ from app.models.note_notebook import NoteNotebook
 from app.models.note_image import NoteImage
 from app.services.note_images import NoteImageStorage, NoteImageService, ALLOWED_NOTE_IMAGE_TYPES, MAX_NOTE_IMAGE_PIXELS
 from app.services.note_service import NoteService, derive_body_text
+from app.services.note_collection_service import NoteCollectionService
 
 MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
 
@@ -161,8 +162,10 @@ class NoteArchiveService:
             body.update(rewritten)
         return archive
 
-    def import_archive(self, archive):
-        if not archive.is_template and archive.collection is None:
+    def import_archive(self, archive, *, target_collection_id: uuid.UUID | None = None):
+        if not archive.is_template and target_collection_id is not None:
+            target_collection_id = NoteCollectionService(self.db, self.owner_id).resolve_id(target_collection_id)
+        if not archive.is_template and target_collection_id is None and archive.collection is None:
             raise BadRequestError('Die Sammlung fehlt im Archiv')
         if len({v.note_revision for v in archive.history}) != len(archive.history) or any(v.note_revision > archive.revision for v in archive.history):
             raise BadRequestError('Ungültiger Versionsverlauf')
@@ -200,7 +203,7 @@ class NoteArchiveService:
                     self.db.add(row)
                     self.db.flush()
                 return row.id
-            collection_id = restore_folder(NoteCollection, archive.collection) if not archive.is_template else None
+            collection_id = (target_collection_id or restore_folder(NoteCollection, archive.collection)) if not archive.is_template else None
             notebook_id = restore_folder(NoteNotebook, archive.notebook, collection_id) if collection_id else None
             note = Note(id=note_id, owner_id=self.owner_id, title=archive.title,
                 body_json=body, body_text=derive_body_text(body), revision=archive.revision,

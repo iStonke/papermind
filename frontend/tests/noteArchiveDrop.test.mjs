@@ -28,7 +28,7 @@ test('note archive drops reject unrelated files', () => {
 test('notes list imports dropped archives through the existing notes API', () => {
   assert.match(workspaceSource, /@dragenter="onNoteImportDragEnter"/);
   assert.match(workspaceSource, /@drop="onNoteImportDrop"/);
-  assert.match(workspaceSource, /await importNoteArchive\(file\)/);
+  assert.match(workspaceSource, /await importNoteArchive\(file, \{ collectionId \}\)/);
   assert.match(workspaceSource, /class="notes-ws__drop-overlay-inner"[\s\S]*?Notizarchive hier ablegen/);
   assert.match(workspaceSource, /prefers-reduced-motion:\s*reduce[\s\S]*?notes-ws__drop-overlay-inner/);
 });
