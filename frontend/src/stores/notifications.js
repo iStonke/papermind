@@ -95,7 +95,7 @@ function isDuplicate(type, message) {
   return false;
 }
 
-function notify({ type = 'info', title = '', message = '', timeoutMs, critical = false, action = null, icon = null } = {}) {
+function notify({ type = 'info', title = '', message = '', timeoutMs, critical = false, action = null, icon = null, priority = false } = {}) {
   const normalizedMessage = String(message || '').trim();
   if (!normalizedMessage) {
     return null;
@@ -122,6 +122,12 @@ function notify({ type = 'info', title = '', message = '', timeoutMs, critical =
     actionRunning: false
   };
 
+  if (priority && state.visible.length >= MAX_VISIBLE_NOTIFICATIONS) {
+    const deferred = state.visible.pop();
+    clearTimer(deferred.id);
+    timerById.delete(deferred.id);
+    state.queue.unshift(deferred);
+  }
   if (state.visible.length < MAX_VISIBLE_NOTIFICATIONS) {
     state.visible.push(notification);
     timerById.set(notification.id, {

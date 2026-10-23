@@ -9,10 +9,6 @@
     @request-close="requestCloseImport"
   >
 
-    <div v-for="job in props.scannerJobs.filter(job => job.state === 'error' && job.error_kind !== 'cancelled' && Date.parse(job.created_at) > Math.max(stagingStore.createdAt || 0, Date.now() - 300000))" :key="job.id" class="isd-import-error" role="alert">
-      {{ job.error || 'Scan fehlgeschlagen. Bereits erfasste Seiten bleiben erhalten.' }}
-      <v-btn size="small" variant="text" :disabled="props.scannerActive" @click="emitScan('page')">Erneut scannen</v-btn>
-    </div>
     <div class="isd-body" :style="{ '--isd-props-width': `${detailsPaneWidth}px` }">
       <input ref="fileInput" class="d-none" type="file" accept="application/pdf" multiple @change="onFileInputChange" />
 
@@ -35,7 +31,7 @@
             :class="{
               'isd-dropzone--over': isDropzoneDragOver,
               'isd-dropzone--available-pages': availablePageCount > 0,
-              'isd-dropzone--scanning': props.scannerActive || scannerPreviewFinalizing
+              'isd-dropzone--scanning': scannerFeedbackVisible
             }"
             @dragenter.prevent="onDropzoneDragEnter"
             @dragover.prevent="onDropzoneDragOver"
@@ -46,52 +42,54 @@
             <div
               class="isd-dz-scene"
               :class="{
-                'isd-dz-scene--scanning': props.scannerActive || scannerPreviewFinalizing,
+                'isd-dz-scene--scanning': scannerFeedbackVisible,
                 'isd-dz-scene--pending': isScannerFeedbackPending,
                 'isd-dz-scene--complete': scannerPreviewFinalizing
               }"
               aria-hidden="true"
             >
-              <span class="isd-dz-scene__halo" />
-              <span class="isd-dz-scene__table" />
+              <div class="isd-dz-scene__art">
+                <span class="isd-dz-scene__halo" />
+                <span class="isd-dz-scene__table" />
 
-              <div class="isd-dz-sheet isd-dz-sheet--pdf">
-                <span class="isd-dz-sheet__kind">PDF</span>
-                <span class="isd-dz-sheet__copy">
-                  <i /><i /><i /><i />
-                </span>
-              </div>
-
-              <div class="isd-dz-sheet isd-dz-sheet--image">
-                <span class="isd-dz-sheet__photo">
-                  <i class="isd-dz-sheet__sun" />
-                  <i class="isd-dz-sheet__mountain isd-dz-sheet__mountain--back" />
-                  <i class="isd-dz-sheet__mountain isd-dz-sheet__mountain--front" />
-                </span>
-                <span class="isd-dz-sheet__caption" />
-              </div>
-
-              <div ref="scannerPreviewSourceElement" class="isd-dz-sheet isd-dz-sheet--front">
-                <img
-                  v-if="scannerLivePreviewUrl"
-                  :src="scannerLivePreviewUrl"
-                  class="isd-dz-sheet__live-preview"
-                  alt=""
-                />
-                <template v-else>
-                  <span class="isd-dz-sheet__accent" />
-                  <span class="isd-dz-sheet__headline" />
-                  <span class="isd-dz-sheet__copy isd-dz-sheet__copy--front">
+                <div class="isd-dz-sheet isd-dz-sheet--pdf">
+                  <span class="isd-dz-sheet__kind">PDF</span>
+                  <span class="isd-dz-sheet__copy">
                     <i /><i /><i /><i />
                   </span>
-                </template>
-                <span class="isd-dz-sheet__scan" />
-                <span v-if="scannerLivePreviewUrl" class="isd-dz-sheet__live-progress">
-                  {{ scannerLiveProgress }}%
-                </span>
-              </div>
+                </div>
 
-              <span class="isd-dz-scene__merge"><v-icon size="18">mdi-plus</v-icon></span>
+                <div class="isd-dz-sheet isd-dz-sheet--image">
+                  <span class="isd-dz-sheet__photo">
+                    <i class="isd-dz-sheet__sun" />
+                    <i class="isd-dz-sheet__mountain isd-dz-sheet__mountain--back" />
+                    <i class="isd-dz-sheet__mountain isd-dz-sheet__mountain--front" />
+                  </span>
+                  <span class="isd-dz-sheet__caption" />
+                </div>
+
+                <div ref="scannerPreviewSourceElement" class="isd-dz-sheet isd-dz-sheet--front">
+                  <img
+                    v-if="scannerLivePreviewUrl"
+                    :src="scannerLivePreviewUrl"
+                    class="isd-dz-sheet__live-preview"
+                    alt=""
+                  />
+                  <template v-else>
+                    <span class="isd-dz-sheet__accent" />
+                    <span class="isd-dz-sheet__headline" />
+                    <span class="isd-dz-sheet__copy isd-dz-sheet__copy--front">
+                      <i /><i /><i /><i />
+                    </span>
+                  </template>
+                  <span class="isd-dz-sheet__scan" />
+                  <span v-if="scannerLivePreviewUrl" class="isd-dz-sheet__live-progress">
+                    {{ scannerLiveProgress }}%
+                  </span>
+                </div>
+
+                <span class="isd-dz-scene__merge"><v-icon size="18">mdi-plus</v-icon></span>
+              </div>
             </div>
 
             <div class="isd-dropzone__text-shell">
@@ -105,8 +103,10 @@
               :class="{ 'isd-dropzone__actions--single': !canTriggerScan }"
               @click.stop
             >
+              <ImportScannerError v-if="scannerFailure" :failure="scannerFailure" :can-retry="canTriggerScan"
+                :disabled="isUploadingSources || isCommitting" @retry="emitScan('page')" />
               <div
-                v-if="scannerFeedbackVisible"
+                v-else-if="scannerFeedbackVisible"
                 class="isd-dropzone__action isd-dropzone__action--scanner-active"
                 :class="{ 'isd-dropzone__action--scanner-pending': isScannerFeedbackPending }"
                 role="status"
@@ -132,7 +132,7 @@
                 v-else-if="canTriggerScan"
                 type="button"
                 class="isd-dropzone__action"
-                :disabled="isUploadingSources || isCommitting"
+                :disabled="isUploadingSources || isCommitting || Boolean(stagingStore.pendingCommit)"
                 :title="props.scanner?.name || 'Scanner'"
                 @click="emitScan('page')"
               >
@@ -142,36 +142,47 @@
                   <small>Neue Seiten direkt erfassen</small>
                 </span>
               </button>
-              <button
-                type="button"
-                class="isd-dropzone__action"
-                :class="{ 'isd-dropzone__action--supplemental': scannerFeedbackVisible }"
-                :disabled="isUploadingSources || isCommitting"
-                @click="openFilePicker"
-              >
-                <span class="isd-dropzone__action-icon">
-                  <v-icon :size="scannerFeedbackVisible ? 18 : 22">mdi-file-pdf-box</v-icon>
-                </span>
-                <span class="isd-dropzone__action-copy">
-                  <strong>{{ scannerFeedbackVisible ? 'PDFs zusätzlich hinzufügen' : 'PDFs auswählen' }}</strong>
-                  <small v-if="!scannerFeedbackVisible">
-                    {{ isIOSDevice ? 'Eine oder mehrere Dateien' : 'Eine oder mehrere PDF-Dateien' }}
-                  </small>
-                </span>
-              </button>
-              <hr v-if="availablePageCount > 0" class="isd-dropzone__source-divider" aria-hidden="true" />
-              <button v-if="availablePageCount > 0" type="button"
-                class="isd-dropzone__action isd-dropzone__available-pages"
-                :disabled="isUploadingSources || isCommitting || availablePagesLoading"
-                :aria-busy="availablePagesLoading" :aria-label="availablePagesLabel"
-                @click="openAvailablePages">
-                <span class="isd-dropzone__action-icon"><v-icon size="22">mdi-file-document-multiple-outline</v-icon></span>
-                <span class="isd-dropzone__action-copy">
-                  <strong>Verfügbare Seiten</strong>
-                  <small>{{ availablePagesLoading ? 'Seiten werden geladen…' : availablePagesSummary }}</small>
-                </span>
-                <v-icon class="isd-dropzone__available-arrow" size="18" aria-hidden="true">mdi-chevron-right</v-icon>
-              </button>
+              <div class="isd-dropzone__other-sources" :inert="scannerFeedbackVisible" :aria-hidden="scannerFeedbackVisible ? 'true' : undefined">
+                <div class="isd-dropzone__source-choices">
+                  <button
+                    type="button"
+                    class="isd-dropzone__action"
+                    :disabled="isUploadingSources || isCommitting || Boolean(stagingStore.pendingCommit)"
+                    @click="openFilePicker"
+                  >
+                    <span class="isd-dropzone__action-icon">
+                      <v-icon size="22">mdi-file-pdf-box</v-icon>
+                    </span>
+                    <span class="isd-dropzone__action-copy">
+                      <strong>PDFs auswählen</strong>
+                      <small>
+                        {{ isIOSDevice ? 'Eine oder mehrere Dateien' : 'Eine oder mehrere PDF-Dateien' }}
+                      </small>
+                    </span>
+                  </button>
+                  <div v-if="availablePageCount > 0"
+                    class="isd-dropzone__action isd-dropzone__available-pages"
+                    @click="openAvailablePages">
+                    <button type="button" class="isd-dropzone__available-open"
+                      :disabled="isUploadingSources || isCommitting || Boolean(stagingStore.pendingCommit) || availablePagesLoading || isRemovingAvailable"
+                      :aria-busy="availablePagesLoading || isRemovingAvailable" :aria-label="availablePagesLabel">
+                      <v-badge class="isd-dropzone__available-badge" :content="availablePageBadgeLabel" color="error" offset-x="6" offset-y="6" aria-hidden="true">
+                        <span class="isd-dropzone__action-icon"><v-icon size="22">mdi-file-document-multiple-outline</v-icon></span>
+                      </v-badge>
+                      <span class="isd-dropzone__action-copy">
+                        <strong>Verfügbare Seiten</strong>
+                        <small>{{ availablePagesLoading ? 'Seiten werden geladen…' : availablePagesSummary }}</small>
+                      </span>
+                    </button>
+                    <button type="button" class="isd-dropzone__available-remove"
+                      :disabled="!canRemoveAvailable" :aria-label="availableRemoveLabel"
+                      :title="availableRemovalTooltip"
+                      @click.stop="availableRemoval.remove()">
+                      <v-icon size="20" aria-hidden="true">mdi-trash-can-outline</v-icon>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -285,6 +296,9 @@
               </div>
               <div class="isd-page-num isd-scanning-page-label">{{ scannerFeedbackCardLabel }}</div>
             </div>
+
+            <ImportScannerError v-if="scannerFailure" compact :failure="scannerFailure" :can-retry="canTriggerScan"
+              :disabled="isUploadingSources || isCommitting" @retry="emitScan('page')" />
 
             <!-- Add-files / scan placeholder card -->
             <div
@@ -523,14 +537,14 @@
 
     <template #footer>
       <div class="isd-footer">
-        <span v-if="footerValidationHint" class="isd-footer-hint isd-review-hint" role="status">{{ footerValidationHint }}</span>
+        <span v-if="!isEmptyLayout && footerValidationHint" class="isd-footer-hint isd-review-hint" role="status">{{ footerValidationHint }}</span>
         <div class="isd-footer-end">
-          <ImportReadinessHelp v-if="importReadinessBlockers.length && !isCommitting && !stagingStore.pendingCommit" :blockers="importReadinessBlockers" @navigate="navigateToImportField" />
+          <ImportReadinessHelp v-if="!isEmptyLayout && importReadinessBlockers.length && !isCommitting && !stagingStore.pendingCommit" :blockers="importReadinessBlockers" @navigate="navigateToImportField" />
           <span v-if="isCommitting" class="isd-footer-status">
             Verarbeitung läuft…
           </span>
           <v-btn
-            v-if="hasMultiSelection"
+            v-if="!isEmptyLayout && hasMultiSelection"
             variant="tonal"
             color="primary"
             :disabled="isSelectionImportDisabled"
@@ -574,6 +588,8 @@ import ImportFieldSource from './ImportFieldSource.vue';
 import ImportReadinessHelp from './ImportReadinessHelp.vue';
 import ImportCorrespondentDialog from './ImportCorrespondentDialog.vue';
 import ImportPaneDivider from './ImportPaneDivider.vue';
+import ImportScannerError from './ImportScannerError.vue';
+import { useAvailableImportRemoval } from '../composables/useAvailableImportRemoval.js';
 import { useImportFieldFocus } from '../composables/useImportFieldFocus.js';
 import { usefulAnalysisNote, importAnalysisScope } from '../utils/importPresentation.js';
 import DocumentPreviewIllustration from './DocumentPreviewIllustration.vue';
@@ -628,14 +644,20 @@ const props = defineProps({
   scanCancelPending: { type: Boolean, default: false },
   availablePages: { type: Number, default: 0 },
   availablePagesLoading: { type: Boolean, default: false },
+  availableItems: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'scan', 'open-document', 'open-available-pages']);
+const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'scan', 'open-document', 'open-available-pages', 'available-pages-removed']);
+const sourceChoicesRequested = ref(false);
 
 // Im Live-Modus erzeugt jede Seite sofort ein eigenes Dokument -> kein "Fertig".
 // Im Batch-Modus sammelt der Scanner und braucht ein explizites Abschließen.
-const availablePageCount = computed(() => stagingStore.availablePageCount + (Number.isFinite(props.availablePages) ? Math.max(0, Math.floor(props.availablePages)) : 0));
+const availablePageCount = computed(() => stagingStore.availablePageCount
+  + (sourceChoicesRequested.value && !stagingStore.pendingCommit ? stagingStore.activeScannerPageCount : 0)
+  + (Number.isFinite(props.availablePages) ? Math.max(0, Math.floor(props.availablePages)) : 0));
 const availablePagesLabel = computed(() => `${availablePageCount.value} verfügbare ${availablePageCount.value === 1 ? 'Seite öffnen' : 'Seiten öffnen'}`);
+const availablePageBadgeLabel = computed(() => availablePageCount.value > 99 ? '99+' : String(availablePageCount.value));
+const availableRemoveLabel = computed(() => `${availablePageCount.value} verfügbare ${availablePageCount.value === 1 ? 'Seite entfernen' : 'Seiten entfernen'}`);
 const availablePagesSummary = computed(() => availablePageCount.value === 1 ? '1 Seite wartet auf den Import' : `${availablePageCount.value} Seiten warten auf den Import`);
 const canTriggerScan = computed(() => Boolean(props.scanner?.id));
 const isScannerFeedbackPending = computed(() => props.scannerFeedbackState === 'pending');
@@ -646,7 +668,26 @@ const scannerLivePreviewCandidateUrl = computed(() => {
 let scanFrameSeen = false;
 watch(() => props.scannerActive, active => { if (active) { scanFrameSeen = false; diagnostics.start('scan', 'scan_start'); } });
 watch(scannerLivePreviewCandidateUrl, url => { if (url && !scanFrameSeen) { scanFrameSeen = true; diagnostics.end('scan', 'first_scan_frame'); } });
-const scannerFeedbackVisible = computed(() => props.scannerActive || props.scanRequestPending || props.scanCancelPending || scannerPreviewFinalizing.value);
+const ignoredScannerErrors = ref(new Set());
+function scannerErrorKey(job) { return `${job.id}:${job.updated_at || job.created_at}:${job.error_kind}`; }
+const scannerFailure = computed(() => {
+  if (props.scannerActive || props.scanRequestPending || props.scanCancelPending
+    || props.scannerJobs.some(job => ['queued', 'scanning', 'processing'].includes(job.state))) return null;
+  const cutoff = Math.max(stagingStore.createdAt || 0, Date.now() - 300000);
+  const errorTime = job => Date.parse(job.updated_at || job.created_at);
+  const job = props.scannerJobs.filter(job => job.state === 'error' && job.error_kind !== 'cancelled'
+    && errorTime(job) > cutoff && !ignoredScannerErrors.value.has(scannerErrorKey(job))
+    && (!job.scanner_device_id || !props.scanner?.id || job.scanner_device_id === props.scanner.id))
+    .sort((left, right) => errorTime(right) - errorTime(left))[0];
+  if (!job) return null;
+  return {
+    timeout: { title: 'Zeitlimit überschritten', message: 'Der Scanner hat nicht rechtzeitig geantwortet.' },
+    scanner_offline: { title: 'Scanner nicht erreichbar', message: 'Prüfe die Verbindung zum Scanner.' },
+    file_missing: { title: 'Seite nicht verfügbar', message: 'Die gescannte Seite wurde nicht übertragen.' },
+  }[job.error_kind] || { title: 'Scan fehlgeschlagen', message: 'Bitte prüfe den Scanner und versuche es erneut.' };
+});
+const scannerFeedbackVisible = computed(() => !scannerFailure.value
+  && (props.scannerActive || props.scanRequestPending || props.scanCancelPending || scannerPreviewFinalizing.value));
 const scannerFeedbackStatus = computed(() => (
   props.scanCancelPending ? 'Abbruch angefordert' : props.scanRequestPending ? 'Scan wird angefordert' :
     props.scannerJobs.some(job => job.state === 'queued') ? 'Scanner wartet auf den Auftrag' :
@@ -656,10 +697,14 @@ const scannerFeedbackCardLabel = computed(() => (
   isScannerFeedbackPending.value ? 'Wird übernommen…' : 'Scanne…'
 ));
 function emitScan(command) {
-  if (!canTriggerScan.value || props.scanRequestPending || props.scanCancelPending) {
+  if (!canTriggerScan.value || props.scanRequestPending || props.scanCancelPending || stagingStore.pendingCommit) {
     return;
   }
   if (command === 'page' || command === 'cancel') resetScannerPreview();
+  if (command === 'page') {
+    ignoredScannerErrors.value = new Set([...ignoredScannerErrors.value, ...props.scannerJobs.filter(job => job.state === 'error').map(scannerErrorKey)]);
+    sourceChoicesRequested.value = false;
+  }
   emit('scan', command);
 }
 
@@ -671,11 +716,29 @@ const correspondentStore = useCorrespondentStore();
 const { documents, documentCount, totalPages, emptyDocuments } = storeToRefs(stagingStore);
 const draftPersistence = useImportDraftPersistence(stagingStore, {
   saved: fields => diagnostics.record('draft_saved', fields),
-  restored: () => notify({ type: 'info', message: 'Dein offener Import wurde wiederhergestellt.' }),
+  restored: () => {
+    if (!props.modelValue || sourceChoicesRequested.value) {
+      void nextTick(() => parkClosedImport(true));
+    } else {
+      notify({ type: 'info', message: 'Dein offener Import wurde wiederhergestellt.' });
+    }
+  },
   failed: error => notify({ type: 'warning', message: error?.name === 'DraftConflictError'
     ? 'Dieser Import wurde in einem anderen Fenster geändert. Hier bleiben deine Eingaben erhalten; bitte im anderen Fenster fortfahren.'
     : 'Der Importentwurf konnte nicht lokal gesichert werden. Bitte dieses Fenster bis zum Import geöffnet lassen.' }),
 });
+const availableRemoval = useAvailableImportRemoval(stagingStore, {
+  save: async () => { await draftPersistence.loaded; return draftPersistence.save(); },
+  items: () => props.availableItems,
+  finalized: payload => emit('available-pages-removed', payload),
+});
+const isRemovingAvailable = availableRemoval.busy;
+const isAvailableRemovalBlocked = availableRemoval.blocked;
+const canRemoveAvailable = computed(() => !isRemovingAvailable.value && !isUploadingSources.value
+  && !isCommitting.value && !stagingStore.pendingCommit && !props.availablePagesLoading && !isAvailableRemovalBlocked.value && !stagingStore.availableDraft?.pendingCommit);
+const availableRemovalTooltip = computed(() => isAvailableRemovalBlocked.value
+  ? 'Seiten können erst nach erfolgreicher Entwurfssicherung entfernt werden.'
+  : stagingStore.availableDraft?.pendingCommit ? 'Bitte zuerst den Importstatus prüfen.' : availableRemoveLabel.value);
 
 
 const isDropzoneDragOver = ref(false);
@@ -940,8 +1003,8 @@ const isEmpty = computed(() => documentCount.value === 0 && totalPages.value ===
 // Die zuletzt sichtbare Anordnung bleibt während der Schließanimation erhalten,
 // auch wenn gespeicherte oder abgelegte Seiten bereits aus dem aktiven Entwurf entfallen.
 const isEmptyLayout = ref(isEmpty.value);
-watch([() => props.modelValue, isEmpty], ([open, empty]) => {
-  if (open) isEmptyLayout.value = empty;
+watch([() => props.modelValue, isEmpty, sourceChoicesRequested], ([open, empty, sourceChoices]) => {
+  if (open) isEmptyLayout.value = empty || sourceChoices;
 });
 const dropzoneSubtitle = computed(() => {
   if (isDropzoneDragOver.value) return 'Die neuen Seiten werden gleich für die Vorschau vorbereitet';
@@ -1217,7 +1280,7 @@ const processState = computed(() => importProcessState({
 const isImportActionBusy = computed(() => processState.value.blocksCommit);
 // Ein ausstehender Import wird mit seinem bereits geprüften, gespeicherten
 // Request wiederholt. Für neue Importe müssen die aktuellen Felder gültig sein.
-const isImportActionDisabled = computed(() => isImportActionBusy.value || (!stagingStore.pendingCommit && !areRequiredFieldsFilled.value));
+const isImportActionDisabled = computed(() => isImportActionBusy.value || (!stagingStore.pendingCommit && (isEmptyLayout.value || !areRequiredFieldsFilled.value)));
 
 /* ── Multi-Selektion ── */
 const multiSelectedPageIds = ref(new Set());
@@ -1764,7 +1827,7 @@ watch(
 // Uploads and commits may finish after the window has already closed. Their
 // result is parked only once they settle; closing never cancels or loses it.
 watch([isUploadingSources, isCommitting, remoteSourceLoads], () => {
-  if (!props.modelValue && !closeParkTimer) parkClosedImport();
+  if ((!props.modelValue || sourceChoicesRequested.value) && !closeParkTimer) parkClosedImport(sourceChoicesRequested.value);
 });
 
 watch(
@@ -1968,7 +2031,8 @@ function requestCloseImport() {
 }
 
 async function openAvailablePages() {
-  if (props.availablePagesLoading || isUploadingSources.value || isCommitting.value) return;
+  if (props.availablePagesLoading || isUploadingSources.value || isCommitting.value || stagingStore.pendingCommit || isRemovingAvailable.value) return;
+  sourceChoicesRequested.value = false;
   const restored = stagingStore.restoreAvailableDraft();
   await nextTick();
   if (restored) for (const doc of documents.value) {
@@ -2340,6 +2404,7 @@ async function addFilesToStaging(candidates, options = {}) {
     return;
   }
 
+  sourceChoicesRequested.value = false;
   isUploadingSources.value = true;
   preparationProgress.value = { done: 0, total: accepted.length };
   const touchedDocumentIds = new Set();
@@ -2373,6 +2438,7 @@ async function addFilesToStaging(candidates, options = {}) {
       }
 
       stagingStore.setStagingFile(source.source_file_id, file, {
+        sourceType: 'local',
         originalName: source?.original_name || file?.name || '',
         sourceRevision: source?.source_revision,
         pageQuality: thumbnailQuality.get(file) || [],
@@ -4035,7 +4101,11 @@ const commitTransaction = useImportCommit({
 });
 
 async function commitImport(selectedPageIds = null) {
-  if (isImportActionBusy.value) return;
+  if (isEmptyLayout.value && stagingStore.pendingCommit && !isImportActionBusy.value) {
+    sourceChoicesRequested.value = false;
+    await nextTick();
+  }
+  if (isEmptyLayout.value || isImportActionBusy.value) return;
   const entries = commitSubset(documents.value, selectedPageIds instanceof Set ? selectedPageIds : null);
   if (!entries.length) return;
   validationAttempted.value = true;
@@ -4063,6 +4133,7 @@ async function openWithFiles(files) {
   }
 
   try {
+    sourceChoicesRequested.value = false;
     isOpen.value = true;
     await addFilesToStaging(candidates);
   } catch (error) {
@@ -4071,12 +4142,21 @@ async function openWithFiles(files) {
 }
 
 async function openWithRemoteSources(payload = {}) {
+  sourceChoicesRequested.value = false;
   isOpen.value = true;
   await nextTick();
   await addRemoteSources(payload);
 }
 
 function openDialog() {
+  isOpen.value = true;
+}
+
+function openStartScreen() {
+  sourceChoicesRequested.value = true;
+  window.clearTimeout(closeParkTimer);
+  closeParkTimer = 0;
+  parkClosedImport(true);
   isOpen.value = true;
 }
 
@@ -4161,6 +4241,8 @@ function getFlightOrigin() {
 
 defineExpose({
   openDialog,
+  openStartScreen,
+  isSourceChoicePending: () => sourceChoicesRequested.value,
   openWithFiles,
   openWithRemoteSources,
   getFlightOrigin,
@@ -4226,7 +4308,11 @@ onBeforeUnmount(() => {
      justify:flex-start; das schmale Leer-Fenster bliebe sonst linksbündig.
      auto-Ränder zentrieren die Karte und halten sie beim Aufziehen mittig. */
   margin-inline: auto;
-  transition: width 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+  transition:
+    width 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    min-height 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    max-height 0.42s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Leerzustand: deutlich schmaleres Fenster (nur Dropzone). */
@@ -4308,7 +4394,28 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped>
-.isd-dropzone__available-arrow { margin-left:auto; flex:none; opacity:.6; }
+.isd-dropzone__available-badge { flex: none; }
+.isd-dropzone__action.isd-dropzone__available-pages {
+  padding: 0; gap: 0; cursor: pointer;
+  background: color-mix(in srgb, rgb(var(--v-theme-primary)) 7%, rgb(var(--v-theme-surface)));
+  border-color: rgba(var(--v-theme-primary), .24);
+}
+.isd-dropzone__available-pages:hover, .isd-dropzone__available-pages:focus-within {
+  background: color-mix(in srgb, rgb(var(--v-theme-primary)) 10%, rgb(var(--v-theme-surface)));
+  border-color: rgba(var(--v-theme-primary), .4);
+}
+.isd-dropzone__available-open {
+  display: flex; align-items: center; gap: 12px; flex: 1; align-self: stretch; min-width: 0;
+  padding: 11px 13px; text-align: left; font: inherit; color: inherit; cursor: pointer;
+}
+.isd-dropzone__available-remove {
+  display: grid; place-items: center; flex: none; width: 36px; height: 36px; margin-right: 8px;
+  border-radius: 9px; color: rgba(var(--v-theme-on-surface), .6); cursor: pointer;
+}
+.isd-dropzone__available-remove:hover:not(:disabled) { background: rgba(var(--v-theme-on-surface), .07); color: rgb(var(--v-theme-on-surface)); }
+.isd-dropzone__available-open:focus-visible, .isd-dropzone__available-remove:focus-visible { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: -3px; }
+.isd-dropzone__available-remove:disabled, .isd-dropzone__available-open:disabled { opacity: .45; cursor: default; }
+@media (any-pointer: coarse) { .isd-dropzone__available-remove { width: 44px; height: 44px; margin-right: 4px; } }
 .isd-create-correspondent { display:flex; align-items:center; gap:12px; padding:12px 16px; width:100%; text-align:left; color:inherit; }
 .isd-create-correspondent:hover, .isd-create-correspondent:focus-visible { background:rgba(var(--v-theme-on-surface), .06); }
 /* ── Seitenliste, Arbeitsvorschau und Dokumentdetails ── */
@@ -4380,21 +4487,6 @@ onBeforeUnmount(() => {
 .isd-workspace-error { grid-area: error; }
 
 /* ── Dropzone ── */
-@keyframes isd-dz-scene-enter {
-  from { opacity: 0; transform: translateY(12px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes isd-dz-sheet-arrive {
-  from { opacity: 0; transform: var(--isd-dz-start); }
-  to { opacity: 1; transform: var(--isd-dz-transform); }
-}
-
-@keyframes isd-dz-merge-enter {
-  from { opacity: 0; transform: scale(0.62) rotate(-22deg); }
-  to { opacity: 1; transform: scale(1) rotate(0); }
-}
-
 @keyframes isd-dz-scan {
   0% { top: 8%; opacity: 0; }
   4% { opacity: 0.82; }
@@ -4410,6 +4502,7 @@ onBeforeUnmount(() => {
 }
 
 .isd-dropzone {
+  --isd-dz-scale: 1;
   position: relative;
   width: 100%;
   flex: 1 0 auto;
@@ -4429,7 +4522,8 @@ onBeforeUnmount(() => {
   transition:
     background-color 0.18s ease,
     border-color 0.18s ease,
-    box-shadow 0.18s ease;
+    box-shadow 0.18s ease,
+    padding-block 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .isd-dropzone::before {
@@ -4473,12 +4567,28 @@ onBeforeUnmount(() => {
 /* Grafische Papierwerkstatt (reines CSS): drei Quellen werden zu einer Seite. */
 .isd-dz-scene {
   position: relative;
+  width: calc(270px * var(--isd-dz-scale));
+  height: calc(194px * var(--isd-dz-scale));
+  max-width: 100%;
+  flex: none;
+  margin-bottom: 20px;
+  transition:
+    width 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 180ms cubic-bezier(0.2, 0.82, 0.24, 1);
+}
+
+/* Die Skalierung hat eine eigene Ebene und einen gleich großen Layoutplatz.
+   Einblendung und Scannerwechsel können sie dadurch nicht überschreiben. */
+.isd-dz-scene__art {
+  position: absolute;
+  top: 0;
+  left: 50%;
   width: 270px;
   height: 194px;
-  flex: none;
-  margin-bottom: 17px;
-  animation: isd-dz-scene-enter 380ms cubic-bezier(0.2, 0.82, 0.24, 1) backwards;
-  transition: transform 180ms cubic-bezier(0.2, 0.82, 0.24, 1);
+  transform: translateX(-50%) scale(var(--isd-dz-scale));
+  transform-origin: top center;
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .isd-dz-scene__halo {
@@ -4521,12 +4631,10 @@ onBeforeUnmount(() => {
     opacity 220ms ease,
     transform 340ms cubic-bezier(0.2, 0.82, 0.24, 1),
     box-shadow 220ms ease;
-  animation: isd-dz-sheet-arrive 560ms cubic-bezier(0.2, 0.82, 0.24, 1) backwards;
 }
 
 .isd-dz-sheet--pdf {
   --isd-dz-transform: rotate(-12deg);
-  --isd-dz-start: translate3d(-78px, 30px, 0) rotate(-27deg) scale(0.86);
   left: 23px;
   top: 48px;
   z-index: 1;
@@ -4535,14 +4643,12 @@ onBeforeUnmount(() => {
   padding: 14px 12px;
   color: rgba(var(--v-theme-on-surface), 0.66);
   background: color-mix(in srgb, rgb(var(--v-theme-surface-2)) 78%, rgb(var(--v-theme-surface)));
-  animation-delay: 40ms;
   transition-duration: 260ms, 440ms, 220ms;
   transition-delay: 0ms, 25ms, 0ms;
 }
 
 .isd-dz-sheet--image {
   --isd-dz-transform: rotate(11deg);
-  --isd-dz-start: translate3d(78px, 24px, 0) rotate(25deg) scale(0.86);
   right: 20px;
   top: 39px;
   z-index: 2;
@@ -4550,14 +4656,12 @@ onBeforeUnmount(() => {
   height: 132px;
   padding: 10px;
   background: color-mix(in srgb, rgb(var(--v-theme-primary)) 6%, rgb(var(--v-theme-surface)));
-  animation-delay: 90ms;
   transition-duration: 280ms, 460ms, 220ms;
   transition-delay: 35ms, 70ms, 0ms;
 }
 
 .isd-dz-sheet--front {
   --isd-dz-transform: translate3d(0, 0, 0);
-  --isd-dz-start: translate3d(0, 58px, 0) scale(0.86);
   left: 78px;
   top: 18px;
   z-index: 3;
@@ -4569,7 +4673,6 @@ onBeforeUnmount(() => {
   padding: 17px 15px;
   background: linear-gradient(155deg, rgb(var(--v-theme-surface)), rgb(var(--v-theme-surface-2)));
   box-shadow: 0 18px 38px rgba(15, 23, 42, 0.19);
-  animation-delay: 150ms;
 }
 
 .isd-dz-sheet__live-preview {
@@ -4718,7 +4821,6 @@ onBeforeUnmount(() => {
   color: rgb(var(--v-theme-on-primary));
   background: rgb(var(--v-theme-primary));
   box-shadow: 0 7px 18px rgba(var(--v-theme-primary), 0.32);
-  animation: isd-dz-merge-enter 420ms 430ms cubic-bezier(0.2, 0.82, 0.24, 1) backwards;
   transition:
     opacity 160ms ease,
     transform 180ms cubic-bezier(0.2, 0.82, 0.24, 1),
@@ -4726,7 +4828,7 @@ onBeforeUnmount(() => {
 }
 
 .isd-dropzone--over .isd-dz-scene {
-  transform: translateY(-2px) scale(1.035);
+  transform: translateY(-2px);
 }
 
 .isd-dropzone--over .isd-dz-sheet--pdf {
@@ -4755,12 +4857,14 @@ onBeforeUnmount(() => {
   opacity: 0.5;
 }
 
-/* Eine bereits geladene Scanvorschau wartet nicht auf die dekorative
-   Einblendung des leeren Importfensters. */
-.isd-dz-scene--scanning,
-.isd-dz-scene--scanning .isd-dz-sheet {
-  animation: none;
+/* Der Platz der ausgeblendeten Quellen geht während des Scans an die Vorschau.
+   Beide Größen ändern sich gemeinsam, ohne einen leeren Restblock zu behalten. */
+.isd-dropzone--scanning .isd-dropzone__other-sources {
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  pointer-events: none;
 }
+.isd-dropzone--scanning .isd-dropzone__actions { row-gap: 0; }
 
 .isd-dz-scene--scanning .isd-dz-scene__halo {
   background: radial-gradient(
@@ -4841,17 +4945,26 @@ onBeforeUnmount(() => {
   width: 400px;
   max-width: 100%;
   margin-top: 25px;
+  transition: row-gap 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.isd-dropzone__other-sources {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-width: 0;
+  transition: grid-template-rows 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.isd-dropzone__source-choices {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  min-width: 0;
+  clip-path: inset(-4px -40px);
 }
 
 .isd-dropzone__actions--single {
   width: 400px;
-}
-
-.isd-dropzone__source-divider {
-  width: 100%;
-  margin: 2px 0;
-  border: 0;
-  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.12);
 }
 
 .isd-dropzone__action {
@@ -4944,40 +5057,6 @@ button.isd-dropzone__action:active:not(:disabled) {
 .isd-dropzone__action:disabled {
   cursor: default;
   opacity: 0.48;
-  transform: none;
-}
-
-button.isd-dropzone__action--supplemental {
-  width: auto;
-  min-height: 40px;
-  justify-self: center;
-  gap: 7px;
-  padding: 7px 12px;
-  border-color: transparent;
-  border-radius: 9px;
-  color: rgba(var(--v-theme-on-surface), 0.62);
-  background: transparent;
-  box-shadow: none;
-}
-
-.isd-dropzone__action--supplemental .isd-dropzone__action-icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 0;
-  background: transparent;
-}
-
-.isd-dropzone__action--supplemental .isd-dropzone__action-copy strong {
-  font-size: 12.5px;
-  font-weight: 640;
-}
-
-button.isd-dropzone__action--supplemental:hover:not(:disabled),
-button.isd-dropzone__action--supplemental:focus-visible {
-  border-color: rgba(var(--v-theme-on-surface), 0.1);
-  color: rgba(var(--v-theme-on-surface), 0.82);
-  background: rgba(var(--v-theme-on-surface), 0.035);
-  box-shadow: none;
   transform: none;
 }
 
@@ -5726,6 +5805,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
 /* Three source choices need the compact illustration at every window height.
    The start screen grows with its content; its outer area scrolls when needed. */
 .isd-dropzone--available-pages {
+  --isd-dz-scale: 0.72;
   padding-block: 10px;
 }
 
@@ -5733,30 +5813,23 @@ button.isd-dropzone__action--supplemental:focus-visible {
   margin-top: 14px;
 }
 
-.isd-dropzone--available-pages:not(.isd-dropzone--scanning) .isd-dz-scene {
-  height: 104px;
-  margin: 0 0 12px;
-  transform: scale(0.54);
-  transform-origin: top center;
-}
-
 @media (max-height: 760px) and (min-width: 601px) {
+  .isd-card--empty .isd-grid-scroll { padding: 16px; }
+
   .isd-dropzone {
     min-height: 430px;
     padding: 22px;
     overflow: visible;
   }
 
-  .isd-dz-scene {
-    width: 270px;
-    height: 160px;
-    margin: -12px 0 4px;
-    transform: scale(0.84);
+  .isd-dropzone:not(.isd-dropzone--available-pages) { --isd-dz-scale: 0.84; }
+
+  .isd-dropzone--available-pages {
+    --isd-dz-scale: 0.64;
+    padding-block: 10px;
   }
 
-  .isd-dropzone--over .isd-dz-scene {
-    transform: translateY(-2px) scale(0.88);
-  }
+  .isd-dropzone--available-pages .isd-dz-scene { margin-bottom: 16px; }
 
   .isd-dropzone__actions {
     margin-top: 14px;
@@ -5778,16 +5851,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
     inset: 11px;
   }
 
-  .isd-dz-scene {
-    width: 270px;
-    height: 174px;
-    margin: -9px 0 9px;
-    transform: scale(0.84);
-  }
-
-  .isd-dropzone--over .isd-dz-scene {
-    transform: translateY(-2px) scale(0.88);
-  }
+  .isd-dropzone:not(.isd-dropzone--available-pages) { --isd-dz-scale: 0.84; }
 
   .isd-dropzone__title {
     font-size: 18px;
@@ -5804,17 +5868,36 @@ button.isd-dropzone__action--supplemental:focus-visible {
     min-height: 62px;
   }
 
-  .isd-dropzone__action--supplemental {
-    min-height: 40px;
-  }
-
   .isd-footer-status {
     display: none;
   }
 }
 
+.isd-dropzone.isd-dropzone--scanning {
+  --isd-dz-scale: 1.6;
+  padding-block: 10px;
+  min-height: 0;
+}
+
+@media (max-height: 800px) and (min-width: 601px) {
+  .isd-dropzone.isd-dropzone--scanning { --isd-dz-scale: 1.35; }
+}
+
+@media (max-width: 600px) {
+  .isd-dropzone.isd-dropzone--scanning { --isd-dz-scale: 1.35; }
+}
+
+@media (max-height: 660px) {
+  .isd-dropzone.isd-dropzone--scanning { --isd-dz-scale: 0.6; }
+  .isd-dropzone--scanning .isd-dz-scene { margin-bottom: 12px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  :global(.isd-card.pm-dialog) { transition: none; }
   .isd-dz-scene,
+  .isd-dz-scene__art,
+  .isd-dropzone__actions,
+  .isd-dropzone__other-sources,
   .isd-dz-sheet,
   .isd-dz-scene__merge,
   .isd-dz-sheet__scan,
@@ -5823,6 +5906,9 @@ button.isd-dropzone__action--supplemental:focus-visible {
   }
 
   .isd-dz-scene,
+  .isd-dz-scene__art,
+  .isd-dropzone__actions,
+  .isd-dropzone__other-sources,
   .isd-dz-sheet,
   .isd-dz-scene__merge,
   .isd-dropzone,
@@ -5845,6 +5931,11 @@ button.isd-dropzone__action--supplemental:focus-visible {
 :global(.pm-no-animations) .isd-page-thumb-wrap {
   transition: none;
 }
+
+:global(.pm-no-animations) .isd-dz-scene,
+:global(.pm-no-animations) .isd-dz-scene__art,
+:global(.pm-no-animations) .isd-dropzone__actions,
+:global(.pm-no-animations) .isd-dropzone__other-sources { transition: none; }
 </style>
 
 <style>
@@ -5867,7 +5958,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
   .isd-card .isd-props .pm-tags-input__chip { min-height:44px; }
   .isd-card .isd-props .pm-tags-input__chip .v-chip__close { min-width:44px; min-height:44px; }
 }
-.isd-import-error { padding:10px 16px; color:rgb(var(--v-theme-error)); background:rgba(var(--v-theme-error),.06); }
 .isd-review-hint, .isd-page-review { font-size:12px; color:var(--pm-muted,#687076); margin:8px 0; }
 .isd-page-review { display:block; text-align:center; }
 .isd-suggestion-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-height:34px; }

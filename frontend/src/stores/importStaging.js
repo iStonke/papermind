@@ -1,5 +1,6 @@
 import { defineSessionStore as defineStore } from './sessionStores.js';
 import { sourcePages, defaultImportForm } from '../utils/importWorkflow.js';
+import { scannerDraft, scannerPageCount } from '../utils/importScanDraft.js';
 
 function makeId(prefix) {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -138,12 +139,18 @@ export const useImportStagingStore = defineStore('importStaging', {
     sourceMetaById: new Map(),
     pendingCommit: null,
     availableDraft: null,
+    availableRemovals: [],
   }),
 
   getters: {
     documentCount: (state) => state.documents.length,
     totalPages: (state) => state.documents.reduce((sum, doc) => sum + doc.pages.length, 0),
-    availablePageCount: (state) => (state.availableDraft?.documents || []).reduce((sum, doc) => sum + doc.pages.length, 0),
+    availablePageCount: (state) => state.availableDraft?.pendingCommit ? 0 : scannerPageCount(state.availableDraft),
+    activeScannerPageCount: state => scannerPageCount({ documents: state.documents, sourceMeta: [...state.sourceMetaById] }),
+    removedAvailableSources: state => new Set(state.availableRemovals.flatMap(removal => [
+      ...(removal.draft?.documents || []).flatMap(doc => doc.pages.map(page => page.sourceFileId)),
+      ...removal.items.map(item => item.source_file_id),
+    ])),
     allPagesColorMode: (state) => {
       const modes = new Set(state.documents.flatMap(doc => doc.pages.map(page => normalizeColorMode(page.colorMode))));
       return modes.size === 1 ? modes.values().next().value : null;
@@ -168,20 +175,30 @@ export const useImportStagingStore = defineStore('importStaging', {
 
   actions: {
     parkDraft() {
+      // Keep an uncertain submission intact for an exact retry. It is a pending
+      // transaction, not an available page batch.
+      if (this.pendingCommit) return null;
       if (!this.totalPages) { this.reset(); return null; }
       const previous = this.availableDraft;
       const used = this.collectUsedSourceFileIds();
-      this.availableDraft = {
+      const draft = {
         batchId: this.batchId, createdAt: this.createdAt, documents: this.documents,
         sourceMeta: [...this.sourceMetaById].filter(([id]) => used.has(id)),
         files: [...this.stagingFiles].filter(([id]) => used.has(id)), pendingCommit: this.pendingCommit,
       };
+      const retained = scannerDraft(draft);
+      if (retained) this.availableDraft = retained;
+      // A local PDF import must not replace the previously retained scan batch.
+      const discarded = retained ? previous : null;
+      const kept = new Set((retained?.sourceMeta || []).map(([id]) => id));
+      const excluded = draft.sourceMeta.filter(([id]) => !kept.has(id));
       this.reset();
-      return previous;
+      return discarded || excluded.length ? { ...(discarded || draft), sourceMeta: [...(discarded?.sourceMeta || []), ...excluded] } : null;
     },
     restoreAvailableDraft() {
-      if (this.totalPages || !this.availablePageCount) return false;
-      const draft = this.availableDraft;
+      if (this.totalPages) return false;
+      const draft = this.availableDraft?.pendingCommit ? this.availableDraft : scannerDraft(this.availableDraft);
+      if (!draft?.documents.length) return false;
       this.$patch({ batchId: draft.batchId, createdAt: draft.createdAt, documents: draft.documents,
         sourceMetaById: new Map(draft.sourceMeta), stagingFiles: new Map(draft.files),
         pendingCommit: draft.pendingCommit, availableDraft: null });

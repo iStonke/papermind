@@ -2,6 +2,51 @@ import { test, expect } from '@playwright/test';
 
 import { mount, revealImportTools, startImportAnalysis, completeRequiredMetadata } from './fixtures/importHarness.js';
 
+for (const width of [1366, 430]) test(`scan errors replace the scanner tile and retry cleanly at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  await mount(page, { documents: 0, parkedPages: 6 });
+  await page.evaluate(() => {
+    const now = Date.now();
+    window.importFixture.scannerJobs.value = [
+      { id: 'timeout', state: 'error', error_kind: 'timeout', created_at: new Date(now + 100).toISOString() },
+      { id: 'older-failure', state: 'error', error_kind: 'failed', created_at: new Date(now + 10).toISOString() },
+      { id: 'cancelled', state: 'error', error_kind: 'cancelled', created_at: new Date(now + 200).toISOString() },
+    ];
+  });
+  const failure = page.locator('.isd-dropzone__actions > .import-scan-error');
+  await expect(failure).toContainText('Zeitlimit überschritten');
+  await expect(page.getByRole('alert')).toHaveCount(1);
+  await expect(page.locator('.isd-import-error')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '6 verfügbare Seiten öffnen', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'PDFs auswählen Eine oder mehrere PDF-Dateien', exact: true })).toBeVisible();
+  await page.screenshot({ path: `/private/tmp/papermind-scan-error-${width}-light.png`, animations: 'disabled' });
+  await page.evaluate(() => window.importFixture.setTheme('dark'));
+  await page.screenshot({ path: `/private/tmp/papermind-scan-error-${width}-dark.png`, animations: 'disabled' });
+  await failure.getByRole('button', { name: 'Erneut scannen', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(await page.evaluate(() => window.importFixture.commands)).toEqual(['page']);
+  await page.evaluate(() => {
+    window.importFixture.scannerJobs.value.push({ id: 'new-failure', state: 'error', error_kind: 'scanner_offline', created_at: new Date(Date.now() + 300).toISOString() });
+  });
+  await expect(failure).toContainText('Scanner nicht erreichbar');
+  await expect(page.getByRole('alert')).toHaveCount(1);
+});
+
+test('a failed additional scan stays next to the page list without changing existing pages', async ({ page }) => {
+  await mount(page, { pages: 2 });
+  const before = await page.evaluate(() => JSON.stringify(window.importFixture.store.documents));
+  await page.evaluate(() => {
+    window.importFixture.scannerJobs.value = [{ id: 'additional-failure', state: 'error', error_kind: 'file_missing', updated_at: new Date(Date.now() + 100).toISOString() }];
+  });
+  const failure = page.locator('.isd-page-grid > .import-scan-error');
+  await expect(failure).toContainText('Seite nicht verfügbar');
+  await expect(page.locator('.isd-page-card')).toHaveCount(2);
+  expect(await page.evaluate(() => JSON.stringify(window.importFixture.store.documents))).toBe(before);
+  await failure.getByRole('button', { name: 'Erneut scannen', exact: true }).click();
+  await expect(failure).toHaveCount(0);
+  await expect(page.locator('.isd-page-card')).toHaveCount(2);
+});
+
 test('import help explains missing fields on demand and focuses them without red errors', async ({ page }) => {
   await mount(page);
   const help = page.getByRole('button', { name:'Was fehlt für den Import?', exact:true });

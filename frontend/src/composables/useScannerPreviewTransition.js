@@ -121,7 +121,8 @@ export function useScannerPreviewTransition({ scanner, active, candidateUrl, ope
     if (!state || !element || !target) { finishFlight(); return; }
     if (!motionEnabled()) { finishFlight(); return; }
     if (flightStartedAt == null) flightStartedAt = now;
-    const t = Math.min(1, (now - flightStartedAt) / 400);
+    // Erst landen, wenn die 420-ms-Größenänderung des Dialogs abgeschlossen ist.
+    const t = Math.min(1, (now - flightStartedAt) / 480);
     const eased = 1 - (1 - t) ** 3;
     const rect = target.getBoundingClientRect();
     const interpolate = key => state.origin[key] + (rect[key] - state.origin[key]) * eased;
@@ -218,16 +219,25 @@ export function useScannerPreviewTransition({ scanner, active, candidateUrl, ope
   }
 
   const stopSessionListener = onApiSessionReset(() => reset({ clearThumbnail: true }));
+  function onViewportScroll(event) {
+    // Vorschau und Miniaturen korrigieren beim Dialogaufbau selbst ihre
+    // Scrollposition. Diesen Layoutbewegungen folgt flightStep pro Frame.
+    if (event.target === document || event.target === window) finishFlight();
+  }
   // Bei einer während des Flugs geänderten Ansicht direkt am aktuellen Ziel
   // einblenden; kein losgelöstes Blatt über einem geschlossenen Dialog lassen.
   window.addEventListener('resize', finishFlight);
-  window.addEventListener('scroll', finishFlight, true);
+  window.addEventListener('scroll', onViewportScroll, true);
+  window.addEventListener('wheel', finishFlight, { passive: true });
+  window.addEventListener('touchstart', finishFlight, { passive: true });
   onScopeDispose(() => {
     disposed = true;
     reset({ clearThumbnail: true });
     stopSessionListener();
     window.removeEventListener('resize', finishFlight);
-    window.removeEventListener('scroll', finishFlight, true);
+    window.removeEventListener('scroll', onViewportScroll, true);
+    window.removeEventListener('wheel', finishFlight);
+    window.removeEventListener('touchstart', finishFlight);
   });
 
   return { previewUrl, progress, finalizing, sourceElement, flightElement, flight, thumbnailFallback, thumbnailLoaded, previewFallback, previewLoaded, reset };

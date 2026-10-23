@@ -72,6 +72,19 @@ test('the completed scan remains visible after the live endpoint disappears', as
   expect(errors).toEqual([]);
 });
 
+test('a scanner failure ends finalizing feedback and restores the source choices while keeping the last frame', async ({ page }) => {
+  await mount(page);
+  await startScan(page, 75);
+  const src = await page.locator('.isd-dz-sheet__live-preview').getAttribute('src');
+  await endScan(page);
+  await page.evaluate(() => {
+    window.importFixture.scannerJobs.value = [{ id: 'frame-timeout', state: 'error', error_kind: 'timeout', created_at: new Date(Date.now() + 100).toISOString() }];
+  });
+  await expect(page.locator('.import-scan-error')).toContainText('Zeitlimit überschritten');
+  await expect(page.getByRole('button', { name: 'PDFs auswählen Eine oder mehrere PDF-Dateien', exact: true })).toBeVisible();
+  await expect(page.locator('.isd-dz-sheet__live-preview')).toHaveAttribute('src', src);
+});
+
 test('the scan grows into the large preview and stays until its sharp replacement is ready', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const errors = await mount(page);
@@ -82,6 +95,13 @@ test('the scan grows into the large preview and stays until its sharp replacemen
   await startScan(page);
   await endScan(page);
   await expect(page.locator('.isd-dropzone [role="status"]')).toHaveText('Scan wird übernommen');
+  // Hardware scans normally outlast the enlargement. The synthetic frame is
+  // immediate, so finish that transition before measuring its flight origin.
+  await page.locator('.isd-dropzone').evaluate(async element => {
+    await Promise.allSettled(element.getAnimations({ subtree: true })
+      .filter(animation => animation.effect.getComputedTiming().iterations !== Infinity)
+      .map(animation => animation.finished));
+  });
   const origin = await page.locator('.isd-dz-sheet--front').boundingBox();
   const capturedSource = await page.locator('.isd-dz-sheet__live-preview').getAttribute('src');
   await page.screenshot({ path: '/private/tmp/papermind-scan-finished.png' });
@@ -160,6 +180,25 @@ test('a ready sharp preview crossfades after landing while its thumbnail appears
   expect(await page.evaluate(() => window.landingCrossfade)).toBe(true);
   await expect(page.locator('.isd-preview-scan-frame')).toHaveCount(0);
   await expect(page.locator('.isd-page-thumb-wrap')).toBeVisible();
+});
+
+test('layout scroll corrections preserve the flight while a user scroll ends it', async ({ page }) => {
+  await mount(page);
+  await startScan(page);
+  await endScan(page);
+  await addScannerSource(page, '');
+  await expect(page.locator('.isd-scan-flight')).toBeVisible();
+  expect(await page.evaluate(async () => {
+    for (const selector of ['.isd-grid-scroll', '.isd-preview-stage']) {
+      document.querySelector(selector).dispatchEvent(new Event('scroll'));
+      await new Promise(requestAnimationFrame);
+      if (!document.querySelector('.isd-scan-flight')) return false;
+    }
+    return true;
+  })).toBe(true);
+  await page.locator('.isd-preview-stage').dispatchEvent('wheel', { deltaY: 40 });
+  await expect(page.locator('.isd-scan-flight')).toHaveCount(0);
+  await expect(page.locator('.isd-preview-scan-frame')).toBeVisible();
 });
 
 test('a ready thumbnail cannot replace the large scan while the detail preview is still loading', async ({ page }) => {

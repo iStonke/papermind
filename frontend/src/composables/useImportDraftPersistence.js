@@ -2,12 +2,15 @@ import { onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
 import { apiSessionOwner, apiSessionGeneration } from '../api/session.js';
 import { setImportAnalysisState } from '../utils/importProcess.js';
 import { DraftConflictError, importDraftStorage } from '../utils/importDraftStorage.js';
+import { scannerDraft } from '../utils/importScanDraft.js';
 
 export function useImportDraftPersistence(store, { restored = () => {}, failed = () => {}, saved = () => {} } = {}) {
   const owner = apiSessionOwner(), generation = apiSessionGeneration();
   const conflict = ref(false);
   let ready = false, disposed = false, timer, revision = 0, failureReported = false;
   let chain = Promise.resolve();
+  let resolveLoaded;
+  const loaded = new Promise(resolve => { resolveLoaded = resolve; });
   const fileRefs = new WeakMap(), imageRefs = new Map(), savedAssets = new Set();
   const copy = value => JSON.parse(JSON.stringify(value));
   function reportFailure(error) {
@@ -16,7 +19,7 @@ export function useImportDraftPersistence(store, { restored = () => {}, failed =
     failureReported = true;
   }
   function snapshot() {
-    if (!store.documents.length && !store.availableDraft) return { value: null, assets: [] };
+    if (!store.documents.length && !store.availableDraft && !store.availableRemovals.length) return { value: null, assets: [] };
     const assets = [], used = new Set();
     const assetRef = (value, cache) => {
       let id = cache.get(value);
@@ -39,11 +42,15 @@ export function useImportDraftPersistence(store, { restored = () => {}, failed =
     };
     const current = serializeDraft({ batchId: store.batchId, createdAt: store.createdAt, documents: store.documents,
       pendingCommit: store.pendingCommit, files: [...toRaw(store.stagingFiles)], sourceMeta: [...store.sourceMetaById] });
-    const availableDraft = store.availableDraft ? serializeDraft(store.availableDraft) : null;
+    const retained = store.availableDraft?.pendingCommit ? store.availableDraft : scannerDraft(store.availableDraft);
+    const availableDraft = retained ? serializeDraft(retained) : null;
+    const availableRemovals = store.availableRemovals.map(removal => ({
+      ...copy({ ...removal, draft: undefined }), draft: removal.draft ? serializeDraft(removal.draft) : null,
+    }));
     // Prevent removed thumbnails from accumulating in the in-memory reference map.
     for (const [image, id] of imageRefs) if (!used.has(id)) imageRefs.delete(image);
     return { assets, value: {
-      version: 2, savedAt: Date.now(), ...current, availableDraft, assetRefs: [...used],
+      version: 2, savedAt: Date.now(), ...current, availableDraft, availableRemovals, assetRefs: [...used],
     } };
   }
   function save() {
@@ -77,7 +84,9 @@ export function useImportDraftPersistence(store, { restored = () => {}, failed =
       }
       if (draft?.documents.length && store.documents.length && draft.batchId !== store.batchId) throw new DraftConflictError();
       if (draft?.availableDraft && store.availableDraft && draft.availableDraft.batchId !== store.availableDraft.batchId) throw new DraftConflictError();
-      if (draft?.availableDraft && !store.availableDraft) store.availableDraft = draft.availableDraft;
+      if (draft?.availableDraft && !store.availableDraft) store.availableDraft = draft.availableDraft.pendingCommit ? draft.availableDraft : scannerDraft(draft.availableDraft);
+      if (store.availableDraft?.pendingCommit && !store.totalPages) store.restoreAvailableDraft();
+      if (draft?.availableRemovals?.length && !store.availableRemovals.length) store.availableRemovals = draft.availableRemovals.map(removal => ({ ...removal, ready: true }));
       // Closing can precede a slow initial IndexedDB read. Do not reopen or
       // overwrite that newer in-memory copy of the same batch.
       const alreadyParked = draft?.batchId && draft.batchId === store.availableDraft?.batchId;
@@ -101,12 +110,12 @@ export function useImportDraftPersistence(store, { restored = () => {}, failed =
     } catch (error) {
       // A failed read must never overwrite a draft that we could not restore.
       reportFailure(error);
-    }
+    } finally { resolveLoaded(); }
     window.addEventListener('pagehide', onPageHide);
     document.addEventListener('visibilitychange', onVisibility);
   });
   function onVisibility() { if (document.visibilityState === 'hidden') onPageHide(); }
-  const stop = watch(() => [store.documents, store.pendingCommit, [...store.sourceMetaById], [...store.stagingFiles], store.availableDraft], () => {
+  const stop = watch(() => [store.documents, store.pendingCommit, [...store.sourceMetaById], [...store.stagingFiles], store.availableDraft, store.availableRemovals], () => {
     clearTimeout(timer); timer = setTimeout(save, 300);
   }, { deep: true });
   onBeforeUnmount(() => {
@@ -114,5 +123,5 @@ export function useImportDraftPersistence(store, { restored = () => {}, failed =
     window.removeEventListener('pagehide', onPageHide);
     document.removeEventListener('visibilitychange', onVisibility);
   });
-  return { save, conflict };
+  return { save, conflict, loaded };
 }

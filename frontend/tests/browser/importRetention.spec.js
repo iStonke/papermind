@@ -54,7 +54,7 @@ test('closing an empty window preserves the last import and a new nonempty close
   await close(page);await reopen(page);
   await expect(page.getByRole('button', { name: '3 verfügbare Seiten öffnen', exact: true })).toBeVisible();
   await page.evaluate(sourceId => window.importFixture.component.value.openWithRemoteSources({ sources: [
-    { source_file_id: sourceId, original_name: 'Neuer Entwurf.pdf', page_count: 1, source_revision: 'one' },
+    { source_file_id: sourceId, original_name: 'Neuer Entwurf.pdf', page_count: 1, source_revision: 'one', source_type: 'scanner' },
   ] }), sourceId);
   await expect(page.locator('.isd-page-card')).toHaveCount(1);
   await close(page);
@@ -65,7 +65,55 @@ test('closing an empty window preserves the last import and a new nonempty close
   expect(await page.evaluate(() => window.importFixture.store.documents[0].pages[0].sourceFileId)).toBe(sourceId);
 });
 
-test('an upload can finish after closing without reopening the window or losing its pages', async ({ page }) => {
+test('closing selected local PDFs keeps the previously available scans without adding PDF pages', async ({ page }) => {
+  await mount(page, { sourceType: 'local', parkedPages: 2 });
+  await close(page);
+  await expect.poll(async () => (await readDraft(page))?.availableDraft?.documents[0].pages.length).toBe(2);
+  await reopen(page);
+  await expect(page.getByRole('button', { name: '2 verfügbare Seiten öffnen', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '2 verfügbare Seiten öffnen', exact: true }).click();
+  expect(await page.evaluate(() => window.importFixture.store.documents.flatMap(doc => doc.pages.map(page => page.sourceFileId)))).toEqual(['saved-layout-source', 'saved-layout-source']);
+});
+
+test('mixed documents retain scanner pages and their edits while dropping local PDF pages across reload', async ({ page }) => {
+  await mount(page);
+  await page.evaluate(() => {
+    const store = window.importFixture.store, scan = store.documents[0];
+    const pdf = store.addDocumentFromSource({ sourceFileId: 'selected-pdf', pageCount: 2 });
+    store.setStagingFile('selected-pdf', new File(['pdf'], 'Lokale PDF.pdf', { type: 'application/pdf' }), { pageCount: 2, sourceType: 'local' });
+    for (const page of [...pdf.pages]) store.movePage(page.id, scan.id, 1);
+    scan.pages[0].rotation = 90;
+  });
+  await close(page);
+  await expect.poll(async () => (await readDraft(page))?.availableDraft?.documents[0].pages.length).toBe(3);
+  await mount(page, { restore: true });
+  await page.getByRole('button', { name: '3 verfügbare Seiten öffnen', exact: true }).click();
+  const result = await page.evaluate(() => ({
+    pages: window.importFixture.store.documents.flatMap(doc => doc.pages),
+    sources: [...window.importFixture.store.sourceMetaById.keys()],
+  }));
+  expect(result.pages).toHaveLength(3);
+  expect(result.pages[0].rotation).toBe(90);
+  expect(result.pages.every(page => page.sourceFileId !== 'selected-pdf')).toBe(true);
+  expect(result.sources).not.toContain('selected-pdf');
+});
+
+test('previously saved local PDF drafts do not return as available pages after an update', async ({ page }) => {
+  await mount(page, { sourceType: 'local' });
+  await page.evaluate(async () => {
+    const { importDraftStorage } = await import('/src/utils/importDraftStorage.js');
+    const store = window.importFixture.store;
+    await importDraftStorage('old-local-import', { version: 2, documents: [], sourceMeta: [], files: [], assetRefs: [],
+      availableDraft: { batchId: store.batchId, createdAt: store.createdAt, documents: JSON.parse(JSON.stringify(store.documents)),
+        sourceMeta: JSON.parse(JSON.stringify([...store.sourceMetaById])), files: [] } }, true);
+  });
+  await mount(page, { restore: true, owner: 'old-local-import' });
+  await expect(page.locator('.isd-dropzone')).toBeVisible();
+  await expect(page.locator('.isd-dropzone__available-pages')).toHaveCount(0);
+  expect(await page.evaluate(() => window.importFixture.store.availablePageCount)).toBe(0);
+});
+
+test('a local PDF upload finishing after closing does not become available pages', async ({ page }) => {
   await mount(page, { documents: 0 });
   let upload;
   await page.route('**/api/import/source', route => { upload = route; });
@@ -76,11 +124,31 @@ test('an upload can finish after closing without reopening the window or losing 
   await page.getByRole('button', { name: 'Dialog schließen', exact: true }).click();
   await expect(page.locator('.isd-card')).toHaveCount(0);
   await upload.fulfill({ json: { items: [{ source_file_id: sourceId, original_name: 'Später Upload.pdf', page_count: 2 }] } });
-  await expect.poll(() => page.evaluate(() => window.importFixture.store.availablePageCount)).toBe(2);
   await expect(page.locator('.isd-card')).toHaveCount(0);
-  await reopen(page);
-  await page.getByRole('button', { name: '2 verfügbare Seiten öffnen', exact: true }).click();
-  await expect(page.locator('.isd-page-card')).toHaveCount(2);
+  await page.evaluate(() => window.importFixture.component.value.openStartScreen());
+  await expect(page.getByRole('button', { name: 'PDFs auswählen Eine oder mehrere PDF-Dateien', exact: true })).toBeEnabled();
+  await expect(page.locator('.isd-dropzone__available-pages')).toHaveCount(0);
+  expect(await page.evaluate(() => ({ active: window.importFixture.store.totalPages, available: window.importFixture.store.availablePageCount }))).toEqual({ active: 0, available: 0 });
+});
+
+test('reopening the start screen during a local PDF upload does not retain its pages', async ({ page }) => {
+  await mount(page, { documents: 0 });
+  let upload;
+  await page.route('**/api/import/source', route => { upload = route; });
+  await page.locator('input[type="file"][accept="application/pdf"]').setInputFiles({
+    name: 'Laufender Upload.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%%EOF'),
+  });
+  await expect.poll(() => Boolean(upload)).toBe(true);
+  await page.getByRole('button', { name: 'Dialog schließen', exact: true }).click();
+  await expect(page.locator('.isd-card')).toHaveCount(0);
+  await page.evaluate(() => window.importFixture.component.value.openStartScreen());
+  await expect(page.locator('.isd-dropzone')).toBeVisible();
+  await upload.fulfill({ json: { items: [{ source_file_id: sourceId, original_name: 'Laufender Upload.pdf', page_count: 2 }] } });
+  await expect(page.getByRole('button', { name: 'PDFs auswählen Eine oder mehrere PDF-Dateien', exact: true })).toBeEnabled();
+  await expect(page.locator('.isd-dropzone')).toBeVisible();
+  await expect(page.locator('.isd-page-card')).toHaveCount(0);
+  await expect(page.locator('.isd-dropzone__available-pages')).toHaveCount(0);
+  expect(await page.evaluate(() => window.importFixture.store.totalPages)).toBe(0);
 });
 
 test('a late source PDF download is saved into the closed draft without reopening it', async ({ page }) => {
@@ -88,7 +156,7 @@ test('a late source PDF download is saved into the closed draft without reopenin
   let download;
   await page.route('**/api/import/source/*/file', route => { download = route; });
   await page.evaluate(sourceId => window.importFixture.component.value.openWithRemoteSources({ sources: [
-    { source_file_id: sourceId, original_name: 'Späte Quelle.pdf', page_count: 1, source_revision: 'late-1' },
+    { source_file_id: sourceId, original_name: 'Späte Quelle.pdf', page_count: 1, source_revision: 'late-1', source_type: 'scanner' },
   ] }), sourceId);
   await expect.poll(() => Boolean(download)).toBe(true);
   await close(page);
@@ -105,7 +173,7 @@ test('a late source PDF download is saved into the closed draft without reopenin
 });
 
 test('closing during an uncertain commit preserves its durable request for an exact retry', async ({ page }) => {
-  await mount(page);await completeRequiredMetadata(page);
+  await mount(page, { sourceType: 'local' });await completeRequiredMetadata(page);
   let held;
   const attempts = [];
   await page.route('**/api/import/commit', route => {
@@ -118,9 +186,11 @@ test('closing during an uncertain commit preserves its durable request for an ex
   await page.getByRole('button', { name: 'Dialog schließen', exact: true }).click();
   await expect(page.locator('.isd-card')).toHaveCount(0);
   await held.fulfill({ status: 503, json: { message: 'Antwort vorübergehend nicht verfügbar' } });
-  await expect.poll(() => page.evaluate(() => window.importFixture.store.availablePageCount)).toBe(3);
+  expect(await page.evaluate(() => window.importFixture.store.availablePageCount)).toBe(0);
+  await expect.poll(() => page.evaluate(() => Boolean(window.importFixture.store.pendingCommit))).toBe(true);
   await expect(page.locator('.isd-card')).toHaveCount(0);
-  await reopen(page);await page.getByRole('button', { name: '3 verfügbare Seiten öffnen', exact: true }).click();
+  await page.evaluate(() => window.importFixture.component.value.openStartScreen());
+  await expect(page.locator('.isd-dropzone__available-pages')).toHaveCount(0);
   await page.getByRole('button', { name: 'Importstatus prüfen', exact: true }).click();
   await expect.poll(() => attempts.length).toBe(2);
   expect(attempts[1]).toEqual(attempts[0]);

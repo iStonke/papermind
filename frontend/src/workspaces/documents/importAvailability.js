@@ -5,10 +5,10 @@ function pageCount(value) {
 
 // The server can still list a source restored from a local draft. Its original
 // pages must not be counted again (or resurrect pages removed from the draft).
-export function importAvailability({ pendingCount = 0, items = [], documents = [], availableDocuments = [] } = {}) {
+export function importAvailability({ pendingCount = 0, items = [], documents = [], availableDocuments = [], excludedSources = [] } = {}) {
   const stagedPages = documents.flatMap(document => document.pages || []);
   const savedPages = availableDocuments.flatMap(document => document.pages || []);
-  const stagedSources = new Set([...stagedPages, ...savedPages].map(page => page.sourceFileId));
+  const stagedSources = new Set([...stagedPages, ...savedPages].map(page => page.sourceFileId).concat([...excludedSources]));
   const seen = new Set();
   let overlap = 0;
   for (const item of items) {

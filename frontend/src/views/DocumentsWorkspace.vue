@@ -109,7 +109,9 @@
         :scan-cancel-pending="scanCancelPending"
         :available-pages="importPageAvailability.pendingPages"
         :available-pages-loading="isOpeningAvailableImportPages"
+        :available-items="availableScannerInboxItems"
         @open-available-pages="openAvailableImportPages"
+        @available-pages-removed="onAvailableImportPagesRemoved"
         @scan="onScanTrigger"
         @committed="onImportCommitted"
         @open-document="openDocumentFromImport"
@@ -686,26 +688,17 @@
                 </v-list>
               </v-menu>
 
-              <v-badge
-                :model-value="importPageAvailability.totalPages > 0"
-                :content="availableImportBadgeLabel"
-                class="import-availability-badge"
-                color="error"
-                offset-x="6"
-                offset-y="6"
+              <v-btn
+                class="list-header-btn pm-header-icon-btn"
+                color="primary"
+                variant="tonal"
+                icon
+                :aria-label="availableImportButtonLabel"
+                :title="availableImportButtonLabel"
+                @click="openImport"
               >
-                <v-btn
-                  class="list-header-btn pm-header-icon-btn"
-                  color="primary"
-                  variant="tonal"
-                  icon
-                  :aria-label="availableImportButtonLabel"
-                  :title="availableImportButtonLabel"
-                  @click="openImport"
-                >
-                  <v-icon size="20">mdi-plus</v-icon>
-                </v-btn>
-              </v-badge>
+                <v-icon size="20">mdi-plus</v-icon>
+              </v-btn>
             </div>
 
             <div v-if="isTrashView" class="panel-middle__actions">
@@ -1723,6 +1716,7 @@ import { resolveOcrHeaderPresentation } from '../workspaces/documents/ocrHeaderS
 import { didOcrReachTerminalState } from '../workspaces/documents/ocrStatusTransition.js';
 import { shouldPreserveMetadataDraft, tagQueryIsEmpty } from '../workspaces/documents/metadataRefreshGuard.js';
 import { importAvailability, shouldLoadInboxIntoOpenImport } from '../workspaces/documents/importAvailability.js';
+import { scannerDraft } from '../utils/importScanDraft.js';
 import { createImportInboxSync } from '../workspaces/documents/importInboxSync.js';
 import { selectPdfFiles } from '../workspaces/documents/pdfSelection.js';
 import { useOcrPolling } from '../composables/useOcrPolling';
@@ -2801,6 +2795,9 @@ const importInboxPendingCount = ref(null);
 const importScannerJobs = ref([]);
 const isImportInboxLoading = ref(false);
 const isOpeningAvailableImportPages = ref(false);
+// Vor dem Plus-Klick vorhandene Quellen bleiben hinter „Verfügbare Seiten“.
+const deferredImportInboxSources = new Set();
+let scannerStartedOnSourceScreen = false;
 let importInboxRefreshJob = null;
 const isImportScannerActive = ref(false);
 const isImportScannerOptimisticActive = ref(false);
@@ -4972,9 +4969,8 @@ const SCAN_ERROR_LABELS = {
   failed: 'Scan fehlgeschlagen'
 };
 
-// Fehlerhafte Scan-Jobs (Timeout, Datei fehlt, Scanner offline) werden über das
-// globale Benachrichtigungssystem gemeldet - je Job genau einmal, damit das
-// wiederholte Eintreffen desselben Status (SSE/Polling) nicht mehrfach toastet.
+// Im offenen Import erscheinen Scanfehler direkt an der Scanner-Kachel.
+// Außerhalb des Dialogs meldet sie das globale System einmal je Job.
 const notifiedScanErrorIds = new Set();
 
 function processScannerErrorNotifications({ silent = false } = {}) {
@@ -4990,7 +4986,7 @@ function processScannerErrorNotifications({ silent = false } = {}) {
     }
     // silent: beim ersten Laden vorhandene (alte) Fehler nur merken, nicht
     // toasten - sonst poppen beim App-Start Hinweise zu längst vergangenen Läufen.
-    if (silent) {
+    if (silent || isUploadDialogOpen.value) {
       continue;
     }
     const title = SCAN_ERROR_LABELS[job.error_kind] || SCAN_ERROR_LABELS.failed;
@@ -5002,12 +4998,14 @@ function processScannerErrorNotifications({ silent = false } = {}) {
   }
 }
 
+const availableScannerInboxItems = computed(() => visiblePendingImportInboxItems(importInboxItems.value).filter(item => item.source_type === 'scanner'));
 const importPageAvailability = computed(() => importAvailability({
-  pendingCount: pendingImportInboxCount.value,
-  items: visiblePendingImportInboxItems(importInboxItems.value), documents: importStagingStore.documents,
-  availableDocuments: importStagingStore.availableDraft?.documents || [],
+  pendingCount: countImportInboxPages(availableScannerInboxItems.value),
+  items: availableScannerInboxItems.value,
+  documents: importStagingStore.pendingCommit ? [] : scannerDraft({ documents: importStagingStore.documents, sourceMeta: [...importStagingStore.sourceMetaById] })?.documents || [],
+  availableDocuments: importStagingStore.availableDraft?.pendingCommit ? [] : scannerDraft(importStagingStore.availableDraft)?.documents || [],
+  excludedSources: importStagingStore.removedAvailableSources,
 }));
-const availableImportBadgeLabel = computed(() => importPageAvailability.value.totalPages > 99 ? '99+' : String(importPageAvailability.value.totalPages));
 const availableImportButtonLabel = computed(() => {
   const count = importPageAvailability.value.totalPages;
   return count ? `Importieren – ${count} verfügbare ${count === 1 ? 'Seite' : 'Seiten'}` : 'Importieren';
@@ -5072,6 +5070,7 @@ function shouldAutoOpenImportInbox(nextItems, newItemIds) {
 async function autoOpenImportInboxScans() {
   isAutoOpeningImportInbox = true;
   try {
+    deferredImportInboxSources.clear();
     return await openImportInboxScans({ refresh: false });
   } finally {
     isAutoOpeningImportInbox = false;
@@ -5173,7 +5172,10 @@ async function handleImportInboxPayload(payload, { allowAutoOpen = true } = {}) 
       importScannerOptimisticPhase.value = 'pending';
     }
     importScanner.value = payload?.scanner || null;
+    const previousFailures = new Set(importScannerJobs.value.filter(job => job.state === 'error').map(job => `${job.id}:${job.updated_at || job.created_at}`));
     importScannerJobs.value = normalizeImportScannerJobs(payload);
+    const newFailure = importScannerJobs.value.some(job => job.state === 'error' && job.error_kind !== 'cancelled'
+      && !previousFailures.has(`${job.id}:${job.updated_at || job.created_at}`));
     // Beim allerersten Status nur die schon vorhandenen Fehler merken (kein
     // Toast für alte Läufe); danach jeden neuen Fehler einmal melden.
     processScannerErrorNotifications({ silent: !hasCompletedInitialImportInboxRefresh });
@@ -5196,22 +5198,37 @@ async function handleImportInboxPayload(payload, { allowAutoOpen = true } = {}) 
     } else if (wasImportScannerActive && !nextImportScannerActive) {
       setImportScannerOptimisticActive('pending');
     }
+    // Ein terminaler Fehler beendet das Warten auf eine weitere Scan-Seite.
+    if (newFailure && !nextImportScannerActive && importScannerJobs.value.every(job => job.state === 'error')) {
+      clearImportScannerOptimisticActive();
+    }
     updateImportInboxPendingCountFromPayload(payload, nextItems);
     importInboxItems.value = nextItems;
     knownImportInboxItemIds = nextItemIds;
+
+    const sourceChoicesPending = isUploadDialogOpen.value && importStagingDialogRef.value?.isSourceChoicePending?.();
+    if (sourceChoicesPending && !wasImportScannerActive && nextImportScannerActive) scannerStartedOnSourceScreen = true;
+    const newScannerItems = hasCompletedInitialImportInboxRefresh && scannerStartedOnSourceScreen && isImportScannerFeedbackActive.value
+      ? nextItems.filter(item => item.source_type === 'scanner' && newItemIds.includes(item.id)) : [];
+    if (sourceChoicesPending) {
+      const newScanSources = new Set(newScannerItems.map(item => item.source_file_id));
+      for (const item of nextItems) if (!newScanSources.has(item.source_file_id)) deferredImportInboxSources.add(item.source_file_id);
+    }
 
     if (!hasCompletedInitialImportInboxRefresh) {
       hasCompletedInitialImportInboxRefresh = true;
       return;
     }
 
-    shouldAutoOpen = allowAutoOpen && shouldAutoOpenImportInbox(nextItems, newItemIds);
+    const eligibleItems = nextItems.filter(item => !importStagingStore.removedAvailableSources.has(item.source_file_id));
+    shouldAutoOpen = allowAutoOpen && shouldAutoOpenImportInbox(eligibleItems, newItemIds.filter(id => eligibleItems.some(item => item.id === id)));
     // Laufende Importe und Scans weiter befüllen. Auf dem leeren Startbildschirm
     // bleiben Hintergrundseiten dagegen eine ausdrückliche Quellenauswahl.
     // Auch schon bekannte Items berücksichtigen: Ein vorheriger Refresh mit
     // allowAutoOpen=false kann sie zuerst gesehen haben. addRemoteSources()
     // ist pro source_file_id idempotent.
-    shouldLivePush = !shouldAutoOpen && allowAutoOpen && nextItems.length > 0 && shouldLoadInboxIntoOpenImport({
+    shouldLivePush = !shouldAutoOpen && allowAutoOpen && eligibleItems.some(item => !deferredImportInboxSources.has(item.source_file_id))
+      && (!sourceChoicesPending || newScannerItems.length > 0) && shouldLoadInboxIntoOpenImport({
       open: isUploadDialogOpen.value, stagedPages: importActivePageCount.value,
       scannerActive: isImportScannerFeedbackActive.value,
     });
@@ -5245,18 +5262,20 @@ watch(isUploadDialogOpen, () => importInboxSync.schedule(0));
 
 async function openAvailableImportPages({ restored = false } = {}) {
   if (isOpeningAvailableImportPages.value) return;
+  deferredImportInboxSources.clear();
   isOpeningAvailableImportPages.value = true;
-  try { await openImportInboxScans({ onlyIfOpen: true, notifyWhenEmpty: !restored }); }
+  try { await openImportInboxScans({ onlyIfOpen: true, scannerOnly: true, notifyWhenEmpty: !restored }); }
   finally { isOpeningAvailableImportPages.value = false; }
 }
 
-async function openImportInboxScans({ refresh = true, notifyWhenEmpty = true, onlyIfOpen = false } = {}) {
+async function openImportInboxScans({ refresh = true, notifyWhenEmpty = true, onlyIfOpen = false, scannerOnly = false } = {}) {
   if (refresh) {
     if (!await refreshImportInbox({ silent: false, allowAutoOpen: false })) return false;
   }
   if (onlyIfOpen && !isUploadDialogOpen.value) return false;
   const savedSources = new Set((importStagingStore.availableDraft?.documents || []).flatMap(doc => doc.pages.map(page => page.sourceFileId)));
-  const items = importInboxItems.value.filter(item => !savedSources.has(item.source_file_id));
+  const items = importInboxItems.value.filter(item => (!scannerOnly || item.source_type === 'scanner') && !savedSources.has(item.source_file_id) && !deferredImportInboxSources.has(item.source_file_id)
+    && !importStagingStore.removedAvailableSources.has(item.source_file_id));
   if (items.length === 0) {
     if (notifyWhenEmpty) {
       notify({ type: 'info', message: 'Keine verfügbaren Seiten mehr vorhanden.' });
@@ -5345,6 +5364,17 @@ async function claimActiveImportInboxItems(sourceIds = []) {
   } finally {
     isClaimingImportInbox.value = false;
   }
+}
+
+function onAvailableImportPagesRemoved({ sourceFileIds = [], itemIds = [] }) {
+  const removedSources = new Set(sourceFileIds), removedItems = new Set(itemIds);
+  keepImportInboxItemsSuppressed(itemIds);
+  activeImportInboxItemIds.value = new Set([...activeImportInboxItemIds.value].filter(id => !removedItems.has(id)));
+  activeImportInboxSourceToItemId.value = new Map([...activeImportInboxSourceToItemId.value].filter(([id]) => !removedSources.has(id)));
+  importInboxItems.value = importInboxItems.value.filter(item => !removedSources.has(item.source_file_id));
+  setImportInboxPendingCount(countImportInboxPages(visiblePendingImportInboxItems(importInboxItems.value)));
+  void refreshImportInbox({ silent: true, allowAutoOpen: false });
+  releaseImportInboxDiscardSuppressionLater(itemIds);
 }
 
 async function onImportSourcesDiscarded(payload = {}) {
@@ -9238,7 +9268,12 @@ function openImportPdfPicker() {
 
 // Closed drafts and pending inbox pages are opened through the source choices.
 function openImport() {
-  isUploadDialogOpen.value = true;
+  scannerStartedOnSourceScreen = false;
+  deferredImportInboxSources.clear();
+  for (const item of importInboxItems.value) deferredImportInboxSources.add(item.source_file_id);
+  const dialog = importStagingDialogRef.value;
+  if (dialog?.openStartScreen) dialog.openStartScreen();
+  else isUploadDialogOpen.value = true;
 }
 
 

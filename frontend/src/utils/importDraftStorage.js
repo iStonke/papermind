@@ -11,6 +11,11 @@ export function migrateImportDraft(draft) {
   const validDraft = value => value && Array.isArray(value.documents) && value.documents.every(doc => doc && typeof doc === 'object' && Array.isArray(doc.pages) && doc.pages.every(page => page && typeof page === 'object'))
     && pairs(value.sourceMeta) && pairs(value.files || []);
   if (!validDraft(draft) || draft.availableDraft != null && !validDraft(draft.availableDraft)
+    || draft.availableRemovals != null && (!Array.isArray(draft.availableRemovals) || !draft.availableRemovals.every(removal =>
+      removal && typeof removal.id === 'string' && Number.isFinite(removal.expiresAt) && removal.expiresAt > 0
+      && Number.isSafeInteger(removal.pageCount) && removal.pageCount > 0
+      && (removal.draft == null || validDraft(removal.draft)) && Array.isArray(removal.items)
+      && removal.items.every(item => item && typeof item.id === 'string' && typeof item.source_file_id === 'string')))
     || draft.version === 2 && (!Array.isArray(draft.assetRefs) || !draft.assetRefs.every(id => typeof id === 'string'))
     || !Number.isSafeInteger(Number(draft.revision || 0)) || Number(draft.revision || 0) < 0) {
     throw new Error('Beschädigter Importentwurf. Der gespeicherte Stand wurde nicht überschrieben.');
@@ -71,7 +76,7 @@ export async function importDraftStorage(owner, value, write = false, { expected
               if (!used.has(row.primaryKey[1])) assetStore.delete(row.primaryKey); row.continue(); };
             result = { revision };
           } else {
-            if (!previous?.documents.length && !previous?.availableDraft?.documents.length) { result = previous; return; }
+            if (!previous?.documents.length && !previous?.availableDraft?.documents.length && !previous?.availableRemovals?.some(removal => removal.draft?.documents.length)) { result = previous; return; }
             result = previous;
             if (previous.version === 2) {
               const loaded = new Map();
@@ -86,7 +91,7 @@ export async function importDraftStorage(owner, value, write = false, { expected
               }
               hydrate = () => {
                 Object.defineProperty(result, 'hydratedAssets', { value: loaded });
-                for (const draft of [result, result.availableDraft].filter(Boolean)) {
+                for (const draft of [result, result.availableDraft, ...(result.availableRemovals || []).map(removal => removal.draft)].filter(Boolean)) {
                   draft.files = (draft.files || []).map(([id, ref]) => [id, loaded.get(ref)]).filter(([, file]) => file instanceof Blob);
                   for (const doc of draft.documents) for (const page of doc.pages || []) {
                     page.thumbUrl = loaded.get(page.thumbRef) || ''; delete page.thumbRef;
