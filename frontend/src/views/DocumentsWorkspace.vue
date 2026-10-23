@@ -703,7 +703,7 @@
                   :title="availableImportButtonLabel"
                   @click="openImport"
                 >
-                  <v-icon size="20">mdi-import</v-icon>
+                  <v-icon size="20">mdi-plus</v-icon>
                 </v-btn>
               </v-badge>
             </div>
