@@ -193,8 +193,14 @@
             @dragover.prevent="onPagesContainerDragOver($event, documents[0]?.id)"
             @drop.prevent="onPagesContainerDrop($event, documents[0]?.id)"
           >
-            <template v-for="{ doc, page, globalIndex, pageIndexInDoc } in allPagesFlat" :key="page.id">
-            <div v-if="documents.length > 1 && pageIndexInDoc === 0" class="isd-document-boundary" role="heading" aria-level="3" :aria-label="`Dokument: ${doc.title}`" @click.stop>{{ doc.title || 'Ohne Namen' }}</div>
+            <template v-for="{ doc, page, globalIndex, pageIndexInDoc, documentIndex } in allPagesFlat" :key="page.id">
+            <div v-if="documents.length > 1 && pageIndexInDoc === 0"
+              class="isd-document-boundary"
+              :class="{ 'isd-document-boundary--active': primaryDocument?.id === doc.id }"
+              role="heading" aria-level="3"
+              :aria-label="`Dokument ${documentIndex + 1}: ${doc.title || documentGroupTitle(doc, documentIndex)}`"
+              :title="doc.title || documentGroupTitle(doc, documentIndex)"
+              @click.stop>{{ documentGroupTitle(doc, documentIndex) }}</div>
             <div
               :ref="el => setPageThumbRef(page.id, el)"
               class="isd-page-card import-staging-page"
@@ -496,9 +502,6 @@
           :allow-suggest="false" :saving="isCommitting" :menu-props="{ maxHeight: 240, attach: 'body', zIndex: 6000 }"
           @accept="onRetentionAccept" @save="saveImportRetention" />
 
-        <v-select v-if="documents.length > 1" :model-value="primaryDocument?.id"
-          :items="documents.map(doc => ({ title: doc.title || 'Ohne Namen', value: doc.id }))" label="Dokument bearbeiten"
-          density="compact" variant="outlined" @update:model-value="selectDocumentForEditing" />
         <DocumentMetadataFields :name="primaryDocTitle" :date="docDate" :category="docCategory"
           :correspondent="docCorrespondentId" :note="docNote" :categories="categoryItems" :correspondents="correspondentItems"
           :errors="{ ...fieldErrors, name: fieldErrors.title }" :sources="metadataSources" :pending="pendingMetadataFields" required-fields :disabled="isCommitting || Boolean(stagingStore.pendingCommit) || correspondentDialogOpen"
@@ -1123,6 +1126,15 @@ function isDefaultScanTitle(title) {
   return String(title || '').trim() === 'Neuer Scan';
 }
 
+function documentGroupTitle(doc, index) {
+  const title = String(doc.title || '').replace(/\s+/gu, ' ').trim();
+  // Generated scanner filenames are useful for diagnostics, but needlessly
+  // dominate the narrow page rail. Keep the full title in its tooltip.
+  if (/^scan[-_]\d{8}[-_]\d{6}(?:[-_]|$)/iu.test(title)
+    || /^(?:neuer scan|scan(?: upload)?)(?:\.pdf)?$/iu.test(title)) return `Scan ${index + 1}`;
+  return title || `Dokument ${index + 1}`;
+}
+
 
 function isScanTitleBusy(documentEntry) {
   const status = String(documentEntry?.meta?.titleSuggestionStatus || '');
@@ -1313,13 +1325,6 @@ function toggleSelectMode() {
   }
 }
 
-function selectDocumentForEditing(documentId) {
-  activeDocumentId.value = documentId;
-  clearMultiSelection();
-  const firstPage = allPagesFlat.value.find(({ doc }) => doc.id === documentId);
-  if (firstPage) selectPage(documentId, firstPage.page.id, firstPage.globalIndex);
-}
-
 async function deleteSelectedPages() {
   if (hasMultiSelection.value) {
     const toDelete = [...multiSelectedPageIds.value];
@@ -1425,10 +1430,10 @@ async function commitSelectionImport() {
 const allPagesFlat = computed(() => {
   let index = 0;
   const result = [];
-  for (const doc of documents.value) {
+  for (const [documentIndex, doc] of documents.value.entries()) {
     let pageIndexInDoc = 0;
     for (const page of doc.pages || []) {
-      result.push({ doc, page, globalIndex: index++, pageIndexInDoc: pageIndexInDoc++ });
+      result.push({ doc, page, globalIndex: index++, pageIndexInDoc: pageIndexInDoc++, documentIndex });
     }
   }
   return result;
@@ -5939,8 +5944,13 @@ button.isd-dropzone__action:active:not(:disabled) {
 </style>
 
 <style>
-.isd-document-boundary { padding:12px 0 8px; border-top:1px solid var(--pm-divider-soft); font-size:11px; font-weight:600; color:var(--pm-muted); overflow-wrap:anywhere; }
+.isd-document-boundary {
+  min-width:0; max-width:100%; padding:12px 0 0; border-top:1px solid var(--pm-divider-soft);
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+  font-size:11px; line-height:18px; font-weight:600; color:var(--pm-muted);
+}
 .isd-document-boundary:first-child { padding-top:0; border-top:0; }
+.isd-document-boundary--active { color:rgb(var(--v-theme-on-surface)); }
 .isd-analysis-scope { display:block; margin-top:8px; font-size:12px; }
 @media (min-width:961px) { .isd-card:not(.isd-card--empty) .isd-left { border-right:0; } }
 @media (any-pointer:coarse) {

@@ -177,6 +177,7 @@ test('analysis page coverage is disclosed only in the existing AI hint', async (
 test('document boundaries and an adjustable details pane preserve page navigation and the device preference', async ({ page }) => {
   await page.setViewportSize({ width:1440, height:1000 });
   await mount(page, { documents:2 });
+  await expect(page.getByRole('combobox', { name:'Dokument bearbeiten', exact:true })).toHaveCount(0);
   await expect(page.locator('.isd-document-boundary')).toHaveText(['Arbeitsstätte', 'Dokument 2']);
   await expect(page.locator('.isd-page-card')).toHaveCount(6);
   await page.screenshot({ path:'/private/tmp/papermind-import-document-groups.png' });
@@ -202,6 +203,52 @@ test('document boundaries and an adjustable details pane preserve page navigatio
   await expect(divider).toHaveAttribute('aria-valuenow', '360');
   await revealImportTools(page);
   await page.screenshot({ path:'/private/tmp/papermind-import-ui-desktop.png' });
+});
+
+test('page thumbnails select the document form and preserve separate edits without a document selector', async ({ page }) => {
+  await page.setViewportSize({ width:1440, height:1000 });
+  await mount(page, { documents:2, pages:2 });
+  await expect(page.getByRole('combobox', { name:'Dokument bearbeiten', exact:true })).toHaveCount(0);
+  const name = page.getByLabel('Dokumentname', { exact:true });
+  await name.fill('Erstes Dokument');
+  await page.locator('.isd-page-card').nth(2).click();
+  await expect(name).toHaveValue('Dokument 2');
+  await name.fill('Zweites Dokument');
+  await page.locator('.isd-page-card').nth(0).focus();
+  await page.locator('.isd-page-card').nth(0).press('Enter');
+  await expect(name).toHaveValue('Erstes Dokument');
+  await expect(page.locator('.isd-document-boundary--active')).toHaveText('Erstes Dokument');
+  await page.locator('.isd-page-card').nth(3).click();
+  await expect(name).toHaveValue('Zweites Dokument');
+  await expect(page.locator('.isd-document-boundary--active')).toHaveText('Zweites Dokument');
+  expect(await page.evaluate(() => window.importFixture.store.documents.map(doc => doc.title))).toEqual(['Erstes Dokument', 'Zweites Dokument']);
+});
+
+for (const theme of ['light', 'dark']) test(`document group titles stay on one line with compact generated scan names in ${theme}`, async ({ page }) => {
+  const generated = 'Scan-20261024-013011-803102918-pmdev-59202204a2a22319db1309b16';
+  const longTitle = 'Beitragsrechnung für die private Haftpflichtversicherung und weitere ausführliche Angaben zum Versicherungsvertrag';
+  await mount(page, { documents:2, pages:1, title:generated });
+  await page.evaluate(({ theme, longTitle }) => {
+    window.importFixture.setTheme(theme);
+    window.importFixture.store.documents[1].title = longTitle;
+  }, { theme, longTitle });
+  const headings = page.locator('.isd-document-boundary');
+  await expect(headings).toHaveText(['Scan 1', longTitle]);
+  await expect(headings.nth(0)).toHaveAttribute('title', generated);
+  await expect(headings.nth(1)).toHaveAttribute('title', longTitle);
+  for (const width of [1440, 800, 430, 320]) {
+    await page.setViewportSize({ width, height:1000 });
+    const layout = await headings.evaluateAll(elements => elements.map(element => {
+      const range = document.createRange(); range.selectNodeContents(element);
+      const rail = element.closest('.isd-grid-scroll');
+      return { textHeight:range.getBoundingClientRect().height, lineHeight:parseFloat(getComputedStyle(element).lineHeight),
+        headingWidth:element.getBoundingClientRect().width, railWidth:rail.clientWidth, overflow:rail.scrollWidth - rail.clientWidth };
+    }));
+    expect(layout.every(row => row.textHeight <= row.lineHeight + 1 && row.headingWidth <= row.railWidth && row.overflow <= 1)).toBe(true);
+    if (width === 1440 || width === 430) await page.screenshot({ path:`/private/tmp/papermind-compact-document-groups-${theme}-${width}.png`, animations:'disabled' });
+  }
+  // Only the rail presentation is shortened; the editable document name stays intact.
+  expect(await page.evaluate(() => window.importFixture.store.documents[0].title)).toBe(generated);
 });
 
 test.describe('import controls with coarse touch input', () => {
