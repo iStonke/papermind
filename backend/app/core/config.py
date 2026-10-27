@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     worker_health_path: str = Field(default="/tmp/papermind-worker-health.json")
     worker_health_interval_seconds: int = Field(default=15, ge=5, le=60)
     worker_health_max_age_seconds: int = Field(default=120, ge=30, le=900)
+    # Wächter: schafft der Haupt-Loop so lange keinen Durchlauf, beendet sich der
+    # Worker selbst, damit Docker ihn neu startet (unhealthy allein startet nichts neu).
+    worker_main_loop_stall_seconds: int = Field(default=1800, ge=60, le=86400)
     # Periodischer OCR-Backfill: schließt regelmäßig Lücken (Dokumente ohne OCR).
     ocr_backfill_interval_seconds: int = Field(default=3600, ge=60)
     ocr_backfill_batch_size: int = Field(default=10, ge=1, le=200)

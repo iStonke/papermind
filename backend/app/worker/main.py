@@ -90,6 +90,11 @@ SCANNER_JOB_CLEANUP_INTERVAL_SECONDS = 6 * 3600
 # anzeigt - das hängt am Memory-Cgroup des Hosts).
 WORKER_MEMORY_LOG_INTERVAL_SECONDS = 900
 WIKI_LINT_INTERVAL_SECONDS = 24 * 3600
+# Nach einem fehlgeschlagenen Haupt-Loop-Durchlauf (z. B. DB kurz weg) höchstens
+# so lange warten, bevor der nächste Versuch startet.
+MAIN_LOOP_ERROR_BACKOFF_MAX_SECONDS = 30.0
+# Exit-Code, wenn der Wächter einen festhängenden Haupt-Loop beendet (EX_SOFTWARE).
+MAIN_LOOP_STALL_EXIT_CODE = 70
 SCANNER_CONFIG_FILENAME = ".papermind-scanner-config"
 # Pro-Gerät-Config: "Seiten sofort senden" ist pro Scanner. Der Host liest die
 # zu seinem device_key passende Datei; die legacy-Globaldatei bleibt Fallback.
@@ -539,6 +544,7 @@ _preanalysis_executor: ThreadPoolExecutor | None = None
 _backup_executor: ThreadPoolExecutor | None = None
 _backup_future: Future | None = None
 _worker_health_last_at = 0.0
+_main_loop_tick = time.monotonic()
 
 
 def _touch_worker_health(*, state: str, job_id: uuid.UUID | None = None, force: bool = False) -> None:
@@ -2147,6 +2153,246 @@ def _run_note_audio_job(job: dict, admission) -> None:
         _process_note_audio_job(job)
 
 
+def _main_loop_error_backoff(consecutive_failures: int) -> float:
+    """Wartezeit nach einem fehlgeschlagenen Loop-Durchlauf (exponentiell, gedeckelt)."""
+    base = max(0.5, float(settings.worker_poll_interval_seconds))
+    exponent = max(0, min(consecutive_failures - 1, 10))
+    return min(MAIN_LOOP_ERROR_BACKOFF_MAX_SECONDS, base * 2**exponent)
+
+
+def _mark_main_loop_alive() -> None:
+    global _main_loop_tick
+    _main_loop_tick = time.monotonic()
+
+
+def _run_main_loop_watchdog(stop_event: threading.Event, *, stall_seconds: float, exit_process=os._exit) -> None:
+    """Beendet den Prozess, wenn der Haupt-Loop zu lange keinen Durchlauf schafft.
+
+    Die Job-Heartbeats laufen in eigenen Threads und halten die Health-Datei
+    frisch, auch wenn der Haupt-Loop festhängt. Docker startet einen nur
+    "unhealthy" gemeldeten Container aber nie neu - deshalb beendet der Wächter
+    den Prozess selbst und überlässt den Neustart ``restart: unless-stopped``.
+    """
+    interval = max(0.01, min(30.0, stall_seconds / 10))
+    while not stop_event.wait(interval):
+        stalled = time.monotonic() - _main_loop_tick
+        if stalled < stall_seconds:
+            continue
+        logger.critical(
+            "worker main loop stalled seconds=%s limit=%s worker_id=%s - exiting for container restart",
+            int(stalled), int(stall_seconds), WORKER_ID,
+        )
+        for handler in logging.getLogger().handlers:
+            try:
+                handler.flush()
+            except Exception:  # noqa: BLE001 - Beenden darf am Logging nicht scheitern
+                pass
+        exit_process(MAIN_LOOP_STALL_EXIT_CODE)
+        return
+
+
+def _run_wiki_backfill(run_id: uuid.UUID, lease_token: uuid.UUID, admission) -> None:
+    with write_activity(admission=admission):
+        with _wiki_backfill_lease_heartbeat(run_id, lease_token):
+            _process_wiki_backfill(run_id, lease_token)
+
+
+def _dispatch_wiki_backfill(loop: "_MainLoopState") -> bool:
+    """Startet höchstens einen Wiki-Backfill-Batch in eigener Spur.
+
+    Ein Batch umfasst bis zu 50 LLM-Extraktionen; synchron im Haupt-Loop würde
+    er Dokument-Dispatch, Posteingang und Wartung minutenlang blockieren.
+    """
+    from app.services.maintenance import MaintenanceActive, acquire_write_activity
+
+    future = loop.wiki_future
+    if future is not None:
+        if not future.done():
+            return False
+        try:
+            future.result()
+        except Exception:
+            logger.exception("wiki backfill worker lane failed")
+        loop.wiki_future = None
+    # Wie bisher nur bei freien Dokument-Spuren starten, damit OCR/Index Vorrang haben.
+    if loop.document_dispatch.busy:
+        return False
+    try:
+        admission = acquire_write_activity()
+    except MaintenanceActive:
+        return False
+    try:
+        claimed = _claim_next_wiki_backfill()
+        if claimed is None:
+            admission.close()
+            return False
+        run_id, lease_token = claimed
+        loop.wiki_future = loop.wiki_executor.submit(_run_wiki_backfill, run_id, lease_token, admission)
+        return True
+    except BaseException:
+        admission.close()
+        raise
+
+
+class _MainLoopState:
+    def __init__(self, document_dispatch: DocumentJobDispatcher) -> None:
+        self.document_dispatch = document_dispatch
+        self.audio_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="note-audio")
+        self.wiki_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="wiki-backfill")
+        self.controlled_futures: dict[str, Future] = {}
+        self.audio_future: Future | None = None
+        self.wiki_future: Future | None = None
+        now = time.monotonic()
+        self.last_trash_cleanup_at = 0.0
+        self.last_user_cleanup_at = 0.0
+        self.last_pdf_version_cleanup_at = 0.0
+        self.last_ocr_backfill_at = 0.0
+        self.last_backup_check_at = 0.0
+        self.last_wiki_lint_at = 0.0
+        self.last_scanner_job_maintenance_at = 0.0
+        self.last_scanner_job_cleanup_at = 0.0
+        self.last_memory_log_at = now
+        self.last_job_reclaim_at = now
+
+
+def _main_loop_iteration(loop: _MainLoopState) -> None:
+    from app.services.backup import run_backup_in_background
+    from app.services.maintenance import MaintenanceActive, acquire_write_activity, is_maintenance_active
+
+    for kind, executor, handler in (
+        ("preanalysis", _preanalysis_executor, _preanalyze_import_sources),
+        ("cleanup", _cleanup_executor, _enhance_scanner_import_sources),
+        ("backup", _backup_executor, run_backup_in_background),
+    ):
+        future = loop.controlled_futures.get(kind)
+        if future is None or future.done():
+            item = claim_queued([kind])
+            if item:
+                loop.controlled_futures[kind] = executor.submit(execute_activity, item, handler.activity_function)
+
+    if is_maintenance_active():
+        _touch_worker_health(state="maintenance")
+        time.sleep(settings.worker_poll_interval_seconds)
+        return
+    # Nicht blockierend: Beginnt die Wartung genau jetzt, wartet der Loop nicht
+    # die ganze Sicherung über auf die Schreibsperre, sondern dreht weiter.
+    try:
+        loop_admission = acquire_write_activity()
+    except MaintenanceActive:
+        _touch_worker_health(state="maintenance")
+        time.sleep(settings.worker_poll_interval_seconds)
+        return
+    with write_activity(admission=loop_admission):
+        loop.document_dispatch.dispatch()
+        if loop.audio_future is not None and loop.audio_future.done():
+            try:
+                loop.audio_future.result()
+            except Exception:
+                logger.exception("note audio worker lane failed")
+            loop.audio_future = None
+        if loop.audio_future is None:
+            try:
+                audio_admission = acquire_write_activity()
+            except MaintenanceActive:
+                audio_admission = None
+            if audio_admission is not None:
+                try:
+                    audio_job = note_audio_jobs.claim_next(WORKER_ID)
+                except BaseException:
+                    audio_admission.close()
+                    raise
+                if audio_job is None:
+                    audio_admission.close()
+                else:
+                    loop.audio_future = loop.audio_executor.submit(_run_note_audio_job, audio_job, audio_admission)
+        now_monotonic = time.monotonic()
+        if now_monotonic - loop.last_pdf_version_cleanup_at >= 3600:
+            loop.last_pdf_version_cleanup_at = now_monotonic
+            from app.services.pdf_version_cleanup import cleanup_pdf_versions
+            with SessionLocal() as cleanup_db:
+                cleanup_pdf_versions(cleanup_db, settings.storage_path)
+        if now_monotonic - loop.last_user_cleanup_at >= 60:
+            loop.last_user_cleanup_at = now_monotonic
+            from app.services.storage_cleanup import retry_user_cleanups
+            with SessionLocal() as cleanup_db:
+                retry_user_cleanups(cleanup_db)
+        _touch_worker_health(state="idle")
+        if now_monotonic - loop.last_job_reclaim_at >= JOB_RECLAIM_INTERVAL_SECONDS:
+            loop.last_job_reclaim_at = now_monotonic
+            _reclaim_orphaned_jobs()
+
+        if now_monotonic - loop.last_memory_log_at >= WORKER_MEMORY_LOG_INTERVAL_SECONDS:
+            loop.last_memory_log_at = now_monotonic
+            _log_worker_memory()
+
+        if now_monotonic - loop.last_scanner_job_maintenance_at >= SCANNER_JOB_MAINTENANCE_INTERVAL_SECONDS:
+            loop.last_scanner_job_maintenance_at = now_monotonic
+            _expire_stale_scanner_jobs()
+
+        if now_monotonic - loop.last_scanner_job_cleanup_at >= SCANNER_JOB_CLEANUP_INTERVAL_SECONDS:
+            loop.last_scanner_job_cleanup_at = now_monotonic
+            _cleanup_old_scanner_jobs()
+
+        if now_monotonic - loop.last_trash_cleanup_at >= TRASH_CLEANUP_INTERVAL_SECONDS:
+            loop.last_trash_cleanup_at = now_monotonic
+            _cleanup_expired_trash()
+
+        if now_monotonic - loop.last_ocr_backfill_at >= settings.ocr_backfill_interval_seconds:
+            loop.last_ocr_backfill_at = now_monotonic
+            _run_ocr_backfill()
+
+        if now_monotonic - loop.last_backup_check_at >= BACKUP_CHECK_INTERVAL_SECONDS:
+            loop.last_backup_check_at = now_monotonic
+            _run_backup_scheduler()
+
+        if now_monotonic - loop.last_wiki_lint_at >= WIKI_LINT_INTERVAL_SECONDS:
+            loop.last_wiki_lint_at = now_monotonic
+            _run_wiki_lint()
+
+        # Inbox-Ordner-Import (SMB-Scanordner): eingeworfene PDFs landen als
+        # Posteingang-Einträge (Eigentümer = erster Admin, Ein-Benutzer-Betrieb).
+        inbox_drop_file = _claim_next_import_inbox_pdf()
+        if inbox_drop_file is not None:
+            claimed_path, original_name, preview_path = inbox_drop_file
+            _process_import_inbox_drop_file(claimed_path, original_name, preview_path)
+            return
+
+        _dispatch_wiki_backfill(loop)
+        time.sleep(settings.worker_poll_interval_seconds)
+
+
+def _run_main_loop(loop: _MainLoopState, *, stop_event: threading.Event | None = None, iteration=None) -> None:
+    """Haupt-Loop mit Fehlerabschirmung pro Durchlauf.
+
+    Ein transienter Fehler (z. B. DB-Neustart, abgerissene Verbindung) beendet
+    den Prozess nicht mehr. Sonst rissen alle laufenden Spuren mit ab und jeder
+    Absturz verbrauchte einen Versuch der gerade laufenden Jobs - nach drei
+    DB-Aussetzern endete ein gesundes Dokument als ``retry_limit``.
+    """
+    iteration = iteration or _main_loop_iteration
+    consecutive_failures = 0
+    while stop_event is None or not stop_event.is_set():
+        _mark_main_loop_alive()
+        try:
+            iteration(loop)
+        except Exception:
+            consecutive_failures += 1
+            delay = _main_loop_error_backoff(consecutive_failures)
+            logger.exception(
+                "worker main loop iteration failed failures=%s retry_in=%.1fs worker_id=%s",
+                consecutive_failures, delay, WORKER_ID,
+            )
+            _touch_worker_health(state="degraded")
+            if stop_event is not None:
+                stop_event.wait(delay)
+            else:
+                time.sleep(delay)
+            continue
+        if consecutive_failures:
+            logger.info("worker main loop recovered after failures=%s", consecutive_failures)
+            consecutive_failures = 0
+
+
 def run() -> None:
     logger.info(
         "worker started worker_id=%s poll_interval=%ss lease=%ss heartbeat=%ss storage=%s",
@@ -2183,121 +2429,17 @@ def run() -> None:
         daemon=True,
     )
     scanner_dispatch_thread.start()
-    document_dispatch = DocumentJobDispatcher(_claim_next_job, _process_claimed_document_job)
-    audio_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="note-audio")
-    controlled_futures = {}
-    audio_future: Future | None = None
-    last_trash_cleanup_at = 0.0
-    last_user_cleanup_at = 0.0
-    last_pdf_version_cleanup_at = 0.0
-    last_ocr_backfill_at = 0.0
-    last_backup_check_at = 0.0
-    last_wiki_lint_at = 0.0
-    last_scanner_job_maintenance_at = 0.0
-    last_scanner_job_cleanup_at = 0.0
-    last_memory_log_at = time.monotonic()
-    last_job_reclaim_at = time.monotonic()
-    while True:
-        from app.services.backup import run_backup_in_background
-        for kind, executor, handler in (
-            ("preanalysis", _preanalysis_executor, _preanalyze_import_sources),
-            ("cleanup", _cleanup_executor, _enhance_scanner_import_sources),
-            ("backup", _backup_executor, run_backup_in_background),
-        ):
-            future = controlled_futures.get(kind)
-            if future is None or future.done():
-                item = claim_queued([kind])
-                if item:
-                    controlled_futures[kind] = executor.submit(execute_activity, item, handler.activity_function)
-
-        from app.services.maintenance import is_maintenance_active
-
-        if is_maintenance_active():
-            _touch_worker_health(state="maintenance")
-            time.sleep(settings.worker_poll_interval_seconds)
-            continue
-        with write_activity():
-            document_dispatch.dispatch()
-            if audio_future is not None and audio_future.done():
-                try:
-                    audio_future.result()
-                except Exception:
-                    logger.exception("note audio worker lane failed")
-                audio_future = None
-            if audio_future is None:
-                from app.services.maintenance import MaintenanceActive, acquire_write_activity
-
-                try:
-                    audio_admission = acquire_write_activity()
-                except MaintenanceActive:
-                    audio_admission = None
-                if audio_admission is not None:
-                    audio_job = note_audio_jobs.claim_next(WORKER_ID)
-                    if audio_job is None:
-                        audio_admission.close()
-                    else:
-                        audio_future = audio_executor.submit(_run_note_audio_job, audio_job, audio_admission)
-            now_monotonic = time.monotonic()
-            if now_monotonic - last_pdf_version_cleanup_at >= 3600:
-                last_pdf_version_cleanup_at = now_monotonic
-                from app.services.pdf_version_cleanup import cleanup_pdf_versions
-                with SessionLocal() as cleanup_db:
-                    cleanup_pdf_versions(cleanup_db, settings.storage_path)
-            if now_monotonic - last_user_cleanup_at >= 60:
-                last_user_cleanup_at = now_monotonic
-                from app.services.storage_cleanup import retry_user_cleanups
-                with SessionLocal() as cleanup_db:
-                    retry_user_cleanups(cleanup_db)
-            _touch_worker_health(state="idle")
-            if now_monotonic - last_job_reclaim_at >= JOB_RECLAIM_INTERVAL_SECONDS:
-                last_job_reclaim_at = now_monotonic
-                _reclaim_orphaned_jobs()
-
-            if now_monotonic - last_memory_log_at >= WORKER_MEMORY_LOG_INTERVAL_SECONDS:
-                last_memory_log_at = now_monotonic
-                _log_worker_memory()
-
-            if now_monotonic - last_scanner_job_maintenance_at >= SCANNER_JOB_MAINTENANCE_INTERVAL_SECONDS:
-                last_scanner_job_maintenance_at = now_monotonic
-                _expire_stale_scanner_jobs()
-
-            if now_monotonic - last_scanner_job_cleanup_at >= SCANNER_JOB_CLEANUP_INTERVAL_SECONDS:
-                last_scanner_job_cleanup_at = now_monotonic
-                _cleanup_old_scanner_jobs()
-
-            if now_monotonic - last_trash_cleanup_at >= TRASH_CLEANUP_INTERVAL_SECONDS:
-                last_trash_cleanup_at = now_monotonic
-                _cleanup_expired_trash()
-
-            if now_monotonic - last_ocr_backfill_at >= settings.ocr_backfill_interval_seconds:
-                last_ocr_backfill_at = now_monotonic
-                _run_ocr_backfill()
-
-            if now_monotonic - last_backup_check_at >= BACKUP_CHECK_INTERVAL_SECONDS:
-                last_backup_check_at = now_monotonic
-                _run_backup_scheduler()
-
-            if now_monotonic - last_wiki_lint_at >= WIKI_LINT_INTERVAL_SECONDS:
-                last_wiki_lint_at = now_monotonic
-                _run_wiki_lint()
-
-            # Inbox-Ordner-Import (SMB-Scanordner): eingeworfene PDFs landen als
-            # Posteingang-Einträge (Eigentümer = erster Admin, Ein-Benutzer-Betrieb).
-            inbox_drop_file = _claim_next_import_inbox_pdf()
-            if inbox_drop_file is not None:
-                claimed_path, original_name, preview_path = inbox_drop_file
-                _process_import_inbox_drop_file(claimed_path, original_name, preview_path)
-                continue
-
-            if not document_dispatch.busy:
-                wiki_backfill = _claim_next_wiki_backfill()
-                if wiki_backfill is not None:
-                    run_id, lease_token = wiki_backfill
-                    _touch_worker_health(state="wiki_backfill", job_id=run_id, force=True)
-                    with _wiki_backfill_lease_heartbeat(run_id, lease_token):
-                        _process_wiki_backfill(run_id, lease_token)
-                    continue
-            time.sleep(settings.worker_poll_interval_seconds)
+    _mark_main_loop_alive()
+    watchdog_stop = threading.Event()
+    threading.Thread(
+        target=_run_main_loop_watchdog,
+        args=(watchdog_stop,),
+        kwargs={"stall_seconds": settings.worker_main_loop_stall_seconds},
+        name="main-loop-watchdog",
+        daemon=True,
+    ).start()
+    loop = _MainLoopState(DocumentJobDispatcher(_claim_next_job, _process_claimed_document_job))
+    _run_main_loop(loop)
 
 
 if __name__ == "__main__":
