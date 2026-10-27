@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=10, ge=1, le=50)
     db_max_overflow: int = Field(default=20, ge=0, le=100)
     db_pool_recycle_seconds: int = Field(default=1800, ge=60)
+    # Serverseitige Zeitlimits je Verbindung (0 = aus). Ohne sie blockiert eine
+    # hängende Transaktion mit Zeilensperren andere Requests und Jobs unbegrenzt.
+    # Migrationen (eigene Alembic-Engine) und Backup/Restore (Superuser-Engine)
+    # bleiben bewusst ohne Limits.
+    db_app_statement_timeout_ms: int = Field(default=120_000, ge=0)
+    db_app_lock_timeout_ms: int = Field(default=15_000, ge=0)
+    db_app_idle_in_transaction_timeout_ms: int = Field(default=600_000, ge=0)
+    db_worker_lock_timeout_ms: int = Field(default=60_000, ge=0)
     ai_base_url: str = Field(default="http://ai:11434")
     storage_path: str = Field(default="/data/storage")
     public_web_base_url: str = Field(default="")

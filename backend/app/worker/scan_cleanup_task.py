@@ -10,6 +10,7 @@ import argparse
 import json
 from pathlib import Path
 
+from app.core.oom import prefer_oom_kill
 from app.services.ocr_pipeline import build_cleaned_scan_pdf
 
 
@@ -26,6 +27,7 @@ def main() -> int:
     parser.add_argument("--mode", choices=("white", "bw"), required=True)
     parser.add_argument("--dpi", type=int, required=True)
     args = parser.parse_args()
+    prefer_oom_kill()
 
     source_path = Path(args.source)
     output_path = Path(args.output)

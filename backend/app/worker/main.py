@@ -89,6 +89,9 @@ SCANNER_JOB_CLEANUP_INTERVAL_SECONDS = 6 * 3600
 # Leck im Dauerbetrieb sichtbar wird (unabhängig davon, ob `docker stats` RAM
 # anzeigt - das hängt am Memory-Cgroup des Hosts).
 WORKER_MEMORY_LOG_INTERVAL_SECONDS = 900
+CGROUP_ROOT = Path("/sys/fs/cgroup")
+# Ab diesem Anteil nicht zurückgebbaren Speichers am Container-Limit warnen.
+MEMORY_PRESSURE_WARN_RATIO = 0.85
 WIKI_LINT_INTERVAL_SECONDS = 24 * 3600
 # Nach einem fehlgeschlagenen Haupt-Loop-Durchlauf (z. B. DB kurz weg) höchstens
 # so lange warten, bevor der nächste Versuch startet.
@@ -545,6 +548,7 @@ _backup_executor: ThreadPoolExecutor | None = None
 _backup_future: Future | None = None
 _worker_health_last_at = 0.0
 _main_loop_tick = time.monotonic()
+_last_oom_kills: int | None = None
 
 
 def _touch_worker_health(*, state: str, job_id: uuid.UUID | None = None, force: bool = False) -> None:
@@ -2036,10 +2040,69 @@ def _read_process_rss_mb() -> float | None:
     return None
 
 
+def _read_cgroup_memory(root: Path | None = None) -> dict | None:
+    """Speicher des ganzen Containers (cgroup v2) inklusive aller Kindprozesse.
+
+    Die RSS des Worker-Prozesses allein verschweigt OCR-/Bereinigungs-Kinder,
+    die sich dasselbe Limit teilen. ``anon`` ist der nicht zurückgebbare Anteil
+    (ohne Page-Cache) und damit das, was zum OOM führt.
+    """
+    root = root or CGROUP_ROOT
+    try:
+        current = int((root / "memory.current").read_text(encoding="ascii").strip())
+    except (OSError, ValueError):
+        return None
+
+    def keyed(name: str) -> dict[str, int]:
+        values: dict[str, int] = {}
+        try:
+            for line in (root / name).read_text(encoding="ascii").splitlines():
+                key, _, value = line.partition(" ")
+                if value.strip().isdigit():
+                    values[key] = int(value)
+        except OSError:
+            pass
+        return values
+
+    try:
+        raw_limit = (root / "memory.max").read_text(encoding="ascii").strip()
+        limit = None if raw_limit == "max" else int(raw_limit)
+    except (OSError, ValueError):
+        limit = None
+    return {
+        "current": current,
+        "anon": keyed("memory.stat").get("anon"),
+        "limit": limit,
+        "oom_kills": keyed("memory.events").get("oom_kill", 0),
+    }
+
+
 def _log_worker_memory() -> None:
+    global _last_oom_kills
     rss_mb = _read_process_rss_mb()
-    if rss_mb is not None:
-        logger.info("worker memory rss_mb=%s worker_id=%s", rss_mb, WORKER_ID)
+    cgroup = _read_cgroup_memory()
+    if cgroup is None:
+        if rss_mb is not None:
+            logger.info("worker memory rss_mb=%s worker_id=%s", rss_mb, WORKER_ID)
+        return
+
+    def mb(value: int | None) -> float | None:
+        return None if value is None else round(value / 1024 / 1024, 1)
+
+    logger.info(
+        "worker memory rss_mb=%s cgroup_mb=%s anon_mb=%s limit_mb=%s oom_kills=%s worker_id=%s",
+        rss_mb, mb(cgroup["current"]), mb(cgroup["anon"]), mb(cgroup["limit"]), cgroup["oom_kills"], WORKER_ID,
+    )
+    if _last_oom_kills is not None and cgroup["oom_kills"] > _last_oom_kills:
+        logger.warning(
+            "worker container hit memory limit oom_kills=%s new=%s limit_mb=%s",
+            cgroup["oom_kills"], cgroup["oom_kills"] - _last_oom_kills, mb(cgroup["limit"]),
+        )
+    _last_oom_kills = cgroup["oom_kills"]
+    if cgroup["limit"] and cgroup["anon"] is not None and cgroup["anon"] >= cgroup["limit"] * MEMORY_PRESSURE_WARN_RATIO:
+        logger.warning(
+            "worker memory pressure anon_mb=%s limit_mb=%s", mb(cgroup["anon"]), mb(cgroup["limit"]),
+        )
 
 
 def _run_scanner_dispatch_loop(stop_event: threading.Event) -> None:

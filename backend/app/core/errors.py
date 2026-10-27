@@ -5,6 +5,7 @@ import logging
 from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
 
 logger = logging.getLogger("papermind.errors")
 
@@ -62,7 +63,34 @@ def _error_payload(code: str, message: str, details: Any | None = None) -> dict[
     return {"error": {"code": code, "message": message, "details": details}}
 
 
+# SQLSTATE 55P03 (lock_not_available) und 57014 (query_canceled): Folgen der
+# Zeitlimits aus app/db/session.py, kein Programmfehler. Der Client darf es erneut versuchen.
+_DB_TIMEOUT_SQLSTATES = frozenset({"55P03", "57014"})
+
+
+def is_db_timeout(exc: BaseException) -> bool:
+    return getattr(getattr(exc, "orig", None), "sqlstate", None) in _DB_TIMEOUT_SQLSTATES
+
+
 def install_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(OperationalError)
+    async def db_operational_error_handler(_, exc: OperationalError) -> JSONResponse:
+        if not is_db_timeout(exc):
+            logger.error("Unhandled API exception", exc_info=(type(exc), exc, exc.__traceback__))
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content=_error_payload("INTERNAL_ERROR", "Internal server error"),
+            )
+        logger.warning("database timeout sqlstate=%s", exc.orig.sqlstate)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=_error_payload(
+                "DATABASE_BUSY",
+                "Die Datenbank ist gerade ausgelastet. Bitte erneut versuchen.",
+            ),
+            headers={"Retry-After": "5"},
+        )
+
     @app.exception_handler(APIError)
     async def api_error_handler(_, exc: APIError) -> JSONResponse:
         details = exc.details if exc.status_code < 500 else None

@@ -14,6 +14,8 @@ import threading
 import time
 from typing import Any, Callable
 
+from app.core.oom import prefer_oom_kill
+
 logger = logging.getLogger("papermind.worker.ocr_isolation")
 
 # spawn statt fork: Der Worker ist mehrfädig (Heartbeats, Executors); ein fork
@@ -42,6 +44,7 @@ class OCRChildFailed(OCRIsolationError):
 def _child_main(conn, target: Callable[..., Any], args: tuple, kwargs: dict) -> None:
     # Eigene Prozessgruppe, damit der Elternprozess auch Enkel (tesseract …) trifft.
     os.setsid()
+    prefer_oom_kill()
     try:
         try:
             message = ("ok", target(*args, **kwargs))

@@ -59,6 +59,9 @@ def main():
     request = json.loads(sys.stdin.read())
     if sys.platform.startswith("linux"):
         import resource
+
+        from app.core.oom import prefer_oom_kill
+        prefer_oom_kill()
         memory = int(request["memory_bytes"])
         resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
         cpu = max(1, math.ceil(request["timeout"]))

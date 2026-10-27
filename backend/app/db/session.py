@@ -10,6 +10,13 @@ from app.core.observability import install_slow_query_logging
 logger = logging.getLogger("papermind.db")
 settings = get_settings()
 
+
+def _timeout_connect_args(**timeouts_ms: int) -> dict:
+    """libpq-``options`` mit Postgres-Zeitlimits (Millisekunden, 0 = nicht setzen)."""
+    options = " ".join(f"-c {name}={int(value)}" for name, value in timeouts_ms.items() if value)
+    return {"options": options} if options else {}
+
+
 # Superuser-Engine: Migrationen + Worker/System (umgeht Row-Level Security bewusst).
 engine = create_engine(
     settings.sqlalchemy_database_url,
@@ -36,6 +43,11 @@ app_engine = create_engine(
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,
     pool_recycle=settings.db_pool_recycle_seconds,
+    connect_args=_timeout_connect_args(
+        statement_timeout=settings.db_app_statement_timeout_ms,
+        lock_timeout=settings.db_app_lock_timeout_ms,
+        idle_in_transaction_session_timeout=settings.db_app_idle_in_transaction_timeout_ms,
+    ),
 )
 AppSessionLocal = sessionmaker(bind=app_engine, autocommit=False, autoflush=False)
 
@@ -68,7 +80,8 @@ def _apply_owner_on_begin(session, transaction, connection) -> None:
 
 # Worker-Engine: NOSUPERUSER + BYPASSRLS (System-Zugriff für Hintergrundjobs,
 # aber ohne volle Superuser-Rechte). Fällt auf die Superuser-Verbindung zurück,
-# wenn WORKER_DATABASE_URL nicht gesetzt ist.
+# wenn WORKER_DATABASE_URL nicht gesetzt ist. Nur lock_timeout: Jobs dürfen lange
+# rechnen, aber nicht endlos auf eine fremde Sperre warten.
 if settings.worker_database_url:
     worker_engine = create_engine(
         settings.sqlalchemy_worker_database_url,
@@ -76,6 +89,7 @@ if settings.worker_database_url:
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_recycle=settings.db_pool_recycle_seconds,
+        connect_args=_timeout_connect_args(lock_timeout=settings.db_worker_lock_timeout_ms),
     )
     WorkerSessionLocal = sessionmaker(bind=worker_engine, autocommit=False, autoflush=False)
 else:
