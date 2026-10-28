@@ -10,6 +10,11 @@
  * Native Ressourcen-Loads (z. B. <img>, PDF-Viewer, window.open-Downloads)
  * laufen NICHT über fetch und tragen das Token stattdessen als Query-Parameter
  * (siehe `authedUrl` im apiClient).
+ *
+ * Meldet der Server kurzzeitige Überlast (503 mit `Retry-After`, z. B.
+ * DATABASE_BUSY nach einem DB-Sperr-Timeout), wiederholt der Interceptor
+ * lesende Requests genau einmal. Schreibende Requests werden nie automatisch
+ * wiederholt – ob sie schon gewirkt haben, kann der Client nicht wissen.
  */
 
 import { getToken, targetsApi } from './client.js';
@@ -17,6 +22,41 @@ import { apiSessionGeneration, assertApiSession, onApiSessionReset } from './ses
 
 let installed = false;
 let unauthorizedHandler = null;
+
+const RETRYABLE_METHODS = new Set(['GET', 'HEAD']);
+const MAX_BUSY_RETRY_DELAY_MS = 10_000;
+
+/** Wartezeit bis zum einmaligen Wiederholen oder null, wenn nicht wiederholt wird. */
+export function busyRetryDelayMs(response, method) {
+  if (response?.status !== 503 || !RETRYABLE_METHODS.has(String(method || 'GET').toUpperCase())) return null;
+  const raw = response.headers?.get('Retry-After');
+  if (raw == null || String(raw).trim() === '') return null;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  return Math.min(seconds * 1000, MAX_BUSY_RETRY_DELAY_MS);
+}
+
+function abortReason(signal) {
+  return signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+}
+
+function waitUnlessAborted(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(abortReason(signal));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortReason(signal));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 export function setFetchUnauthorizedHandler(fn) {
   unauthorizedHandler = typeof fn === 'function' ? fn : null;
@@ -59,9 +99,18 @@ export function installFetchInterceptor() {
       headers.set('Authorization', `Bearer ${token}`);
     }
     const nextInit = { credentials: 'include', ...init, headers, signal };
+    const method = init.method || (input instanceof Request ? input.method : 'GET');
     let response;
     try {
       response = await originalFetch(input, nextInit);
+      const retryDelay = busyRetryDelayMs(response, method);
+      if (retryDelay !== null) {
+        // Verbindung der verworfenen Antwort freigeben, bevor erneut gefragt wird.
+        await response.body?.cancel().catch(() => {});
+        await waitUnlessAborted(retryDelay, signal);
+        assertApiSession(generation);
+        response = await originalFetch(input, nextInit);
+      }
       assertApiSession(generation);
     } catch (error) {
       sourceSignal?.removeEventListener('abort', abort);
