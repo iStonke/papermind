@@ -220,7 +220,7 @@ onBeforeUnmount(() => {
 .preview-layout__body :deep(.pm-metadata-row:nth-child(5)) { --field-enter-delay: 180ms; }
 .preview-layout__scroll-cue { position: absolute; bottom: 0; inset-inline: 0; height: 20px; z-index: 3; pointer-events: none; opacity: 0; background: linear-gradient(transparent, var(--preview-drawer-card-bg)); transition: opacity 180ms ease; }
 .preview-layout__scroll-cue--visible { opacity: 1; }
-.preview-layout--drawer-auto-hide:not(:hover):not(:focus-within):not(.preview-layout--drawer-open) .preview-layout__drawer { opacity: .45; }
+.preview-layout--drawer-auto-hide:not(:hover):not(:focus-within) .preview-layout__drawer { opacity: .45; }
 .pm-drawer :deep(:focus-visible) { outline: 2px solid color-mix(in srgb, var(--pm-accent) 55%, transparent); outline-offset: 2px; border-radius: 6px; }
 :global(.pm-no-animations .preview-layout__drawer),
 :global(.pm-no-animations .preview-layout__drawer::before),

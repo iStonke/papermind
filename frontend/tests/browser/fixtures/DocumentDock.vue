@@ -32,7 +32,7 @@
             </DocumentMetadataFields>
             </section>
             <section v-show="activeTab === 'related'" id="demo-details-related" role="tabpanel" aria-labelledby="demo-details-tab-related" class="details-tab-panel" tabindex="0">
-              <RelatedDocumentsSection :document-id="documentKey" :match-key="String(matchRevision)" :enabled="open && activeTab === 'related'"
+              <RelatedDocumentsSection :document-id="documentKey" :match-key="String(matchRevision)" :show-suffix="showSuffix" :enabled="open && activeTab === 'related'"
                 @open-document="lastRelatedDocument = $event; documentKey = $event" />
             </section>
             <section v-show="activeTab === 'notes'" id="demo-details-notes" role="tabpanel" aria-labelledby="demo-details-tab-notes" class="details-tab-panel" tabindex="0">
@@ -65,6 +65,7 @@ import DocumentNotesSection from '../../../src/components/notes/DocumentNotesSec
 import DocumentLearnHighlightsSection from '../../../src/components/notes/DocumentLearnHighlightsSection.vue';
 import RetentionStatusBar from '../../../src/components/RetentionStatusBar.vue';
 const preview = ref(null);
+const showSuffix = ref(false);
 const activeTab = ref('metadata'), notesRevision = ref(0), matchRevision = ref(0), lastRelatedDocument = ref('');
 const tabs = [{ id: 'metadata', label: 'Metadaten' }, { id: 'related', label: 'Ähnliche Dokumente' }, { id: 'notes', label: 'Notizen' }, { id: 'highlights', label: 'Lernmarkierungen' }, { id: 'retention', label: 'Aufbewahrung' }];
 function selectTab(id) { activeTab.value = id; preview.value?.resetZoom(); open.value = true; }
@@ -75,7 +76,7 @@ const activeTheme = useTheme();
 watch(theme, value => { activeTheme.global.name.value = value; });
 const form = reactive({ name: 'Teilnahmebestätigung · Gestaltungsseminar', date: '28.10.2026', category: 'Seminar', correspondent: 'nordlicht', note: 'Unterlagen für die nächste Weiterbildung aufbewahren.' });
 watch(open, value => { if (value) preview.value?.resetZoom(); });
-defineExpose({ activeTab, notesRevision, matchRevision, lastRelatedDocument, preview, open, saving, error, documentKey, title, form, theme, width, height });
+defineExpose({ showSuffix, activeTab, notesRevision, matchRevision, lastRelatedDocument, preview, open, saving, error, documentKey, title, form, theme, width, height });
 </script>
 <style scoped>
 .papermind-app { min-height:100vh; padding:36px; background:var(--pm-app-bg, #182326); color:var(--pm-text); font-family:Arial,sans-serif; }

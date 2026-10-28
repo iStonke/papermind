@@ -141,7 +141,7 @@
           </div>
         </div>
 
-        <div v-else-if="facet === 'notes'" key="items" class="nmg__groups">
+        <div v-else-if="facet === 'notes'" v-list-reveal="{ selector: '.nmg-card' }" key="items" class="nmg__groups">
           <section v-for="group in groupedItems" :key="group.key" class="nmg__group">
             <h3 v-if="group.label" class="nmg__group-heading">{{ group.label }}</h3>
             <ul class="nmg__grid">
@@ -485,7 +485,7 @@
             </button>
           </div>
 
-          <div ref="notebookListRef" class="nmg__tag-cloud-items nmg__tag-cloud-items--stack">
+          <div ref="notebookListRef" v-list-reveal="{ selector: '.nmg__nb-row' }" class="nmg__tag-cloud-items nmg__tag-cloud-items--stack">
             <button
               type="button"
               class="nmg__tag-cloud-chip"
@@ -604,7 +604,7 @@
           <div class="nmg__filter-section-head">
             <span class="nmg__filter-section-title">Tags</span>
           </div>
-          <div class="nmg__tag-cloud-items nmg__tag-cloud-items--tags">
+          <div v-list-reveal="{ selector: '.nmg__tag-cloud-chip' }" class="nmg__tag-cloud-items nmg__tag-cloud-items--tags">
             <button
               type="button"
               class="nmg__tag-cloud-chip"
@@ -742,6 +742,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../../directives/listReveal.js';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { COLLECTION_RED, normalizeCollectionColor, noteCollectionColor } from '../../utils/noteCollectionColor.js';
 import { noteMatchesDateRange } from '../../utils/noteDateFilter.js';

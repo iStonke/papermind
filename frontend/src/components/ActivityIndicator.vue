@@ -61,7 +61,7 @@
       </v-btn>
     </template>
 
-    <v-card min-width="320" max-width="440" class="activity-card">
+    <v-card v-list-reveal="{ selector: '.activity-item', key: menuOpen, ready: menuOpen }" min-width="320" max-width="440" class="activity-card">
       <div class="activity-card__header">
         <span>Aktivität</span>
         <div class="activity-card__header-actions">
@@ -194,6 +194,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import ActivityStatusIcon from './ActivityStatusIcon.vue';

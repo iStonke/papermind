@@ -36,9 +36,9 @@ test('list marker moves, scrolling stays quiet, drawer fields follow the shell',
   await expect(page.locator('.preview-layout__drawer')).toHaveCSS('height', '72px');
   await expect(page.locator('.preview-layout__body')).toHaveAttribute('inert', '');
   await page.evaluate(() => { window.motion.state.filter = 'favorites'; });
-  await expect(page.locator('.document-row--reveal').first()).toBeAttached();
+  await expect.poll(() => page.locator('.document-row').evaluateAll(rows => rows.flatMap(row => row.getAnimations()).filter(animation => animation.playState === 'running').length)).toBeGreaterThan(0);
   await page.locator('.document-list-shell').evaluate(el => { el.scrollTop = 3000; });
-  await expect(page.locator('.document-row--reveal')).toHaveCount(0);
+  await expect.poll(() => page.locator('.document-row').evaluateAll(rows => rows.flatMap(row => row.getAnimations()).filter(animation => animation.constructor === Animation).length)).toBe(0);
   expect(await page.locator('.document-row').count()).toBeLessThan(100);
 });
 
@@ -47,7 +47,7 @@ test('reduced motion skips snapshots and staged list entry', async ({ page }) =>
   await page.evaluate(() => { window.motion.state.key = 'b'; window.motion.state.filter = 'favorites'; });
   await expect(page.locator('.preview-swap')).toHaveAttribute('aria-busy', 'false');
   await expect(page.locator('.preview-swap__snapshot canvas')).toHaveCount(0);
-  await expect(page.locator('.document-row--reveal')).toHaveCount(0);
+  expect(await page.locator('.document-row').evaluateAll(rows => rows.flatMap(row => row.getAnimations()).length)).toBe(0);
   await expect(page.locator('.document-list__selection-marker')).toHaveCSS('transition-duration', '0s');
 });
 
@@ -58,6 +58,6 @@ test('the app animation switch skips movement as well', async ({ page }) => {
   await page.evaluate(() => { window.motion.state.key = 'b'; window.motion.state.filter = 'favorites'; window.motion.state.open = true; });
   await expect(page.locator('.preview-swap')).toHaveAttribute('aria-busy', 'false');
   await expect(page.locator('.preview-swap__snapshot canvas')).toHaveCount(0);
-  await expect(page.locator('.document-row--reveal')).toHaveCount(0);
+  expect(await page.locator('.document-row').evaluateAll(rows => rows.flatMap(row => row.getAnimations()).length)).toBe(0);
   await expect(page.locator('.preview-layout__drawer')).toHaveCSS('transition-duration', '0s');
 });

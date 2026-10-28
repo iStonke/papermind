@@ -10,7 +10,7 @@
     </div>
 
     <template v-else>
-      <div class="sessions__list">
+      <div v-list-reveal="{ selector: '.sessions__row' }" class="sessions__list">
         <div v-for="s in sessions" :key="s.id" class="sessions__row">
           <v-icon size="22" class="sessions__icon">{{ deviceInfo(s.user_agent).icon }}</v-icon>
           <div class="sessions__info">
@@ -58,6 +58,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../../directives/listReveal.js';
 import { computed, onMounted, ref } from 'vue';
 
 import { listSessions, revokeOtherSessions, revokeSession } from '../../api/auth.js';

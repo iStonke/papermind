@@ -136,7 +136,7 @@
               v-for="(entry, index) in filteredOverviewDossiers"
               :key="entry.id"
               class="dsr-tile"
-              :style="{ '--dsr-tile-enter-delay': `${Math.min(index, 12) * 45}ms` }"
+              :style="{ '--dsr-tile-enter-delay': `${Math.min(index, 12) * 55}ms` }"
               role="button"
               tabindex="0"
               :aria-label="`${entry.title} öffnen`"
@@ -820,7 +820,7 @@
 
     <BaseDialog v-model="pickerOpen" title="Dokumente hinzufügen" description="Wähle vorhandene Dokumente aus der PaperMind-Bibliothek." primary-text="Hinzufügen" :primary-disabled="!pickerSelection.size" :loading="pickerLoading" max-width="780" scrollable @primary="addPickedDocuments">
       <v-text-field v-model="pickerSearch" prepend-inner-icon="mdi-magnify" placeholder="Dokumente suchen" variant="outlined" density="comfortable" clearable @update:model-value="schedulePickerSearch" />
-      <div class="dossier-picker-list">
+      <div v-list-reveal="{ selector: '.dossier-picker-row' }" class="dossier-picker-list">
         <button
           v-for="document in pickerDocuments"
           :key="document.id"
@@ -874,6 +874,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, resolveComponent, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
@@ -2278,7 +2279,7 @@ function scheduleOverviewStaggerEnd() {
   overviewStaggerTimer = setTimeout(() => {
     staggerOverviewTiles.value = false;
     overviewStaggerTimer = null;
-  }, 360 + staggeredCount * 42);
+  }, 560 + staggeredCount * 55);
 }
 
 function prepareSidebarOverviewEntryAnimation() {
@@ -2501,7 +2502,7 @@ onBeforeUnmount(() => {
 .dsr-tile { min-width: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--dsr-border); border-radius: 14px; background: var(--dsr-card); color: var(--pm-text); cursor: pointer; opacity: 1; transform: translate3d(0, 0, 0) scale(1); backface-visibility: hidden; transition: border-color var(--pm-duration-fast) var(--pm-easing), box-shadow var(--pm-duration-base) var(--pm-easing), opacity var(--pm-duration-fast) var(--pm-easing); }
 .dsr-overview-grid--stagger-pending .dsr-tile { opacity: 0; }
 .dsr-overview-grid--stagger .dsr-tile {
-  animation: dsr-tile-sidebar-enter 320ms cubic-bezier(.22, .72, .2, 1) var(--dsr-tile-enter-delay, 0ms) backwards;
+  animation: dsr-tile-sidebar-enter 500ms ease-in-out var(--dsr-tile-enter-delay, 0ms) backwards;
   will-change: opacity, transform;
 }
 @keyframes dsr-tile-sidebar-enter {

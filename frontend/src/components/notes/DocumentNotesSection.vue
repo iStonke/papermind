@@ -5,7 +5,7 @@
   über Events an DocumentsWorkspace, das in den Notizbereich wechselt.
 -->
 <template>
-  <DocumentSectionCard class="doc-notes" title="Verknüpfte Notizen" label="Notizen zu diesem Dokument"
+  <DocumentSectionCard :reveal-key="documentId" class="doc-notes" title="Verknüpfte Notizen" label="Notizen zu diesem Dokument"
     icon="mdi-note-multiple-outline" :count="notes.length" :loading="loading" :empty="!notes.length"
     empty-icon="mdi-note-plus-outline" empty-title="Noch keine verknüpften Notizen"
     empty-description="Erstelle eine Notiz direkt zu diesem Dokument.">

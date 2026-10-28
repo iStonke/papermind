@@ -1,5 +1,7 @@
 <template>
-  <div ref="listShell" class="document-list-shell docs-column" @scroll.passive="handleListScroll">
+  <div ref="listShell"
+    v-list-reveal="{ selector: '.document-row[data-document-id]', key: motionKey, ready: !showDocumentListLoadingState && !showDocumentListEmptyState }"
+    class="document-list-shell docs-column" @scroll.passive="handleListScroll">
     <div v-if="activeStatusFilterLabel && !isImportsView" class="active-filter-row">
       <v-chip size="small" variant="outlined">
         Status: {{ activeStatusFilterLabel }}
@@ -43,7 +45,7 @@
           <span>{{ documents.length }}</span>
         </div>
 
-        <Transition name="pm-list-state" mode="out-in" @after-enter="revealListRows">
+        <Transition name="pm-list-state" mode="out-in">
           <div
             v-if="showDocumentListLoadingState"
             key="loading"
@@ -115,7 +117,6 @@
                 class="document-row pm-doc-item"
                 :data-document-id="document.id"
                 :class="{
-                  'document-row--reveal': revealRows.has(document.id),
                   'document-row--active': !isSelectionMode && document.id === selectedDocumentId,
                   'document-row--selected': isSelectionMode && selectionIds.has(document.id),
                   'document-row--selection-mode': isSelectionMode,
@@ -123,7 +124,6 @@
                   'document-row--arrival-marker-pending': document.id === importArrivalMarkerPendingDocId,
                   'document-row--just-arrived': document.id === justArrivedDocId
                 }"
-                :style="revealRows.has(document.id) ? { '--row-reveal-delay': `${revealRows.get(document.id)}ms` } : undefined"
                 role="button"
                 tabindex="0"
                 @click="onRowClick($event, document.id)"
@@ -314,7 +314,7 @@
                 <span>{{ listedNotes.length }}</span>
               </div>
 
-              <div ref="trashNoteListRef" class="document-list__rows trash-notes__rows">
+              <div ref="trashNoteListRef" v-list-reveal="{ selector: '.pm-trash-note' }" class="document-list__rows trash-notes__rows">
                 <div
                   v-for="note in listedNotes"
                   :key="`note-${note.id}`"
@@ -430,6 +430,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue';
 import { formatSearchSnippet } from '../utils/searchSnippet.js';
 import { findImportRow, importLayoutReady, importThumbnailTarget, waitForImportTarget } from '../utils/importLanding.js';
@@ -543,42 +544,6 @@ const selectionMarkerStyle = computed(() => {
     height: `${Math.max(20, virtualRowHeight.value - 28)}px`
   };
 });
-const revealRows = ref(new Map());
-let revealPending = true;
-let revealTimer;
-function clearRowReveal() {
-  window.clearTimeout(revealTimer);
-  revealRows.value = new Map();
-}
-function revealListRows() {
-  if (!revealPending || props.showDocumentListLoadingState || props.showDocumentListEmptyState) return;
-  const shell = listShell.value;
-  if (!shell || shell.closest('.pm-no-animations') || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    revealPending = false;
-    return;
-  }
-  const bounds = shell.getBoundingClientRect();
-  const visible = Array.from(shell.querySelectorAll('.document-row[data-document-id]')).filter(row => {
-    const rect = row.getBoundingClientRect();
-    return rect.bottom > bounds.top && rect.top < bounds.bottom;
-  }).slice(0, 10);
-  if (!visible.length) return;
-  revealPending = false;
-  revealRows.value = new Map(visible.map((row, index) => [row.dataset.documentId, index * 25]));
-  revealTimer = window.setTimeout(clearRowReveal, 600);
-}
-watch(() => props.motionKey, () => {
-  clearRowReveal();
-  revealPending = true;
-  void nextTick(revealListRows);
-});
-watch(() => props.showDocumentListLoadingState, loading => {
-  if (!loading) void nextTick(revealListRows);
-});
-watch(() => documents.value, () => { if (revealPending) void nextTick(revealListRows); });
-onMounted(() => { void nextTick(revealListRows); });
-onBeforeUnmount(clearRowReveal);
-
 // ── Import-Fluganimation: Landezone ─────────────────────────────────────────
 // Das Ziel-Thumbnail ist ab dem ersten Rendern der neuen Zeile weiß. Erst die
 // landende Karte „liefert" das echte Vorschaubild ab. Die ID wird deshalb schon
@@ -992,8 +957,6 @@ function requestMoreIfNearEnd(element = listShell.value) {
 }
 
 function handleListScroll(event) {
-  clearRowReveal();
-  revealPending = false;
   const element = event.currentTarget;
   const nextScrollTop = element.scrollTop;
   const scrollingDown = nextScrollTop >= lastHandledListScrollTop;

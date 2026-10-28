@@ -6,7 +6,7 @@
   DossierWorkspace, das in den Notizbereich wechselt.
 -->
 <template>
-  <section class="dsr-notes" aria-label="Notizen zu diesem Leuchttisch">
+  <section v-list-reveal="{ selector: '.dsr-notes__list > li', key: dossierId, ready: !loading }" class="dsr-notes" aria-label="Notizen zu diesem Leuchttisch">
     <header class="dsr-notes__header">
       <div class="dsr-notes__heading">
         <v-icon size="16">mdi-note-outline</v-icon>
@@ -49,6 +49,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../../directives/listReveal.js';
 import { ref, watch } from 'vue';
 import { listNotes } from '../../api/notes.js';
 

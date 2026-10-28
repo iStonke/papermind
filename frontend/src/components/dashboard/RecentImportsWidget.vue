@@ -8,7 +8,7 @@
       <h2 class="dash-card__title">Zuletzt importiert</h2>
       <button type="button" class="dash-link" @click="actions.showAllRecent()">Alle anzeigen</button>
     </div>
-    <div v-if="overview.recent.length" class="dash-recent__grid">
+    <div v-if="overview.recent.length" v-list-reveal="{ selector: '.dash-doc' }" class="dash-recent__grid">
       <button
         v-for="doc in overview.recent"
         :key="doc.id"
@@ -38,6 +38,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../../directives/listReveal.js';
 import { reactive } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDashboardStore } from '../../stores/dashboard.js';

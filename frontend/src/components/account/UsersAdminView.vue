@@ -12,7 +12,7 @@
       {{ error }}
     </v-alert>
 
-    <div class="users__list">
+    <div v-list-reveal="{ selector: '.users__row', ready: !loading }" class="users__list">
       <v-progress-linear v-if="loading" indeterminate class="users__loading" />
 
       <div
@@ -140,6 +140,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../../directives/listReveal.js';
 import { computed, onMounted, reactive, ref } from 'vue';
 
 import BaseDialog from '../BaseDialog.vue';

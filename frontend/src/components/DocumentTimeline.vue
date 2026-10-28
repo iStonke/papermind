@@ -5,7 +5,7 @@
       <p>Keine datierten Dokumente in dieser Auswahl.</p>
     </div>
 
-    <div v-else ref="scroller" class="doc-timeline__scroll">
+    <div v-else ref="scroller" v-list-reveal="{ selector: '.doc-timeline__item', ready: !loading }" class="doc-timeline__scroll">
       <div class="doc-timeline__body">
         <section v-for="group in groups" :key="group.year" class="doc-timeline__year">
           <header class="doc-timeline__year-head">
@@ -72,6 +72,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import { computed, reactive, ref } from 'vue';
 import { documentThumbnailUrl } from '../api/documents.js';
 import { useDocumentImportLanding } from '../composables/useDocumentImportLanding.js';

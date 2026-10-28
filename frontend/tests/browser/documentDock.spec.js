@@ -245,3 +245,26 @@ test('related tab ignores old responses after changing the selected document', a
   await expect(page.getByRole('button', { name: /Alter Vorschlag/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Aktueller Vorschlag/ })).toBeVisible();
 });
+
+
+test('related titles and tooltips follow the suffix preference without changing names or reloading', async ({ page }) => {
+  await mountDock(page);
+  let requests = 0;
+  const titles = ['Versicherungsnachweis VBLklassik 2025.pdf', 'Meine VBL Freischaltcode September 2026.PDF', 'Versicherungsnachweis VBLklassik 2024', 'Antrag a. Rückerstattung_300768'];
+  await page.route('**/api/documents/*/related?limit=5', route => {
+    requests++;
+    return route.fulfill({ json: { items: titles.map((title, i) => relatedItem(`related-${i}`, title)) } });
+  });
+  await openRelated(page);
+  const labels = page.locator('.related-documents__title');
+  const buttons = page.locator('.related-documents__item');
+  const hidden = titles.map((title, i) => i < 2 ? title.slice(0, -4) : title);
+  await expect(labels).toHaveText(hidden);
+  for (let i = 0; i < titles.length; i++) await expect(buttons.nth(i)).toHaveAttribute('title', hidden[i]);
+  await page.evaluate(() => { window.dock.showSuffix = true; });
+  await expect(labels).toHaveText(titles);
+  for (let i = 0; i < titles.length; i++) await expect(buttons.nth(i)).toHaveAttribute('title', titles[i]);
+  await page.evaluate(() => { window.dock.showSuffix = false; });
+  await expect(labels).toHaveText(hidden);
+  expect(requests).toBe(1);
+});

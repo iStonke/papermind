@@ -5,7 +5,7 @@
 <template>
   <article class="dash-card dash-searches">
     <h2 class="dash-card__title">Häufig gesucht</h2>
-    <ul v-if="topSearches.length" class="dash-searches__list">
+    <ul v-if="topSearches.length" v-list-reveal="{ selector: '.dash-searches__row' }" class="dash-searches__list">
       <li v-for="(s, i) in topSearches" :key="s.term" class="dash-searches__row">
         <button type="button" class="dash-searches__term" :title="s.term" @click="actions.searchTerm(s.term)">
           <v-icon size="13" class="dash-searches__icon">mdi-magnify</v-icon>
@@ -22,6 +22,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../../directives/listReveal.js';
 import { computed } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDashboardStore } from '../../stores/dashboard.js';

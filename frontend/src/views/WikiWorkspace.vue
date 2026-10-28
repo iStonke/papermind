@@ -139,7 +139,7 @@
           </button>
         </div>
 
-        <div class="wiki-nav__scroll">
+        <div v-list-reveal="{ selector: '.wiki-knav', ready: !loadingPages }" class="wiki-nav__scroll">
           <button
             type="button"
             class="wiki-home-link"
@@ -203,7 +203,7 @@
             Deine Wissensbasis kennt <strong>{{ overview.active_claims }} belegte Fakten</strong><template v-if="overview.source_total"> aus <strong>{{ overview.source_coverage }}/{{ overview.source_total }} Dokumenten</strong></template> – jeder Fakt belegt und auf Klick zurück an die Stelle im Dokument.
           </p>
 
-          <div v-if="homeClusters.length" class="wiki-cluster-grid">
+          <div v-if="homeClusters.length" v-list-reveal="{ selector: '.wiki-cluster' }" class="wiki-cluster-grid">
             <button
               v-for="cluster in homeClusters"
               :key="cluster.key"
@@ -422,7 +422,7 @@
       </article>
     </section>
 
-    <section v-else class="wiki-review">
+    <section v-else v-list-reveal="{ selector: '.wiki-proposal', ready: !loadingProposals }" class="wiki-review">
       <header class="wiki-review__header">
         <div><h2>Zu prüfen</h2><p>Nur bestätigte Vorschläge werden Teil deiner Wissensbasis.</p></div>
         <v-btn icon="mdi-refresh" size="small" variant="text" aria-label="Prüfkorb aktualisieren" :loading="loadingProposals" @click="loadProposals" />
@@ -502,6 +502,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {

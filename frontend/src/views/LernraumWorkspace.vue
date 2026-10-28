@@ -556,7 +556,7 @@
             <span class="lr-section-meta">Kurs öffnen, Material wählen, lernen.</span>
           </div>
           <span v-if="courseCardTitleError && !editingCourseCardId" class="lr-title-error" role="alert">{{ courseCardTitleError }}</span>
-          <div class="lr-course-grid">
+          <div v-list-reveal="{ selector: '.lr-course-card' }" class="lr-course-grid">
             <article
               v-for="course in store.courses"
               :key="course.id"
@@ -612,7 +612,7 @@
             </div>
             <span class="lr-section-meta">{{ favoriteSheets.length }} {{ favoriteSheets.length === 1 ? 'Lernblatt' : 'Lernblätter' }}</span>
           </div>
-          <div class="lr-course-grid lr-sheet-grid">
+          <div v-list-reveal="{ selector: '.lr-course-card' }" class="lr-course-grid lr-sheet-grid">
             <article
               v-for="sheet in favoriteSheets"
               :key="sheet.id"
@@ -901,6 +901,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useLearnStore } from '../stores/learn.js';

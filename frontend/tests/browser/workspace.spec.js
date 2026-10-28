@@ -3,13 +3,13 @@ import { expect, test } from '@playwright/test';
 const docId = '10000000-0000-4000-8000-000000000001';
 const user = { id: '20000000-0000-4000-8000-000000000001', username: 'review', is_admin: true, is_active: true };
 
-async function mockApi(page) {
+async function mockApi(page, { rememberDetails = true, initialDrawerExpanded = true } = {}) {
   let loggedIn = false;
   const patches = [];
   const imports = [];
   const settings = {
     ui: {
-      start_view: 'all', drawer_remember_state: true,
+      start_view: 'all', drawerRememberState: rememberDetails,
       dashboard_show_import_action: true, dashboard_show_note_action: true,
     },
     retention: { enabled: false },
@@ -70,7 +70,11 @@ async function mockApi(page) {
     if (path === '/api/documents/statuses') return json({ items: [] });
     return json({});
   });
-  await page.addInitScript(() => localStorage.setItem('pm.drawerExpanded', '1'));
+  await page.addInitScript(expanded => {
+    if (localStorage.getItem('pm.drawerExpanded') === null) {
+      localStorage.setItem('pm.drawerExpanded', expanded ? '1' : '0');
+    }
+  }, initialDrawerExpanded);
   return { patches, imports };
 }
 
@@ -81,6 +85,56 @@ async function login(page) {
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('button', { name: 'Einstellungen', exact: true }).first()).toBeVisible();
+}
+
+for (const rememberDetails of [true, false]) {
+  test(`document details preserve manual state across areas only when remembering is ${rememberDetails}`, async ({ page }) => {
+    await mockApi(page, { rememberDetails, initialDrawerExpanded: false });
+    await login(page);
+    const documentRow = page.locator(`[data-document-id="${docId}"]`);
+    const drawer = page.locator('.preview-layout__drawer');
+    const returnToDocuments = async () => {
+      await page.getByText('Alle Dokumente', { exact: true }).first().click();
+      await documentRow.click();
+      await expect(drawer).toBeVisible();
+      await expect(drawer).toHaveClass(rememberDetails ? /pm-drawer--expanded/ : /pm-drawer--collapsed/);
+    };
+    await documentRow.click();
+    await page.locator('.details-drawer__subtitle').click();
+    await expect(drawer).toHaveClass(/pm-drawer--expanded/);
+
+    await page.getByRole('button', { name: 'Alle Tags anzeigen', exact: true }).click();
+    await expect(page.getByLabel('Tagliste durchsuchen')).toBeVisible();
+    await returnToDocuments();
+    if (!rememberDetails) await page.locator('.details-drawer__subtitle').click();
+    await page.getByText('Alle Notizen', { exact: true }).first().click();
+    await expect(page.locator('.notes-ws__heading')).toHaveText('Notizen');
+    await returnToDocuments();
+
+    if (rememberDetails) {
+      await page.route('**/api/documents?**', route => {
+        const url = new URL(route.request().url());
+        if (url.searchParams.get('recent_imports') === 'true') return route.fulfill({ json: { items: [], total: 0 } });
+        return route.fallback();
+      });
+      await page.getByText('Zuletzt hinzugefügt', { exact: true }).first().click();
+      await expect(page.locator('[data-document-id]')).toHaveCount(0);
+      await returnToDocuments();
+      expect(await page.evaluate(() => localStorage.getItem('pm.drawerExpanded'))).toBe('1');
+      await page.reload();
+      await documentRow.click();
+      await expect(drawer).toHaveClass(/pm-drawer--expanded/);
+      await page.locator('.details-drawer__subtitle').click();
+      await page.getByRole('button', { name: 'Alle Tags anzeigen', exact: true }).click();
+      await page.getByText('Alle Dokumente', { exact: true }).first().click();
+      await documentRow.click();
+      await expect(drawer).toHaveClass(/pm-drawer--collapsed/);
+      expect(await page.evaluate(() => localStorage.getItem('pm.drawerExpanded'))).toBe('0');
+      await page.reload();
+      await documentRow.click();
+      await expect(drawer).toHaveClass(/pm-drawer--collapsed/);
+    }
+  });
 }
 
 async function openTrashWithMixedItems(page) {

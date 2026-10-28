@@ -7,7 +7,7 @@
       @action-select="emit('change-date-range', $event.value)"
       @filter-toggle="emit('filter-toggle', $event)"
     />
-    <div ref="scroller" class="doc-groups__scroll" :aria-busy="loading">
+    <div ref="scroller" v-list-reveal="{ selector: '.doc-groups__group', key: queryPath, ready: !loading }" class="doc-groups__scroll" :aria-busy="loading">
       <div v-if="error" class="doc-groups__message" role="alert">
         <span>{{ error }}</span>
         <v-btn variant="text" size="small" @click="refreshGroups">Erneut versuchen</v-btn>
@@ -76,7 +76,7 @@
                   <span>{{ pages[group.key].error }}</span>
                   <v-btn variant="text" size="small" @click="retryGroup(group)">Erneut versuchen</v-btn>
                 </div>
-                <ul class="doc-groups__list" :aria-label="`Dokumente: ${group.label}`">
+                <ul v-list-reveal="{ selector: '.doc-groups__document', key: expanded.has(group.key), ready: expanded.has(group.key) && !pages[group.key]?.loading }" class="doc-groups__list" :aria-label="`Dokumente: ${group.label}`">
                   <li v-for="doc in pages[group.key]?.items || []" :key="doc.id">
                     <button
                       type="button"
@@ -135,6 +135,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import { computed, onBeforeUnmount, reactive, ref, useId, watch } from 'vue';
 import { apiGet } from '../api/client.js';
 import { documentThumbnailUrl, getDocument } from '../api/documents.js';

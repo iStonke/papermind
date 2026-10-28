@@ -781,7 +781,7 @@
               />
 
               <div class="tags-view-list-wrap">
-                <div v-if="filteredTags.length > 0" class="tag-table">
+                <div v-if="filteredTags.length > 0" v-list-reveal="{ selector: '.tag-row' }" class="tag-table">
                   <div
                     v-for="tag in filteredTags"
                     :key="`row-${tag.id}`"
@@ -848,7 +848,7 @@
               />
 
               <div class="tags-view-list-wrap">
-                <div v-if="filteredCategories.length > 0" class="tag-table">
+                <div v-if="filteredCategories.length > 0" v-list-reveal="{ selector: '.tag-row' }" class="tag-table">
                   <div
                     v-for="category in filteredCategories"
                     :key="`cat-row-${category.id}`"
@@ -1577,7 +1577,7 @@
                   <section v-show="activeDetailsTab === 'related'" :id="`${detailsBodyId}-related`" role="tabpanel"
                     :aria-labelledby="`${detailsBodyId}-tab-related`" tabindex="0" class="details-tab-panel">
                     <RelatedDocumentsSection :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
-                      :match-key="relatedDocumentMatchKey" :in-trash="isTrashView"
+                      :match-key="relatedDocumentMatchKey" :in-trash="isTrashView" :show-suffix="showPdfSuffix"
                       :enabled="isDetailsDrawerOpen && activeDetailsTab === 'related'"
                       @open-document="openDocumentFromDashboard" />
                   </section>
@@ -1665,6 +1665,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import DocumentMetadataFields from '../components/DocumentMetadataFields.vue';
 import { rememberBootTheme } from '../utils/bootTheme.js';
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue';
@@ -3477,6 +3478,10 @@ const isDetailsDrawerOpen = computed({
   set: (value) => {
     settingsStore.setDrawerExpanded(value);
   }
+});
+// Navigation restores the preference; only an explicit toggle changes it.
+watch([activeView, () => route.path], () => {
+  settingsStore.initializeDrawerExpandedState();
 });
 const isDetailsDrawerChevronExpanded = computed(() => isDetailsDrawerOpen.value);
 const detailsDrawerChevronIcon = 'mdi-chevron-up';
@@ -6180,7 +6185,7 @@ async function openCitation(citation) {
     return;
   }
 
-  if (!closeDetailsDrawerWithGuard()) {
+  if (!closeDetailsDrawerWithGuard({ preserveRememberedState: true })) {
     return;
   }
 
@@ -6787,14 +6792,18 @@ function canDiscardMetadataChanges() {
   return window.confirm('Ungespeicherte Änderungen verwerfen?');
 }
 
-function closeDetailsDrawerWithGuard() {
+function closeDetailsDrawerWithGuard({ preserveRememberedState = false } = {}) {
   if (!isDetailsDrawerOpen.value) {
     return true;
   }
   if (!canDiscardMetadataChanges()) {
     return false;
   }
-  isDetailsDrawerOpen.value = false;
+  if (preserveRememberedState) {
+    settingsStore.initializeDrawerExpandedState();
+  } else {
+    isDetailsDrawerOpen.value = false;
+  }
   resetDetailsSectionState();
   metadataSuccessMessage.value = '';
   metadataErrorMessage.value = '';
@@ -7349,7 +7358,7 @@ async function executeDeleteSavedSearch(savedSearch) {
 }
 
 async function openSavedSearch(savedSearchId, options = {}) {
-  if (!closeDetailsDrawerWithGuard()) {
+  if (!closeDetailsDrawerWithGuard({ preserveRememberedState: true })) {
     return;
   }
 
@@ -7663,7 +7672,7 @@ async function removeDocumentsFromList(idsToRemove) {
   } else {
     selectedDocumentId.value = null;
     selectedDocumentDetail.value = null;
-    isDetailsDrawerOpen.value = false;
+    settingsStore.initializeDrawerExpandedState();
   }
 }
 
@@ -7757,7 +7766,7 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
       if (!canDiscardMetadataChanges()) {
         return;
       }
-      isDetailsDrawerOpen.value = false;
+      settingsStore.initializeDrawerExpandedState();
       selectedDocumentId.value = null;
       selectedDocumentDetail.value = null;
       return;
@@ -8071,7 +8080,7 @@ async function executeEmptyTrash() {
     if (isTrashView.value) {
       selectedDocumentId.value = null;
       selectedDocumentDetail.value = null;
-      isDetailsDrawerOpen.value = false;
+      settingsStore.initializeDrawerExpandedState();
       await fetchDocuments(null, { autoSelectFirst: false });
     }
     scheduleSidebarCountsRefresh();
@@ -8148,7 +8157,7 @@ async function toggleDocumentFavorite(document) {
           await fetchDocumentDetail(nextDocument.id, { forceApplyMetadata: true });
           void markDocumentViewedOptimistic(nextDocument.id);
         } else {
-          isDetailsDrawerOpen.value = false;
+          settingsStore.initializeDrawerExpandedState();
         }
       }
     } else if (isFavoriteSortQuery() && !isFavoritesView.value) {
@@ -8172,7 +8181,7 @@ async function toggleDocumentFavorite(document) {
 }
 
 function selectView(viewKey, options = {}) {
-  if ((viewKey === 'tags' || viewKey === 'categories' || viewKey === 'chat') && !closeDetailsDrawerWithGuard()) {
+  if ((viewKey === 'tags' || viewKey === 'categories' || viewKey === 'chat') && !closeDetailsDrawerWithGuard({ preserveRememberedState: true })) {
     return;
   }
   if (viewKey !== 'tags') {

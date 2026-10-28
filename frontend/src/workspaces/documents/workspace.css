@@ -5270,13 +5270,6 @@
 .document-row:focus-within .document-row__actions,
 .document-row--active .document-row__actions { transform: translateY(0); }
 @media (hover: none) { .document-row .document-row__actions { transform: none; } }
-.document-row--reveal:not(.document-row--just-arrived):not(.document-row--removing) {
-  animation: pm-document-reveal 280ms cubic-bezier(.16, 1, .3, 1) var(--row-reveal-delay, 0ms) both;
-}
-@keyframes pm-document-reveal {
-  from { opacity: 0; transform: translateY(7px); }
-  to { opacity: 1; transform: translateY(0); }
-}
 .details-chevron-btn--expanded .v-icon { transform: rotate(180deg); }
 .details-chevron-btn .v-icon { transition: transform 280ms cubic-bezier(.2, 1.2, .4, 1); }
 .pm-no-animations .document-list__selection-marker,
@@ -5284,13 +5277,11 @@
 .pm-no-animations .document-row__thumb,
 .pm-no-animations .document-row .document-row__actions,
 .pm-no-animations .details-chevron-btn .v-icon { transition: none; }
-.pm-no-animations .document-row--reveal { animation: none !important; }
 .pm-no-animations .document-row:active,
 .pm-no-animations .document-row:hover .document-row__thumb { transform: none; translate: none; rotate: none; scale: none; }
 @media (prefers-reduced-motion: reduce) {
   .document-list__selection-marker, .document-row, .document-row__thumb,
   .document-row .document-row__actions, .details-chevron-btn .v-icon { transition: none; }
-  .document-row--reveal { animation: none !important; }
   .document-row:active, .document-row:hover .document-row__thumb { transform: none; translate: none; rotate: none; scale: none; }
 }
 

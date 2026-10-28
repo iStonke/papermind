@@ -6,7 +6,7 @@
 -->
 <template>
   <section class="tag-results panel" aria-label="Tag-Treffer">
-    <div class="tag-results__scroll">
+    <div v-list-reveal="{ selector: '.tag-results__grid > li', key: tagId, ready: !isLoading }" class="tag-results__scroll">
       <header class="tag-results__head">
         <span class="tag-results__eyebrow"><v-icon size="14">mdi-tag</v-icon> Tag</span>
         <h1 class="tag-results__title">{{ tagName || 'Tag' }}</h1>
@@ -82,6 +82,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import { reactive, ref, watch } from 'vue';
 import { listDocuments, documentThumbnailUrl } from '../api/documents.js';
 import { listNotes } from '../api/notes.js';

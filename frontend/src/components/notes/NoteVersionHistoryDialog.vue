@@ -34,7 +34,7 @@
     </div>
 
     <div v-else class="note-version-history">
-      <div class="note-version-history__list" role="list" aria-label="Gespeicherte Versionen">
+      <div v-list-reveal="{ selector: '.note-version-history__item', key: noteId + ':' + modelValue }" class="note-version-history__list" role="list" aria-label="Gespeicherte Versionen">
         <button
           v-for="revision in revisions"
           :key="revision.id"
@@ -75,6 +75,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../../directives/listReveal.js';
 import { computed, ref, watch } from 'vue';
 
 import { getNoteRevision, listNoteRevisions } from '../../api/notes.js';

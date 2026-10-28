@@ -14,7 +14,7 @@
       </header>
       <ListActionToolbar :actions="sortActions" :show-selection="false" @action-select="changeSort" />
       <div v-if="error" class="thoughts-error" role="alert">{{ error }} <button type="button" @click="load">Neu laden</button></div>
-      <div class="thoughts-list document-list-shell" :aria-busy="loading">
+      <div v-list-reveal="{ selector: '.notes-ws__item', key: listHidden, ready: !loading && !listHidden }" class="thoughts-list document-list-shell" :aria-busy="loading">
         <div class="document-list-body"><div class="document-list-content">
           <p v-if="loading && !rooms.length" class="thoughts-muted" role="status">Gedanken werden geladen …</p>
           <div v-else-if="!visibleRooms.length" class="thoughts-list-empty">
@@ -162,6 +162,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import BaseDialog from '../components/BaseDialog.vue';
 import DestructiveDialog from '../components/DestructiveDialog.vue';

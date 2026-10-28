@@ -1,5 +1,5 @@
 <template>
-  <DocumentSectionCard class="related-documents" title="Ähnliche Dokumente" icon="mdi-file-document-outline"
+  <DocumentSectionCard :reveal-key="documentId" class="related-documents" title="Ähnliche Dokumente" icon="mdi-file-document-outline"
     :count="items.length" :loading="loading" loading-label="Ähnliche Dokumente werden gesucht …"
     :empty="!inTrash && !error && !items.length" empty-icon="mdi-file-document-outline"
     empty-title="Keine ähnlichen Dokumente gefunden"
@@ -11,10 +11,10 @@
     </div>
     <ul v-else class="related-documents__list">
       <li v-for="item in items" :key="item.id">
-        <button type="button" class="related-documents__item" :title="item.title" @click="emit('open-document', item.id)">
+        <button type="button" class="related-documents__item" :title="formatTitle(item.title)" @click="emit('open-document', item.id)">
           <span class="related-documents__icon" aria-hidden="true"><v-icon size="20">mdi-file-document-outline</v-icon></span>
           <span class="related-documents__copy">
-            <span class="related-documents__title">{{ item.title }}</span>
+            <span class="related-documents__title">{{ formatTitle(item.title) }}</span>
             <span class="related-documents__reasons">
               <span v-if="item.same_correspondent">Gleicher Korrespondent</span>
               <span v-if="item.same_type">Gleicher Dokumenttyp</span>
@@ -34,7 +34,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue';
 import DocumentSectionCard from './DocumentSectionCard.vue';
 import { getRelatedDocuments } from '../api/documents.js';
-const props = defineProps({ documentId: String, matchKey: { type: String, default: '' }, enabled: Boolean, inTrash: Boolean });
+const props = defineProps({ documentId: String, matchKey: { type: String, default: '' }, enabled: Boolean, inTrash: Boolean, showSuffix: { type: Boolean, default: false } });
 const emit = defineEmits(['open-document']);
 const items = ref([]), loading = ref(false), error = ref(false);
 let revision = 0, loadedKey = '', requestedKey = '';
@@ -67,6 +67,12 @@ watch(() => [props.documentId, props.matchKey, props.enabled, props.inTrash], ()
   if (props.enabled) void load();
 }, { immediate: true });
 onBeforeUnmount(() => { revision++; });
+function formatTitle(value) {
+  const title = String(value || '').trim();
+  // Match the document list: strip only a real trailing extension, never
+  // internal dots or a phrase such as "Antrag a. Rückerstattung".
+  return props.showSuffix ? title : title.replace(/\.[A-Za-z][A-Za-z0-9]{0,7}$/, '');
+}
 function formatDate(value) { return String(value).slice(0, 10).split('-').reverse().join('.'); }
 </script>
 <style scoped>

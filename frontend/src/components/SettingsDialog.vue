@@ -320,7 +320,7 @@
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Detailleiste bei Inaktivität dimmen</div>
                 <div class="pm-setting-description">
-                  Nimmt die eingeklappte Leiste optisch zurück, bis du die Vorschau berührst oder mit ihr arbeitest.
+                  Dimmt die Dokumentdetails im ein- und ausgeklappten Zustand, bis du die Vorschau berührst oder mit ihr arbeitest.
                 </div>
               </div>
               <v-switch
@@ -1267,7 +1267,7 @@
                 </v-chip-group>
               </div>
 
-              <div class="settings-categories">
+              <div v-list-reveal="{ selector: '.settings-category-row' }" class="settings-categories">
                 <div
                   v-for="cat in displayedDocumentTypes"
                   :key="cat.id"
@@ -1706,7 +1706,7 @@
                 </v-chip-group>
               </div>
 
-              <div class="settings-correspondents">
+              <div v-list-reveal="{ selector: '.settings-correspondent-row' }" class="settings-correspondents">
                 <div
                   v-for="item in displayedCorrespondents"
                   :key="item.id"
@@ -2938,6 +2938,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import { useSidebarAppearance } from '../composables/useSidebarAppearance.js';
 const { lightSidebar, setLightSidebar } = useSidebarAppearance();
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue';

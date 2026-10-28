@@ -13,7 +13,7 @@
   siehe note_task/extract_note_tasks.
 -->
 <template>
-  <article class="dash-card dash-tasks">
+  <article v-list-reveal="{ selector: '.dash-tasks__list > li' }" class="dash-card dash-tasks">
     <div class="dash-tasks__head">
       <h2 class="dash-card__title">Offene Aufgaben</h2>
       <span v-if="overview.open_tasks_total" class="dash-tasks__count">{{ formatInt(overview.open_tasks_total) }}</span>
@@ -64,6 +64,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../../directives/listReveal.js';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDashboardStore } from '../../stores/dashboard.js';

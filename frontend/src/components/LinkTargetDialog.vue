@@ -25,7 +25,7 @@
         @update:model-value="onQueryChange"
       />
 
-      <div class="link-dialog__results">
+      <div v-list-reveal="{ selector: '.link-dialog__item', key: modelValue, ready: !isLoading }" class="link-dialog__results">
         <div v-if="isLoading" class="link-dialog__hint">Suche läuft…</div>
         <div v-else-if="!results.length" class="link-dialog__hint">Keine Treffer.</div>
         <button
@@ -46,6 +46,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import { ref, watch } from 'vue';
 
 import { listDocuments } from '../api/documents.js';

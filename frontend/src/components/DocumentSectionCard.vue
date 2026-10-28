@@ -1,5 +1,5 @@
 <template>
-  <section class="document-section-card" :aria-label="label || title" :aria-busy="loading">
+  <section v-list-reveal="{ selector: ':scope > ul > li', key: revealKey, ready: !loading }" class="document-section-card" :aria-label="label || title" :aria-busy="loading">
     <header class="document-section-card__header">
       <h3 class="document-section-card__heading">
         <span>{{ title }}</span>
@@ -20,8 +20,10 @@
   </section>
 </template>
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 defineProps({
   title: { type: String, required: true }, label: String, icon: String,
+  revealKey: { type: [String, Number], default: '' },
   count: { type: Number, default: 0 }, loading: Boolean, loadingLabel: String,
   empty: Boolean, emptyIcon: String, emptyTitle: String, emptyDescription: String
 });

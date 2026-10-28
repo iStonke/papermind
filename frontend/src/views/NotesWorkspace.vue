@@ -145,6 +145,7 @@
           @drop="onNoteImportDrop"
         >
         <div
+          v-list-reveal="{ selector: '.notes-ws__item', key: viewMode + ':' + panelInert, ready: !isLoading && !panelInert }"
           class="notes-ws__list-scroll"
           :aria-busy="isSearchingNotes || noteImportBusy ? 'true' : undefined"
         >
@@ -510,6 +511,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import DestructiveDialog from '../components/DestructiveDialog.vue';
 import ListActionToolbar from '../components/ListActionToolbar.vue';

@@ -6,7 +6,7 @@
   Erscheint nur, wenn es Lernmarkierungen gibt.
 -->
 <template>
-  <DocumentSectionCard v-if="highlights.length || showEmpty" class="doc-learn" title="Lernmarkierungen"
+  <DocumentSectionCard :reveal-key="documentId" v-if="highlights.length || showEmpty" class="doc-learn" title="Lernmarkierungen"
     label="Lernmarkierungen in diesem Dokument" icon="mdi-format-color-highlight" :count="highlights.length"
     :loading="loading" loading-label="Lernmarkierungen werden geladen …" :empty="!loadError && !highlights.length"
     empty-title="Noch keine Lernmarkierungen" empty-icon="mdi-format-color-highlight"

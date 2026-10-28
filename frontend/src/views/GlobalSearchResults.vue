@@ -41,7 +41,7 @@
       />
     </header>
 
-    <div class="global-results__content">
+    <div v-list-reveal="{ selector: '.global-results__cards > li, .global-results__chip', ready: !loading }" class="global-results__content">
       <div v-if="loading" class="global-results__state" role="status">
         <v-progress-circular indeterminate size="22" width="2" /> Suche läuft …
       </div>
@@ -191,6 +191,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../directives/listReveal.js';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { listDocuments } from '../api/documents.js';
 import { listNotes } from '../api/notes.js';

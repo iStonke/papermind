@@ -6,7 +6,7 @@
 <template>
   <article class="dash-card dash-rank">
     <h2 class="dash-card__title">Top-Korrespondenten</h2>
-    <div v-if="topCorrespondents.length" ref="rankListEl" class="dash-rank__list">
+    <div v-if="topCorrespondents.length" ref="rankListEl" v-list-reveal="{ selector: '.dash-rank__row' }" class="dash-rank__list">
       <div v-for="(c, i) in visibleTopCorrespondents" :key="c.name" class="dash-rank__row">
         <div class="dash-rank__meta">
           <span class="dash-rank__name">{{ c.name }}</span>
@@ -25,6 +25,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../../directives/listReveal.js';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDashboardStore } from '../../stores/dashboard.js';

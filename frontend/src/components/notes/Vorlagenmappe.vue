@@ -18,7 +18,7 @@
           </div>
         </header>
 
-        <div class="vm__grid" :class="{ 'vm__grid--ghost': !blockTemplates.length }">
+        <div v-list-reveal="{ selector: '.vk' }" class="vm__grid" :class="{ 'vm__grid--ghost': !blockTemplates.length }">
           <VorlagenCard
             v-for="tpl in blockTemplates"
             :key="tpl.id"
@@ -59,7 +59,7 @@
           </div>
         </header>
 
-        <div class="vm__grid" :class="{ 'vm__grid--ghost': !startnotizen.length }">
+        <div v-list-reveal="{ selector: '.vk' }" class="vm__grid" :class="{ 'vm__grid--ghost': !startnotizen.length }">
           <VorlagenCard
             v-for="tpl in startnotizen"
             :key="tpl.id"
@@ -167,6 +167,7 @@
 </template>
 
 <script setup>
+import { vListReveal } from '../../directives/listReveal.js';
 import { nextTick, onMounted, reactive, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useNotesStore } from '../../stores/notes.js';
