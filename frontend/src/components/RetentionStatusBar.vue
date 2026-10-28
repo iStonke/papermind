@@ -1,15 +1,16 @@
 <template>
-  <div class="retention-zone" :class="{ 'retention-zone--open': isEditing }">
+  <div class="retention-zone" :class="{ 'retention-zone--open': isEditing || embedded }">
     <RetentionChip
+      :embedded="embedded"
       :state="state"
       :badge="badge"
-      :open="isEditing"
+      :open="isEditing || embedded"
       :saving="saving"
       @accept="$emit('accept')"
       @toggle="toggleEdit"
     />
     <RetentionForm
-      v-if="isEditing"
+      v-if="isEditing || embedded"
       v-model:period-years="draft.period_years"
       v-model:paper-original="draft.paper_original"
       v-model:reason="draft.reason"
@@ -34,6 +35,7 @@ import RetentionChip from './RetentionChip.vue';
 import RetentionForm from './RetentionForm.vue';
 
 const props = defineProps({
+  embedded: { type: Boolean, default: false },
   // Aufbewahrungsdatensatz { status, period_years, paper_original, reason, retain_until } oder null.
   modelValue: { type: Object, default: null },
   // Dokumentdatum als ISO (yyyy-mm-dd) für die Ablaufdatum-Vorschau; leer = keine Vorschau.

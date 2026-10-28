@@ -5,15 +5,11 @@
   über Events an DocumentsWorkspace, das in den Notizbereich wechselt.
 -->
 <template>
-  <section class="doc-notes" aria-label="Notizen zu diesem Dokument">
-    <header class="doc-notes__header">
-      <div class="doc-notes__heading">
-        <span class="doc-notes__heading-icon" aria-hidden="true">
-          <v-icon size="17">mdi-note-multiple-outline</v-icon>
-        </span>
-        <span>Verknüpfte Notizen</span>
-        <span class="doc-notes__count">{{ notes.length }}</span>
-      </div>
+  <DocumentSectionCard class="doc-notes" title="Verknüpfte Notizen" label="Notizen zu diesem Dokument"
+    icon="mdi-note-multiple-outline" :count="notes.length" :loading="loading" :empty="!notes.length"
+    empty-icon="mdi-note-plus-outline" empty-title="Noch keine verknüpften Notizen"
+    empty-description="Erstelle eine Notiz direkt zu diesem Dokument.">
+    <template #actions>
       <v-btn
         class="doc-notes__new"
         size="small"
@@ -25,21 +21,9 @@
         <v-icon size="16" class="mr-1">mdi-plus</v-icon>
         Notiz hinzufügen
       </v-btn>
-    </header>
+    </template>
 
-    <div v-if="loading" class="doc-notes__state">
-      <v-progress-circular indeterminate color="primary" size="18" width="2" />
-    </div>
-
-    <div v-else-if="!notes.length" class="doc-notes__empty">
-      <span class="doc-notes__empty-icon" aria-hidden="true">
-        <v-icon size="22">mdi-note-plus-outline</v-icon>
-      </span>
-      <strong>Noch keine verknüpften Notizen</strong>
-      <span>Erstelle eine Notiz direkt zu diesem Dokument.</span>
-    </div>
-
-    <ul v-else class="doc-notes__list">
+    <ul class="doc-notes__list">
       <li v-for="note in notes" :key="note.id">
         <button type="button" class="doc-notes__item" @click="emit('open-note', note.id)">
           <span class="doc-notes__item-icon" aria-hidden="true">
@@ -58,11 +42,12 @@
         </button>
       </li>
     </ul>
-  </section>
+  </DocumentSectionCard>
 </template>
 
 <script setup>
 import { ref, watch } from 'vue';
+import DocumentSectionCard from '../DocumentSectionCard.vue';
 import { listNotes } from '../../api/notes.js';
 
 const props = defineProps({
@@ -114,98 +99,11 @@ function formatDate(value) {
 </script>
 
 <style scoped>
-.doc-notes {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 16px;
-  padding: 14px;
-  border: 1px solid var(--pm-divider, #d8dfe1);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--pm-chip-bg, #eef2f4) 62%, transparent);
-}
-
-.doc-notes__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.doc-notes__heading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  color: var(--pm-text, #0e181b);
-  font-size: 0.88rem;
-  font-weight: 650;
-}
-
-.doc-notes__heading-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 auto;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
-  color: var(--pm-accent, #006b75);
-}
-
-.doc-notes__count {
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 100px;
-  background: color-mix(in srgb, var(--pm-muted, #535e62) 12%, transparent);
-  color: var(--pm-muted, #535e62);
-  font-size: 0.68rem;
-  line-height: 20px;
-  text-align: center;
-}
-
 .doc-notes__new.v-btn {
   text-transform: none;
   letter-spacing: 0;
   min-height: 30px;
   padding-inline: 9px;
-  font-weight: 600;
-}
-
-.doc-notes__state {
-  display: flex;
-  justify-content: center;
-  padding: 10px 0;
-}
-
-.doc-notes__empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 12px 16px;
-  color: var(--pm-muted, #748084);
-  text-align: center;
-  font-size: 0.76rem;
-}
-
-.doc-notes__empty-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  margin-bottom: 3px;
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, transparent);
-  color: color-mix(in srgb, var(--pm-accent, #006b75) 78%, var(--pm-muted, #748084));
-}
-
-.doc-notes__empty strong {
-  color: var(--pm-text, #0e181b);
-  font-size: 0.84rem;
   font-weight: 600;
 }
 

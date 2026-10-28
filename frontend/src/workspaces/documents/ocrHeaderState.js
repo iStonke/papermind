@@ -47,5 +47,5 @@ export function resolveOcrHeaderPresentation({
     };
   }
 
-  return { status: null, showMenuAction: true };
+  return { status: { tone: 'pending', text: 'OCR durchführen', icon: '' }, showMenuAction: false };
 }

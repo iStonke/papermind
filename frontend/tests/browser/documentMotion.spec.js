@@ -31,7 +31,7 @@ test('list marker moves, scrolling stays quiet, drawer fields follow the shell',
   await expect(marker).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 268)');
   await page.evaluate(() => { window.motion.state.open = true; });
   await expect(page.locator('.preview-layout__body')).toHaveCSS('opacity', '1');
-  await expect.poll(() => page.locator('.preview-layout__drawer').evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(250);
+  await expect.poll(() => page.locator('.preview-layout__drawer').evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(180);
   await page.evaluate(() => { window.motion.state.open = false; });
   await expect(page.locator('.preview-layout__drawer')).toHaveCSS('height', '72px');
   await expect(page.locator('.preview-layout__body')).toHaveAttribute('inert', '');

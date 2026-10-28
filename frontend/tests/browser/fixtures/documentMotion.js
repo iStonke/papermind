@@ -21,7 +21,7 @@ export function mount() {
           h('canvas', { width: 100, height: 100, style: 'width:100px;height:100px', ref: el => { if (el) { const c = el.getContext('2d'); c.fillStyle = state.key === 'a' ? 'red' : 'blue'; c.fillRect(0, 0, 100, 100); } } })
         ])
       })]),
-      h('div', { style: 'height:450px;width:500px' }, [h(Drawer, { showDrawer: true, floatingCard: true, isOpen: state.open }, {
+      h('div', { style: 'height:450px;width:500px' }, [h(Drawer, { showDrawer: true, isOpen: state.open }, {
         viewer: () => h('div', 'PDF'), 'drawer-header': () => h('div', { style: 'height:72px' }, 'Details'),
         'drawer-body': () => h('div', Array.from({ length: 4 }, (_, i) => h('div', { class: 'pm-metadata-row', style: 'height:48px' }, [h('input', { value: `Feld ${i}` })])))
       })]),

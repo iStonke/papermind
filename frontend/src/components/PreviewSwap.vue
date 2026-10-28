@@ -82,8 +82,8 @@ defineExpose({ reveal });
 .preview-swap__live--pending { opacity: 0; transform: translateY(8px); pointer-events: none; transition: none; }
 .preview-swap__snapshot { position: absolute; inset: 0; overflow: hidden; pointer-events: none; opacity: 1; transition: opacity 240ms ease; }
 .preview-swap__snapshot--leaving { opacity: 0; }
-:global(.pm-no-animations) .preview-swap__live,
-:global(.pm-no-animations) .preview-swap__snapshot { transition: none; transform: none; }
+:global(.pm-no-animations .preview-swap__live),
+:global(.pm-no-animations .preview-swap__snapshot) { transition: none; transform: none; }
 @media (prefers-reduced-motion: reduce) {
   .preview-swap__live, .preview-swap__snapshot { transition: none; transform: none; }
 }

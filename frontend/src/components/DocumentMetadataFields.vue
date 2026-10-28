@@ -49,8 +49,8 @@
   </div>
 </template>
 <script setup>
-import { nextTick, ref, useId, watch } from 'vue';
-const props = defineProps({ name: String, date: String, category: String, correspondent: [String, Object], note: String,
+import { computed, nextTick, ref, useId, watch } from 'vue';
+const props = defineProps({ fieldKeys: { type: Array, default: null }, name: String, date: String, category: String, correspondent: [String, Object], note: String,
   categories: { type: Array, default: () => [] }, correspondents: { type: Array, default: () => [] },
   errors: { type: Object, default: () => ({}) }, sources: { type: Object, default: () => ({}) },
   proposals: { type: Object, default: () => ({}) }, correspondentSearch: String,
@@ -62,9 +62,10 @@ const emit = defineEmits(['update:name', 'update:date', 'update:category', 'upda
 const id = useId();
 const search = ref('');
 watch(() => props.correspondentSearch, value => { if (value !== undefined) search.value = value; }, { immediate:true });
-const fields = [{ key: 'name', label: 'Dokumentname' }, { key: 'date', label: 'Dokumentdatum' },
+const allFields = [{ key: 'name', label: 'Dokumentname' }, { key: 'date', label: 'Dokumentdatum' },
   { key: 'category', label: 'Dokumenttyp' }, { key: 'correspondent', label: 'Korrespondent' },
   { key: 'tags', label: 'Tags' }, { key: 'note', label: 'Notizen' }];
+const fields = computed(() => props.fieldKeys ? allFields.filter(field => props.fieldKeys.includes(field.key)) : allFields);
 function onFieldFocus(event) {
   if (event.target.matches('input, textarea, [role="combobox"]')) emit('field-focus', event.target.closest('[data-field]')?.dataset.field);
 }

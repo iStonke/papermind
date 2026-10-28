@@ -38,10 +38,10 @@ test('failed OCR wins over a stale processing document status', () => {
   assert.equal(result.showMenuAction, false);
 });
 
-test('OCR that has never run remains available in the overflow menu', () => {
+test('OCR that has never run appears as an actionable pending chip', () => {
   assert.deepEqual(resolveOcrHeaderPresentation(baseState), {
-    status: null,
-    showMenuAction: true
+    status: { tone: 'pending', text: 'OCR durchführen', icon: '' },
+    showMenuAction: false
   });
 });
 

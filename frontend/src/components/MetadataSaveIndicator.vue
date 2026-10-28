@@ -34,6 +34,6 @@ onBeforeUnmount(() => window.clearTimeout(timer));
 .metadata-save-enter-active, .metadata-save-leave-active { transition: opacity 160ms ease, transform 180ms ease; }
 .metadata-save-enter-from { opacity: 0; transform: translateY(3px); }
 .metadata-save-leave-to { opacity: 0; transform: translateY(-3px); }
-:global(.pm-no-animations) .metadata-save__message { transition: none; transform: none; }
+:global(.pm-no-animations .metadata-save__message) { transition: none; transform: none; }
 @media (prefers-reduced-motion: reduce) { .metadata-save__message { transition: none; transform: none; } }
 </style>

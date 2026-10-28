@@ -314,38 +314,13 @@
               class="pm-setting-row"
               role="button"
               tabindex="0"
-              @click="togglePreviewDrawerGradientFromRow"
-              @keydown="handleSettingRowShortcut($event, togglePreviewDrawerGradientFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Vorschau-Verlauf</div>
-                <div class="pm-setting-description">
-                  Blendet den Bereich hinter den Dokumentdetails weich aus.
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.ui.previewDrawerGradientEnabled"
-                color="primary"
-                density="comfortable"
-                hide-details
-                :loading="isSettingSaving.preview_drawer_gradient"
-                :disabled="isSettingSaving.preview_drawer_gradient"
-                @click.stop
-                @update:model-value="onPreviewDrawerGradientChange"
-              />
-            </div>
-
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
               @click="toggleAutoHideDetailsDrawerFromRow"
               @keydown="handleSettingRowShortcut($event, toggleAutoHideDetailsDrawerFromRow)"
             >
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Dokumentdetails automatisch einblenden</div>
+                <div class="pm-setting-label">Detailleiste bei Inaktivität dimmen</div>
                 <div class="pm-setting-description">
-                  Blendet die Dokumentdetails im Vorschaubereich nur ein, solange sich der Cursor dort befindet.
+                  Nimmt die eingeklappte Leiste optisch zurück, bis du die Vorschau berührst oder mit ihr arbeitest.
                 </div>
               </div>
               <v-switch
@@ -3034,7 +3009,6 @@ import {
   buildSidebarPrimaryOrderPatch,
   buildOcrDocLangPatch,
   buildOcrScanCleanupPatch,
-  buildPreviewDrawerGradientPatch,
   buildRecentImportWindowPatch,
   buildShowFilenameSuffixPatch,
   buildSidebarSectionsPatch,
@@ -5034,26 +5008,6 @@ async function onShowFilenameSuffixChange(nextValue) {
 function toggleShowFilenameSuffixFromRow() {
   if (isSettingSaving.show_filename_suffix) return;
   void onShowFilenameSuffixChange(!settingsDraft.ui.showFilenameSuffix);
-}
-
-// ── Vorschau-Verlauf ─────────────────────────────────────────────────────────
-
-async function onPreviewDrawerGradientChange(nextValue) {
-  if (isSettingSaving.preview_drawer_gradient) return;
-  const nextBool = Boolean(nextValue);
-  if (nextBool === settingsDraft.ui.previewDrawerGradientEnabled) return;
-  const previous = settingsDraft.ui.previewDrawerGradientEnabled;
-  settingsStore.setDraftPatch({ ui: { previewDrawerGradientEnabled: nextBool } });
-  await patchSettingsWithRevert({
-    patch: buildPreviewDrawerGradientPatch(nextBool),
-    controlKey: 'preview_drawer_gradient',
-    revert: () => settingsStore.setDraftPatch({ ui: { previewDrawerGradientEnabled: previous } })
-  });
-}
-
-function togglePreviewDrawerGradientFromRow() {
-  if (isSettingSaving.preview_drawer_gradient) return;
-  void onPreviewDrawerGradientChange(!settingsDraft.ui.previewDrawerGradientEnabled);
 }
 
 // ── Dokumentdetails im Vorschaubereich automatisch einblenden ──────────────

@@ -52,7 +52,7 @@
       <PreviewToolbar
         class="pdf-preview__toolbar"
         :class="{ 'pdf-preview__toolbar--search-open': searchOpen }"
-        label="PDF-Steuerung" :expanded="searchOpen" show-zoom
+        label="PDF-Steuerung" :expanded="searchOpen" show-zoom :zoom-divider="false"
         :zoom="zoomPercent" :default-zoom="isDefaultZoom" :can-zoom-in="canZoomIn" :can-zoom-out="canZoomOut"
         @zoom-in="zoomIn" @zoom-out="zoomOut" @zoom-reset="resetZoom"
       >
@@ -122,6 +122,7 @@
           >
             <v-icon size="17">mdi-magnify</v-icon>
           </button>
+          <span class="pdf-preview__tool-divider" aria-hidden="true" />
           <span class="pdf-preview__page-info" aria-live="polite">
             {{ currentPage }} / {{ pageInfos.length }}
           </span>
@@ -257,6 +258,7 @@
           <div
             :ref="el => setInnerRef(el, info.page)"
             class="pdf-preview__page-inner"
+            :style="pageInnerStyle(info)"
           />
         </article>
       </div>
@@ -359,6 +361,8 @@ GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
 const props = defineProps({
   src:           { type: String, default: '' },
   targetPage:    { type: Number, default: null },
+  /** Whole current page within the available stage, including height. */
+  fitPage:       { type: Boolean, default: false },
   /** Text der im TextLayer hervorgehoben werden soll (z.B. citation.snippet) */
   highlightText: { type: String, default: '' },
   /** Aktiviert die Markierungsebene (Auswahl-Menü + Overlay-Highlights). */
@@ -436,6 +440,7 @@ const pdfPreviewClasses = computed(() => {
   const tool = activeAnnotationTool.value;
   return {
     'pdf-preview--document-ready': firstPageReady.value,
+    'pdf-preview--fit-page': props.fitPage,
     'pdf-preview--tool-active': Boolean(tool),
     [`pdf-preview--tool-${tool}`]: Boolean(tool),
   };
@@ -491,6 +496,7 @@ function scheduleZoomRender() {
 
 function commitZoomRender() {
   if (!pdfDoc) return;
+  resizePage = null;
   renderGeneration++;
   renderedPages.clear();
   renderQueue.clear();
@@ -746,6 +752,9 @@ function drawLoupe(canvas, canvasRect, localX, localY) {
 
 const rootEl     = ref(null);
 const pagesEl    = ref(null);
+const stageSize = ref({ width: 0, height: 0 });
+const renderedViewports = ref({});
+let resizePage = null;
 const isLoading  = ref(false);
 const errorMessage = ref('');
 
@@ -864,8 +873,14 @@ function visualPageDimensions(info) {
 }
 
 function computeScale(info) {
-  const maxW = Math.min(containerWidth() - 28, 980);
   const visual = visualPageDimensions(info);
+  if (props.fitPage) {
+    const width = stageSize.value.width || pagesEl.value?.clientWidth || 900;
+    const height = stageSize.value.height || pagesEl.value?.clientHeight || 700;
+    const base = Math.min(Math.max(1, width - 40) / visual.width, Math.max(1, height - 16) / visual.height);
+    return Math.max(0.01, base * currentZoom.value);
+  }
+  const maxW = Math.min(containerWidth() - 28, 980);
   const base = maxW / visual.width;
   return Math.max(0.2, base * currentZoom.value);
 }
@@ -877,6 +892,15 @@ function pageStyle(info) {
     width:  `${Math.floor(visual.width  * scale)}px`,
     height: `${Math.floor(visual.height * scale)}px`,
   };
+}
+
+// Keep every layer (pixels, selectable text and annotations) at the same
+// transform while the stage moves. Re-render once the resize has settled.
+function pageInnerStyle(info) {
+  const rendered = renderedViewports.value[info.page];
+  if (!props.fitPage || !rendered) return {};
+  const width = visualPageDimensions(info).width * computeScale(info);
+  return { width: `${rendered.width}px`, height: `${rendered.height}px`, transformOrigin: 'top left', transform: `scale(${width / rendered.width})` };
 }
 
 function pdfCacheKey(src) {
@@ -2486,6 +2510,7 @@ async function renderPage(pageNum) {
     ensureKonvaStage(pageNum, innerEl, viewport.width, viewport.height);
     renderKonvaAnnotations(pageNum);
 
+    renderedViewports.value = { ...renderedViewports.value, [pageNum]: { width: viewport.width, height: viewport.height } };
     renderedPages.add(pageNum);
     if (!firstPageReady.value) {
       firstPageReady.value = true;
@@ -2527,6 +2552,7 @@ function rotateActivePage(delta) {
 // ─── Observer Setup ──────────────────────────────────────────────────────────
 
 function recalcCurrentPage() {
+  if (resizePage !== null) return;
   const container = pagesEl.value;
   if (!container) return;
   const mid = container.scrollTop + container.clientHeight * 0.5;
@@ -2601,6 +2627,8 @@ async function loadPdf(src) {
     zoomRenderTimer = 0;
   }
   lastRenderWidth = 0;
+  resizePage = null;
+  renderedViewports.value = {};
   renderGeneration++;
   renderedPages.clear();
   renderQueue.clear();
@@ -2686,7 +2714,9 @@ function scrollToPage(pageNum) {
 function goToPage(pageNum) {
   const total = pageInfos.value.length;
   if (!total) return;
-  scrollToPage(Math.min(Math.max(1, pageNum), total));
+  const target = Math.min(Math.max(1, pageNum), total);
+  if (resizePage !== null) resizePage = target;
+  scrollToPage(target);
 }
 
 const pageCount = computed(() => pageInfos.value.length);
@@ -2761,7 +2791,7 @@ async function revealRegion({ page, rects, smooth = true } = {}) {
   }
 }
 
-defineExpose({ goToPage, currentPage, pageCount, renderThumbnail, openSearch, closeSearch, revealRegion });
+defineExpose({ goToPage, currentPage, pageCount, renderThumbnail, openSearch, closeSearch, revealRegion, resetZoom });
 
 // ─── Tastenkürzel ─────────────────────────────────────────────────────────────
 // Aktiv, sobald der Viewer (oder ein Kind) den Fokus hat – stört also keine
@@ -2819,25 +2849,37 @@ watch(() => props.targetPage, (page) => nextTick(() => scrollToPage(page)));
 // ─── Resize ──────────────────────────────────────────────────────────────────
 
 function onResize() {
-  if (!pdfDoc) return;
-  // Die Render-Skalierung hängt allein von der Breite ab (computeScale → containerWidth).
-  // Reine Höhenänderungen (Detail-Schublade auf/zu, Splitter ziehen) erfordern kein
-  // Neu-Rendern – sonst würde die ganze Vorschau bei jedem Frame geleert (Flackern).
-  // Toleranz: Sub-Pixel-/1px-Schwankungen (z. B. durch eine laufende Layout-
-  // Animation der Nachbarspalten) sollen kein Neu-Rendern auslösen.
-  const width = containerWidth();
-  if (Math.abs(width - lastRenderWidth) <= 2) return;
-  lastRenderWidth = width;
-
   if (resizeRaf) cancelAnimationFrame(resizeRaf);
-  resizeRaf = requestAnimationFrame(() => {
+  resizeRaf = requestAnimationFrame(async () => {
     resizeRaf = 0;
-    renderGeneration++;
-    renderedPages.clear();
-    renderQueue.clear();
-    // Die dokumentweite Zählung (globalMatches) bleibt bestehen; Markierungen
-    // werden beim erneuten Rendern der Seiten automatisch wieder gesetzt.
-    setupObservers();
+    const el = pagesEl.value;
+    if (!el) return;
+    const width = el.clientWidth;
+    const height = el.clientHeight;
+    const changed = props.fitPage
+      ? Math.abs(width - stageSize.value.width) > 0.5 || Math.abs(height - stageSize.value.height) > 0.5
+      : Math.abs(containerWidth() - lastRenderWidth) > 2;
+    if (!changed) return;
+    if (props.fitPage && pdfDoc) resizePage ??= currentPage.value;
+    stageSize.value = { width, height };
+    lastRenderWidth = containerWidth();
+    if (!pdfDoc) return;
+    if (zoomRenderTimer) window.clearTimeout(zoomRenderTimer);
+    const epoch = loadEpoch;
+    zoomRenderTimer = window.setTimeout(async () => {
+      zoomRenderTimer = 0;
+      if (epoch !== loadEpoch) return;
+      renderGeneration++;
+      renderedPages.clear();
+      renderQueue.clear();
+      await setupObservers();
+      if (epoch === loadEpoch) { resizePage = null; recalcCurrentPage(); }
+    }, 160);
+    await nextTick();
+    if (props.fitPage && resizePage !== null) {
+      const page = el.querySelector(`.pdf-preview__page[data-page="${resizePage}"]`);
+      if (page) el.scrollTop += page.getBoundingClientRect().top - el.getBoundingClientRect().top;
+    }
   });
 }
 
@@ -2847,6 +2889,7 @@ watch(pagesEl, (el, oldEl) => {
   if (!el) return;
   resizeObserver = new ResizeObserver(onResize);
   resizeObserver.observe(el);
+  onResize();
   attachGestureZoomListeners(el);
 });
 
@@ -3848,4 +3891,9 @@ onBeforeUnmount(() => {
   min-height: 0;
   display: flex;
 }
+</style>
+
+<style scoped>
+.pdf-preview--fit-page .pdf-preview__pages { padding: 0 20px 16px; gap: 16px; overflow-anchor: none; scroll-padding-top: 0; justify-content: flex-start; }
+.pdf-preview--fit-page .pdf-preview__page { border-radius: 3px; box-shadow: 0 10px 28px rgb(0 0 0 / .12), 0 1px 3px rgb(0 0 0 / .1); }
 </style>

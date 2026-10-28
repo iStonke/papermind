@@ -6,18 +6,13 @@
   Erscheint nur, wenn es Lernmarkierungen gibt.
 -->
 <template>
-  <section v-if="highlights.length" class="doc-learn" aria-label="Lernmarkierungen in diesem Dokument">
-    <header class="doc-learn__header">
-      <div class="doc-learn__heading">
-        <span class="doc-learn__heading-icon" aria-hidden="true">
-          <v-icon size="17">mdi-format-color-highlight</v-icon>
-        </span>
-        <span>Lernmarkierungen</span>
-        <span class="doc-learn__count">{{ highlights.length }}</span>
-      </div>
-    </header>
-
-    <div class="doc-learn__filters" role="group" aria-label="Nach Bedeutung filtern">
+  <DocumentSectionCard v-if="highlights.length || showEmpty" class="doc-learn" title="Lernmarkierungen"
+    label="Lernmarkierungen in diesem Dokument" icon="mdi-format-color-highlight" :count="highlights.length"
+    :loading="loading" loading-label="Lernmarkierungen werden geladen …" :empty="!loadError && !highlights.length"
+    empty-title="Noch keine Lernmarkierungen" empty-icon="mdi-format-color-highlight"
+    empty-description="Markiere wichtige Stellen in einer verknüpften Notiz zu diesem Dokument.">
+    <p v-if="showEmpty && loadError" class="doc-learn__error" role="status">Lernmarkierungen konnten nicht geladen werden.</p>
+    <div v-if="highlights.length" class="doc-learn__filters" role="group" aria-label="Nach Bedeutung filtern">
       <button
         type="button"
         class="doc-learn__filter"
@@ -43,7 +38,7 @@
       </button>
     </div>
 
-    <ul class="doc-learn__list">
+    <ul v-if="highlights.length" class="doc-learn__list">
       <li v-for="highlight in visibleHighlights" :key="highlight.id">
         <button type="button" class="doc-learn__item" @click="emit('open-highlight', highlight)">
           <span
@@ -65,15 +60,17 @@
         </button>
       </li>
     </ul>
-  </section>
+  </DocumentSectionCard>
 </template>
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import DocumentSectionCard from '../DocumentSectionCard.vue';
 import { listDocumentLearnHighlights } from '../../api/noteLearnHighlights.js';
 import { LEARN_HIGHLIGHT_COLORS, learnHighlightByKey } from './learnHighlightColors.js';
 
 const props = defineProps({
+  showEmpty: { type: Boolean, default: false },
   documentId: { type: String, default: null },
   // Erhöht sich, wenn der Aufrufer die Übersicht neu laden möchte.
   reloadKey: { type: Number, default: 0 },
@@ -82,6 +79,8 @@ const props = defineProps({
 const emit = defineEmits(['open-highlight']);
 
 const highlights = ref([]);
+const loading = ref(false);
+const loadError = ref(false);
 const activeColor = ref(null);
 let requestId = 0;
 
@@ -104,74 +103,43 @@ async function load() {
   const rev = ++requestId;
   if (!props.documentId) {
     highlights.value = [];
+    loading.value = false;
+    loadError.value = false;
     return;
   }
+  loading.value = true;
+  loadError.value = false;
   try {
     const response = await listDocumentLearnHighlights(props.documentId);
     if (rev === requestId) highlights.value = response.items || [];
   } catch {
     // Unkritische Zusatzinfo: bei Fehlern bleibt die Übersicht einfach weg.
-    if (rev === requestId) highlights.value = [];
+    if (rev === requestId) { highlights.value = []; loadError.value = true; }
+  } finally {
+    if (rev === requestId) loading.value = false;
   }
 }
 
 watch(() => props.documentId, () => {
   activeColor.value = null;
+  highlights.value = [];
   load();
 }, { immediate: true });
 watch(() => props.reloadKey, load);
 </script>
 
 <style scoped>
-.doc-learn {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 14px;
-  border: 1px solid var(--pm-divider, #d8dfe1);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--pm-chip-bg, #eef2f4) 62%, transparent);
-}
-
-.doc-learn__heading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--pm-text, #0e181b);
-  font-size: 0.88rem;
-  font-weight: 650;
-}
-
-.doc-learn__heading-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
-  color: var(--pm-accent, #006b75);
-}
-
-.doc-learn__count,
-.doc-learn__filter-count {
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 100px;
-  background: color-mix(in srgb, var(--pm-muted, #535e62) 12%, transparent);
-  color: var(--pm-muted, #535e62);
-  font-size: 0.68rem;
-  line-height: 20px;
-  text-align: center;
-}
-
+.doc-learn__error { color: var(--pm-muted); padding: 12px 0; font-size: 13px; }
 .doc-learn__filter-count {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
   line-height: 16px;
+  border-radius: 100px;
+  background: color-mix(in srgb, var(--pm-muted, #535e62) 12%, transparent);
+  color: var(--pm-muted, #535e62);
+  font-size: .68rem;
+  text-align: center;
 }
 
 .doc-learn__filters {

@@ -18,6 +18,7 @@ from app.schemas.documents import (
     DocumentDetail,
     DocumentFileRole,
     DocumentListResponse,
+    RelatedDocumentListResponse,
     DocumentMetadataSuggestion,
     DocumentOCRBatchRequest,
     DocumentSortField,
@@ -31,6 +32,7 @@ from app.schemas.documents import (
 )
 from app.schemas.retrieval import DocumentChunkListResponse, DocumentChunkDebugRead, DocumentEmbeddingStatusResponse
 from app.services.documents import DocumentService
+from app.services.related_documents import RelatedDocumentService
 from app.services.embeddings import EmbeddingService
 
 router = APIRouter(prefix="/api/documents", tags=["Documents"])
@@ -247,6 +249,20 @@ def backfill_ocr(
         max_retries=config.ocr_backfill_max_retries,
         dry_run=dry_run,
     )
+
+
+@router.get(
+    "/{document_id}/related",
+    response_model=RelatedDocumentListResponse,
+    summary="Find related documents by tags, type and correspondent",
+    responses={404: {"model": ErrorResponse}},
+)
+def related_documents(
+    document_id: uuid.UUID,
+    limit: int = Query(default=5, ge=1, le=10),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
+) -> RelatedDocumentListResponse:
+    return RelatedDocumentService(db, user.id).list(document_id, limit)
 
 
 @router.post(

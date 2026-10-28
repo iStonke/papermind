@@ -3,7 +3,7 @@
     :style="themeStyle" role="toolbar" :aria-label="label" @focusin="focused = true" @focusout="onFocusOut">
     <slot :touch="touch" />
     <div v-if="showZoom" class="pdf-preview__zoom-controls" role="group" aria-label="Zoom" :inert="expanded">
-      <span v-if="$slots.default" class="pm-preview-toolbar__divider pm-preview-toolbar__zoom-divider" aria-hidden="true" />
+      <span v-if="$slots.default && zoomDivider" class="pm-preview-toolbar__divider pm-preview-toolbar__zoom-divider" aria-hidden="true" />
       <div class="pdf-preview__zoom-stepper">
         <button type="button" tabindex="0" class="pdf-preview__zoom-seg" :disabled="!canZoomOut" aria-label="Verkleinern" @click="emit('zoom-out')"><v-icon size="16">mdi-minus</v-icon></button>
         <button type="button" tabindex="0" class="pdf-preview__zoom-value" :class="{ 'pdf-preview__zoom-value--default': defaultZoom }"
@@ -22,6 +22,7 @@ import { useTheme } from 'vuetify';
 const props = defineProps({
   label: { type: String, default: 'Vorschauwerkzeuge' },
   pinned: Boolean, held: Boolean, expanded: Boolean, showZoom: Boolean,
+  zoomDivider: { type: Boolean, default: true },
   zoom: { type: Number, default: 100 }, defaultZoom: Boolean,
   canZoomIn: Boolean, canZoomOut: Boolean,
   resetLabel: { type: String, default: 'Auf 100 % zurücksetzen' },
@@ -34,13 +35,13 @@ const touch = ref(false);
 const revealed = computed(() => props.pinned || props.held || props.expanded || hovered.value || focused.value || touch.value);
 const theme = useTheme();
 const themeStyle = computed(() => theme.current.value.dark ? {
-  '--pdf-toolbar-bg': 'rgb(15 23 42 / .58)', '--pdf-toolbar-border': 'rgb(255 255 255 / .1)',
+  '--pdf-toolbar-bg': 'rgb(15 23 42 / .84)', '--pdf-toolbar-border': 'rgb(255 255 255 / .1)',
   '--pdf-toolbar-shadow': '0 8px 22px rgb(0 0 0 / .24)', '--pdf-toolbar-text': 'rgb(226 232 240 / .9)',
   '--pdf-toolbar-text-muted': 'rgb(226 232 240 / .68)', '--pdf-toolbar-icon': 'rgb(226 232 240 / .78)',
   '--pdf-toolbar-hover-bg': 'rgb(255 255 255 / .1)', '--pdf-toolbar-stepper-bg': 'rgb(255 255 255 / .07)',
   '--pdf-toolbar-divider': 'rgb(255 255 255 / .12)',
 } : {
-  '--pdf-toolbar-bg': 'rgb(255 255 255 / .66)', '--pdf-toolbar-border': 'rgb(203 213 225 / .65)',
+  '--pdf-toolbar-bg': 'rgb(255 255 255 / .90)', '--pdf-toolbar-border': 'rgb(203 213 225 / .65)',
   '--pdf-toolbar-shadow': '0 14px 34px rgb(15 23 42 / .12), 0 2px 8px rgb(15 23 42 / .08)',
   '--pdf-toolbar-text': 'rgb(31 41 55 / .88)', '--pdf-toolbar-text-muted': 'rgb(75 85 99 / .72)',
   '--pdf-toolbar-icon': 'rgb(71 85 105 / .76)', '--pdf-toolbar-hover-bg': 'rgb(15 23 42 / .07)',

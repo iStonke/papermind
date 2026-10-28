@@ -1123,14 +1123,13 @@
              Vorschau und Detailschublade identisch zur Dokumentliste sind. -->
         <section v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && ((activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag' && activeView !== 'search') || isSearchDocumentPreview)" class="panel panel-right">
           <DocumentPreviewLayout
-            class="panel-right__preview panel-right__preview--card-drawer"
-            :style="detailsDrawerCardStyle"
+            class="panel-right__preview panel-right__preview--details-panel"
             :show-drawer="!selectedTrashNoteId && !isTagView && !isCategoryView && Boolean(selectedDocumentDetail) && (!isChatView || chatPreviewVisible)"
             :is-open="isDetailsDrawerOpen"
             :content-key="selectedDocumentDetail?.id"
+            :section-key="activeDetailsTab"
             :body-id="detailsBodyId"
             :auto-hide-drawer="autoHideDetailsDrawer"
-            floating-card
             :collapsed-height="DETAILS_DRAWER_COLLAPSED_HEIGHT"
           >
             <template #viewer>
@@ -1364,6 +1363,7 @@
                     :key="previewRenderKey"
                     class="preview-frame"
                     :src="previewSrc"
+                    fit-page
                     :target-page="previewTargetPage"
                     :highlight-text="previewHighlightText"
                     :annotatable="true"
@@ -1411,7 +1411,6 @@
                       <div class="details-drawer__title-row">
                         <div class="details-drawer__title-wrap">
                           <div class="details-drawer__eyebrow"><div class="details-drawer__eyebrow-inner">
-                            <span>Dokumentdetails</span>
                             <MetadataSaveIndicator
                               :saving="isSavingMetadata"
                               :error="Boolean(metadataErrorMessage)"
@@ -1425,7 +1424,7 @@
                           >
                             {{ formatDocumentTitle(selectedDocumentDetail) }}
                           </div>
-                          <div v-if="headerMetaParts.length || headerOcrStatus" class="details-drawer__meta-line">
+                          <div v-if="headerMetaParts.length || headerOcrStatus || hasEmptyMetadataField || isRunningAiAnalysis" class="details-drawer__meta-line">
                             <template v-for="(part, index) in headerMetaParts" :key="`meta-${index}`">
                               <span class="details-drawer__meta-part">{{ part }}</span>
                               <span
@@ -1434,8 +1433,15 @@
                                 aria-hidden="true"
                               />
                             </template>
+                            <button v-if="headerOcrStatus?.tone === 'pending'" type="button" class="details-ai-chip"
+                              :disabled="isQueueingHeaderOcr" :aria-busy="isQueueingHeaderOcr"
+                              :aria-label="isQueueingHeaderOcr ? 'OCR wird gestartet …' : 'OCR durchführen'"
+                              title="Texterkennung durchführen" @click.stop="queueOcrFromHeader">
+                              <v-progress-circular v-if="isQueueingHeaderOcr" indeterminate size="11" width="2" aria-hidden="true" />
+                              {{ isQueueingHeaderOcr ? 'OCR wird gestartet …' : headerOcrStatus.text }}
+                            </button>
                             <v-tooltip
-                              v-if="headerOcrStatus?.tone === 'failed'"
+                              v-else-if="headerOcrStatus?.tone === 'failed'"
                               text="OCR erneut durchführen"
                               location="bottom"
                             >
@@ -1467,32 +1473,19 @@
                               <v-icon v-else size="13">{{ headerOcrStatus.icon }}</v-icon>
                               {{ headerOcrStatus.text }}
                             </span>
+                            <button v-if="hasEmptyMetadataField || isRunningAiAnalysis" type="button" class="details-ai-chip"
+                              :disabled="isRunningAiAnalysis" :aria-busy="isRunningAiAnalysis"
+                              :aria-label="isRunningAiAnalysis ? 'Daten werden ergänzt …' : 'Fehlende Daten mit KI vervollständigen'"
+                              title="Fehlende Angaben mit KI ergänzen" @click.stop="runAiAnalysis">
+                              <v-progress-circular v-if="isRunningAiAnalysis" indeterminate size="11" width="2" aria-hidden="true" />
+                              {{ isRunningAiAnalysis ? 'Daten werden ergänzt …' : 'Daten vervollständigen' }}
+                            </button>
                           </div>
                         </div>
                       </div>
                     </div>
 
                     <div class="details-command-bar__right" @click.stop>
-                      <!-- Primäre Aktion: KI-Befüllung (hervorgehoben) -->
-                      <v-tooltip text="Leere Felder mit KI befüllen" location="bottom">
-                        <template #activator="{ props: aiTooltipProps }">
-                          <v-btn
-                            v-if="hasEmptyMetadataField"
-                            v-bind="aiTooltipProps"
-                            size="small"
-                            density="comfortable"
-                            variant="text"
-                            class="details-action-btn details-action-btn--primary"
-                            :loading="isRunningAiAnalysis"
-                            :disabled="isRunningAiAnalysis"
-                            aria-label="Leere Felder mit KI befüllen"
-                            @click="runAiAnalysis"
-                          >
-                            <v-icon size="18" color="primary">mdi-auto-fix</v-icon>
-                          </v-btn>
-                        </template>
-                      </v-tooltip>
-
                       <!-- Sekundäre Aktionen: Überlauf-Menü (leise) -->
                       <v-menu v-if="headerMenuActions.length" location="bottom end">
                         <template #activator="{ props: menuProps }">
@@ -1539,6 +1532,10 @@
               </div>
             </template>
 
+            <template #drawer-tabs>
+              <DocumentDetailsTabs :tabs="detailsTabs" :active-tab="activeDetailsTab" :panel-id="detailsBodyId"
+                :is-open="isDetailsDrawerOpen" @select="selectDetailsTab" />
+            </template>
             <template #drawer-body>
               <div v-if="selectedDocumentDetail" class="details-drawer__body">
                 <div
@@ -1546,64 +1543,86 @@
                   @focusin="handleDetailsEditorFocusIn"
                   @focusout="handleDetailsEditorFocusOut"
                 >
-                  <RetentionStatusBar
-                    v-if="isRetentionFeatureEnabled"
+                  <section v-show="activeDetailsTab === 'metadata'" :id="`${detailsBodyId}-metadata`" role="tabpanel"
+                    :aria-labelledby="`${detailsBodyId}-tab-metadata`" tabindex="0" class="details-tab-panel">
+                    <DocumentMetadataFields :field-keys="['name', 'date', 'category', 'correspondent', 'tags']" :name="metadataDocName" :date="metadataDocDate" :category="metadataDocCategory"
+                    :correspondent="metadataCorrespondentDraft" :note="metadataNotes"
+                    :categories="categoryDrawerItems" :correspondents="correspondentDrawerItems"
+                    :errors="metadataDocDateHasError ? { date: 'Bitte ein gültiges Datum eingeben.' } : {}"
+                    :category-loading="isSavingCategory" :correspondent-loading="isSavingCorrespondent || correspondentStore.isMutationRunning"
+                    :menu-props="detailsCategoryMenuProps" manage
+                      @update:name="metadataDocName = $event" @update:date="metadataDocDate = $event"
+                      @update:category="onMetadataCategoryChange" @update:correspondent="onMetadataCorrespondentInput"
+                      @update:note="metadataNotes = $event" @text-blur="commitMetadataTextFields"
+                      @date-blur="handleDocumentDateBlur" @date-keydown="handleDocumentDateShortcut"
+                      @correspondent-blur="handleMetadataCorrespondentBlur" @correspondent-focus="correspondentStore.ensureLoaded()"
+                      @manage-category="openDocumentTypeSettings" @manage-correspondent="openCorrespondentSettings">
+                      <template #tags>
+                          <TagInlineEditor
+                            ref="metadataTagsCombobox"
+                            v-model="metadataTagNames"
+                            v-model:search="metadataTagSearch"
+                            :items="metadataTagComboboxItems"
+                            :loading="isSavingTags || isResolvingTagNames"
+                            :disabled="isRunningAiAnalysis"
+                            :menu-props="detailsTagsMenuProps"
+                            :is-item-active="isMetadataTagSuggestionActive"
+                            @remove="removeMetadataTag"
+                            @update:model-value="onMetadataTagNamesChange"
+                            @keydown="handleMetadataTagShortcut"
+                          />
+                      </template>
+                    </DocumentMetadataFields>
+                  </section>
+                  <section v-show="activeDetailsTab === 'related'" :id="`${detailsBodyId}-related`" role="tabpanel"
+                    :aria-labelledby="`${detailsBodyId}-tab-related`" tabindex="0" class="details-tab-panel">
+                    <RelatedDocumentsSection :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
+                      :match-key="relatedDocumentMatchKey" :in-trash="isTrashView"
+                      :enabled="isDetailsDrawerOpen && activeDetailsTab === 'related'"
+                      @open-document="openDocumentFromDashboard" />
+                  </section>
+                  <section v-show="activeDetailsTab === 'notes'" :id="`${detailsBodyId}-notes`" role="tabpanel"
+                    :aria-labelledby="`${detailsBodyId}-tab-notes`" tabindex="0" class="details-tab-panel">
+                    <DocumentMetadataFields :field-keys="['note']" :note="metadataNotes"
+                      @update:note="metadataNotes = $event" @text-blur="commitMetadataTextFields" />
+                    <DocumentNotesSection
+                      class="details-drawer__notes"
+                    :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
+                    :creating="isCreatingLinkedNote"
+                    :reload-key="linkedNotesReloadKey"
+                      @open-note="openLinkedNoteInWorkspace"
+                      @new-note="createLinkedNoteForSelectedDocument"
+                    />
+                  </section>
+                  <section v-show="activeDetailsTab === 'highlights'" :id="`${detailsBodyId}-highlights`" role="tabpanel"
+                    :aria-labelledby="`${detailsBodyId}-tab-highlights`" tabindex="0" class="details-tab-panel">
+                    <DocumentLearnHighlightsSection
+                      show-empty
+                      class="details-drawer__notes"
+                    :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
+                    :reload-key="linkedNotesReloadKey"
+                      @open-highlight="openLearnHighlightInNote"
+                    />
+                  </section>
+                  <section v-if="isRetentionFeatureEnabled" v-show="activeDetailsTab === 'retention'"
+                    :id="`${detailsBodyId}-retention`" role="tabpanel" :aria-labelledby="`${detailsBodyId}-tab-retention`"
+                    tabindex="0" class="details-tab-panel">
+                    <div class="details-drawer__section-heading">Aufbewahrung</div>
+                    <RetentionStatusBar
+                      embedded
+                      v-if="isRetentionFeatureEnabled"
                     :model-value="retentionData"
                     :document-date-iso="metadataDocDateIso"
                     :saving="isSavingRetention"
                     :suggesting="isSuggestingRetention"
                     :error-message="retentionErrorMessage"
                     :menu-props="detailsCategoryMenuProps"
-                    @accept="acceptRetentionSuggestion"
-                    @save="saveRetention"
-                    @suggest="requestRetentionSuggestion"
-                  />
+                      @accept="acceptRetentionSuggestion"
+                      @save="saveRetention"
+                      @suggest="requestRetentionSuggestion"
+                    />
 
-                  <div class="details-drawer__section-heading">Metadaten</div>
-                  <DocumentMetadataFields :name="metadataDocName" :date="metadataDocDate" :category="metadataDocCategory"
-                    :correspondent="metadataCorrespondentDraft" :note="metadataNotes"
-                    :categories="categoryDrawerItems" :correspondents="correspondentDrawerItems"
-                    :errors="metadataDocDateHasError ? { date: 'Bitte ein gültiges Datum eingeben.' } : {}"
-                    :category-loading="isSavingCategory" :correspondent-loading="isSavingCorrespondent || correspondentStore.isMutationRunning"
-                    :menu-props="detailsCategoryMenuProps" manage
-                    @update:name="metadataDocName = $event" @update:date="metadataDocDate = $event"
-                    @update:category="onMetadataCategoryChange" @update:correspondent="onMetadataCorrespondentInput"
-                    @update:note="metadataNotes = $event" @text-blur="commitMetadataTextFields"
-                    @date-blur="handleDocumentDateBlur" @date-keydown="handleDocumentDateShortcut"
-                    @correspondent-blur="handleMetadataCorrespondentBlur" @correspondent-focus="correspondentStore.ensureLoaded()"
-                    @manage-category="openDocumentTypeSettings" @manage-correspondent="openCorrespondentSettings">
-                    <template #tags>
-                        <TagInlineEditor
-                          ref="metadataTagsCombobox"
-                          v-model="metadataTagNames"
-                          v-model:search="metadataTagSearch"
-                          :items="metadataTagComboboxItems"
-                          :loading="isSavingTags || isResolvingTagNames"
-                          :disabled="isRunningAiAnalysis"
-                          :menu-props="detailsTagsMenuProps"
-                          :is-item-active="isMetadataTagSuggestionActive"
-                          @remove="removeMetadataTag"
-                          @update:model-value="onMetadataTagNamesChange"
-                          @keydown="handleMetadataTagShortcut"
-                        />
-                    </template>
-                  </DocumentMetadataFields>
-
-                  <DocumentNotesSection
-                    class="details-drawer__notes"
-                    :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
-                    :creating="isCreatingLinkedNote"
-                    :reload-key="linkedNotesReloadKey"
-                    @open-note="openLinkedNoteInWorkspace"
-                    @new-note="createLinkedNoteForSelectedDocument"
-                  />
-                  <DocumentLearnHighlightsSection
-                    class="details-drawer__notes"
-                    :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
-                    :reload-key="linkedNotesReloadKey"
-                    @open-highlight="openLearnHighlightInNote"
-                  />
-
+                  </section>
                 </div>
               </div>
               <div v-else class="panel-empty details-drawer__empty">
@@ -1658,6 +1677,8 @@ import PmEmptyState from '../components/PmEmptyState.vue';
 import KnowledgeStage from '../components/KnowledgeStage.vue';
 import DocumentPreviewLayout from '../components/DocumentPreviewLayout.vue';
 import MetadataSaveIndicator from '../components/MetadataSaveIndicator.vue';
+import DocumentDetailsTabs from '../components/DocumentDetailsTabs.vue';
+import RelatedDocumentsSection from '../components/RelatedDocumentsSection.vue';
 import PreviewSwap from '../components/PreviewSwap.vue';
 import DocumentPreviewIllustration from '../components/DocumentPreviewIllustration.vue';
 import NotificationStack from '../components/NotificationStack.vue';
@@ -3432,6 +3453,25 @@ const listDropNotice = ref('');
 const previewReloadNonce = ref(0);
 
 const detailsBodyId = `document-details-${useId()}`;
+const activeDetailsTab = ref('metadata');
+const relatedDocumentMatchKey = computed(() => JSON.stringify([
+  selectedDocumentDetail.value?.document_type,
+  selectedDocumentDetail.value?.correspondent_id,
+  (selectedDocumentDetail.value?.tags || []).map(tag => tag.id).sort()
+]));
+const detailsTabs = computed(() => [
+  { id: 'metadata', label: 'Metadaten' },
+  { id: 'related', label: 'Ähnliche Dokumente' },
+  { id: 'notes', label: 'Notizen' },
+  { id: 'highlights', label: 'Lernmarkierungen' },
+  ...(isRetentionFeatureEnabled.value ? [{ id: 'retention', label: 'Aufbewahrung' }] : [])
+]);
+function selectDetailsTab(id) {
+  if (!detailsTabs.value.some(tab => tab.id === id)) return;
+  activeDetailsTab.value = id;
+  panePreviewRef.value?.resetZoom();
+  if (!isDetailsDrawerOpen.value) toggleDetailsDrawer();
+}
 const isDetailsDrawerOpen = computed({
   get: () => settingsStore.drawerExpanded,
   set: (value) => {
@@ -3440,29 +3480,12 @@ const isDetailsDrawerOpen = computed({
 });
 const isDetailsDrawerChevronExpanded = computed(() => isDetailsDrawerOpen.value);
 const detailsDrawerChevronIcon = 'mdi-chevron-up';
-const previewDrawerGradientEnabled = computed(
-  () => settingsStore.settingsDraft.ui.previewDrawerGradientEnabled !== false
-);
 const autoHideDetailsDrawer = computed(
   () => settingsStore.settingsDraft.ui.autoHideDetailsDrawer === true
 );
-const detailsDrawerCardStyle = computed(() => {
-  const isDark = theme.global.name.value === 'dark';
-  // Kontur: Farben über --pm-*-Tokens (folgen dem Theme automatisch, kein
-  // isDark-Zweig mehr für Flächen/Ränder). Schatten bleiben neutral.
-  return {
-    '--preview-drawer-card-bg': 'var(--pm-app-surface-raised)',
-    '--preview-drawer-card-hover-bg': 'var(--pm-row-hover)',
-    '--preview-drawer-card-hover-border': 'color-mix(in srgb, var(--pm-accent) 30%, transparent)',
-    '--preview-drawer-card-hover-ring': 'color-mix(in srgb, var(--pm-accent) 12%, transparent)',
-    '--preview-drawer-collapsed-border': 'var(--pm-divider)',
-    '--preview-drawer-collapsed-shadow': isDark
-      ? '0 18px 48px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.24)'
-      : '0 24px 60px rgba(15, 23, 42, 0.16), 0 8px 18px rgba(15, 23, 42, 0.10)',
-    '--preview-drawer-scrim-opacity': previewDrawerGradientEnabled.value ? '1' : '0',
-    '--preview-drawer-scrim-rgb': isDark ? '26, 35, 38' : '255, 255, 255'
-  };
-});
+// Expanding returns to the whole-page overview, while zoom remains available
+// for reading details afterward. The reader keeps its own zoom behavior.
+watch(isDetailsDrawerOpen, open => { if (open) panePreviewRef.value?.resetZoom(); });
 const detailsHeaderTitleStyle = computed(() => {
   const title = selectedDocumentDetail.value ? formatDocumentTitle(selectedDocumentDetail.value) : '';
   const titleLength = Array.from(title).length;
@@ -3512,6 +3535,10 @@ const isSavingRetention = ref(false);
 const isSuggestingRetention = ref(false);
 const retentionErrorMessage = ref('');
 const isRetentionFeatureEnabled = computed(() => appSettings.value?.retention?.enabled !== false);
+watch(detailsTabs, tabs => {
+  if (!tabs.some(tab => tab.id === activeDetailsTab.value)) activeDetailsTab.value = 'metadata';
+});
+
 // Dokumentdatum als ISO für die Ablaufdatum-Vorschau der RetentionStatusBar.
 const metadataDocDateIso = computed(() => {
   const parsed = parseDocumentDateInput(metadataDocDate.value);
@@ -3628,7 +3655,7 @@ const showGreenOcrChip = computed(() => {
   }
   // Grüner Chip nur bei tatsächlich OCR-analysierten Dokumenten. Für nicht
   // OCR-analysierte (auch mit eingebetteter Textebene) greift stattdessen der
-  // "OCR durchführen"-Button (showHeaderOcrActionButton = !showGreenOcrChip).
+  // gestrichelte Aktion „OCR durchführen“.
   return hasCompletedOcr.value;
 });
 const headerOcrPresentation = computed(() => resolveOcrHeaderPresentation({
@@ -3639,9 +3666,8 @@ const headerOcrPresentation = computed(() => resolveOcrHeaderPresentation({
   qualityStatus: selectedDocumentDetail.value?.ocr_quality_status
 }));
 const showHeaderOcrActionButton = computed(() => headerOcrPresentation.value.showMenuAction);
-// Ein fehlgeschlagener Lauf wird an derselben Stelle wie der Erfolgsstatus als
-// gestrichelte Wiederholungsaktion gezeigt. Nur ein noch nie gestarteter Lauf
-// bleibt als sekundäre Aktion im Überlauf-Menü.
+// A first OCR run is offered as a dashed chip beside metadata completion;
+// failed runs retain their retry chip, completed runs their status indicator.
 const headerOcrStatus = computed(() => headerOcrPresentation.value.status);
 // ── Einzel-Download (Original / durchsuchbare OCR-PDF) ──────────────────────
 /** Löst einen nativen Datei-Download aus, ohne den aktuellen Tab zu verlassen. */
@@ -6800,6 +6826,7 @@ function handleDetailsDrawerHeaderClick() {
 }
 
 function focusMetadataTagsInput() {
+  activeDetailsTab.value = 'metadata';
   const field = metadataTagsCombobox.value;
   const rootElement = field?.$el || field;
   const inputElement = rootElement?.querySelector?.('input');

@@ -327,3 +327,17 @@ class DocumentMetadataSuggestion(BaseModel):
     correspondent_name: str | None = None
     notes: str | None = None
     tags: list[str] = Field(default_factory=list)
+
+
+class RelatedDocumentRead(BaseModel):
+    id: uuid.UUID
+    title: str
+    document_date: date | None = None
+    same_correspondent: bool
+    same_type: bool
+    shared_tag_count: int = Field(ge=0)
+    shared_tags: list[str] = Field(default_factory=list)
+
+
+class RelatedDocumentListResponse(BaseModel):
+    items: list[RelatedDocumentRead] = Field(default_factory=list)

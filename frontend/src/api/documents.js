@@ -121,3 +121,7 @@ export const documentsExportUrl = (documentIds = []) => {
 /** Thumbnail-URL */
 export const documentThumbnailUrl = (documentId) =>
   authedUrl(`${getBaseUrl()}/api/documents/${documentId}/thumbnail`);
+
+/** Metadata-based recommendations across the current user's document library. */
+export const getRelatedDocuments = (documentId) =>
+  apiGet(`/api/documents/${encodeURIComponent(documentId)}/related?limit=5`);
