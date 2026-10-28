@@ -1127,6 +1127,8 @@
             :style="detailsDrawerCardStyle"
             :show-drawer="!selectedTrashNoteId && !isTagView && !isCategoryView && Boolean(selectedDocumentDetail) && (!isChatView || chatPreviewVisible)"
             :is-open="isDetailsDrawerOpen"
+            :content-key="selectedDocumentDetail?.id"
+            :body-id="detailsBodyId"
             :auto-hide-drawer="autoHideDetailsDrawer"
             floating-card
             :collapsed-height="DETAILS_DRAWER_COLLAPSED_HEIGHT"
@@ -1408,6 +1410,14 @@
                     <div class="details-command-bar__left">
                       <div class="details-drawer__title-row">
                         <div class="details-drawer__title-wrap">
+                          <div class="details-drawer__eyebrow"><div class="details-drawer__eyebrow-inner">
+                            <span>Dokumentdetails</span>
+                            <MetadataSaveIndicator
+                              :saving="isSavingMetadata"
+                              :error="Boolean(metadataErrorMessage)"
+                              :document-key="selectedDocumentDetail?.id"
+                            />
+                          </div></div>
                           <div
                             v-if="selectedDocumentDetail"
                             class="details-drawer__subtitle"
@@ -1518,7 +1528,9 @@
                         variant="text"
                         class="details-action-btn details-action-btn--quiet details-chevron-btn"
                         :class="{ 'details-chevron-btn--expanded': isDetailsDrawerChevronExpanded }"
-                        aria-label="Details ein- oder ausklappen"
+                        :aria-label="isDetailsDrawerOpen ? 'Dokumentdetails schließen' : 'Dokumentdetails öffnen'"
+                        :aria-expanded="isDetailsDrawerOpen"
+                        :aria-controls="detailsBodyId"
                         @click="toggleDetailsDrawer"
                       />
                     </div>
@@ -1547,6 +1559,7 @@
                     @suggest="requestRetentionSuggestion"
                   />
 
+                  <div class="details-drawer__section-heading">Metadaten</div>
                   <DocumentMetadataFields :name="metadataDocName" :date="metadataDocDate" :category="metadataDocCategory"
                     :correspondent="metadataCorrespondentDraft" :note="metadataNotes"
                     :categories="categoryDrawerItems" :correspondents="correspondentDrawerItems"
@@ -1635,7 +1648,7 @@
 <script setup>
 import DocumentMetadataFields from '../components/DocumentMetadataFields.vue';
 import { rememberBootTheme } from '../utils/bootTheme.js';
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRoute, useRouter } from 'vue-router';
 import { useTheme } from 'vuetify';
@@ -1644,6 +1657,7 @@ import ShortcutsHelpDialog from '../components/ShortcutsHelpDialog.vue';
 import PmEmptyState from '../components/PmEmptyState.vue';
 import KnowledgeStage from '../components/KnowledgeStage.vue';
 import DocumentPreviewLayout from '../components/DocumentPreviewLayout.vue';
+import MetadataSaveIndicator from '../components/MetadataSaveIndicator.vue';
 import PreviewSwap from '../components/PreviewSwap.vue';
 import DocumentPreviewIllustration from '../components/DocumentPreviewIllustration.vue';
 import NotificationStack from '../components/NotificationStack.vue';
@@ -3417,6 +3431,7 @@ const isUploadDialogOpen = ref(false);
 const listDropNotice = ref('');
 const previewReloadNonce = ref(0);
 
+const detailsBodyId = `document-details-${useId()}`;
 const isDetailsDrawerOpen = computed({
   get: () => settingsStore.drawerExpanded,
   set: (value) => {

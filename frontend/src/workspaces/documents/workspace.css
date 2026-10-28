@@ -5305,3 +5305,41 @@
   .document-row--reveal { animation: none !important; }
   .document-row:active, .document-row:hover .document-row__thumb { transform: none; translate: none; rotate: none; scale: none; }
 }
+
+/* Document dock: the shell moves, the familiar editing controls stay put. */
+.panel-right__preview--card-drawer .details-drawer__header {
+  cursor: pointer;
+  transition: padding 380ms cubic-bezier(.2, 1.08, .32, 1);
+}
+.panel-right__preview--card-drawer .details-drawer__header--collapsed { padding: 12px 0; }
+.panel-right__preview--card-drawer .details-drawer__header--expanded { padding: 22px 0 18px; }
+.details-drawer__eyebrow { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 300ms cubic-bezier(.16, 1, .3, 1), opacity 180ms ease; }
+.details-drawer__eyebrow-inner {
+  min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; color: var(--pm-muted); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+}
+.details-drawer__header--expanded .details-drawer__eyebrow { grid-template-rows: 1fr; opacity: 1; }
+.details-drawer__header--expanded .details-drawer__eyebrow-inner { padding-bottom: 7px; }
+.panel-right__preview--card-drawer .details-command-bar__right { align-self: center; gap: 4px; }
+.panel-right__preview--card-drawer .details-drawer__title-wrap { width: 100%; }
+.details-drawer__section-heading {
+  color: var(--pm-muted); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  padding: 18px 0 16px;
+}
+.panel-right__preview--card-drawer .pm-metadata-fields { gap: 18px; }
+/* Permit just the disclosure arrow to turn; the existing form controls keep
+   their no-transform protection. The header rule otherwise wins via !important. */
+.details-drawer__header .details-chevron-btn .v-icon { transition: transform 320ms cubic-bezier(.2, 1.2, .4, 1); }
+.details-drawer__header .details-chevron-btn--expanded .v-icon { transform: rotate(180deg) !important; }
+@media (max-width: 600px) {
+  .panel-right__preview--card-drawer .details-drawer__inner { padding-inline: 16px; }
+  .panel-right__preview--card-drawer .pm-drawer-body { --pm-detail-body-x: 16px; }
+  .panel-right__preview--card-drawer .details-command-bar { gap: 8px; }
+}
+.pm-no-animations .details-drawer__header,
+.pm-no-animations .details-drawer__eyebrow,
+.pm-no-animations .details-drawer__header .details-chevron-btn .v-icon { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .details-drawer__header, .details-drawer__eyebrow,
+  .details-drawer__header .details-chevron-btn .v-icon { transition: none; }
+}

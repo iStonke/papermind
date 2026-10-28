@@ -23,6 +23,7 @@
       role="region"
       aria-label="Dokumentdetails"
     >
+      <div class="preview-layout__handle" aria-hidden="true"><span /></div>
       <div ref="headerEl" class="preview-layout__header">
         <slot name="drawer-header" />
       </div>
@@ -30,116 +31,123 @@
       <div class="pm-drawer-divider" :class="{ 'pm-drawer-divider--visible': isOpen }" aria-hidden="true" />
 
       <div
+        :id="bodyId || fallbackBodyId"
         ref="bodyEl"
         class="preview-layout__body"
         :class="isOpen ? 'preview-layout__body--open' : 'preview-layout__body--closed'"
         :aria-hidden="String(!isOpen)"
         :inert="!isOpen"
+        @scroll.passive="updateScrollCue"
       >
-        <slot name="drawer-body" />
+        <div ref="contentEl" class="preview-layout__content"><slot name="drawer-body" /></div>
       </div>
+      <div class="preview-layout__scroll-cue" :class="{ 'preview-layout__scroll-cue--visible': isOpen && hasMoreBelow }" aria-hidden="true" />
     </section>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue';
 
 const props = defineProps({
   showDrawer: { type: Boolean, default: false },
   isOpen: { type: Boolean, default: false },
   autoHideDrawer: { type: Boolean, default: false },
   floatingCard: { type: Boolean, default: false },
+  contentKey: { type: [String, Number], default: '' },
+  bodyId: { type: String, default: '' },
   collapsedHeight: { type: Number, default: 72 },
   minViewerHeight: { type: Number, default: 140 },
-  // Beim Ausklappen wird bis zur Oberkante dieses Elements aufgeklappt; alles
-  // darunter (z. B. Notizen) bleibt verdeckt und nur per Scrollen erreichbar.
   expandBoundarySelector: { type: String, default: '[data-drawer-expand-boundary]' }
 });
-
-const DIVIDER_HEIGHT = 1;
-
+const fallbackBodyId = `document-details-${useId()}`;
 const rootEl = ref(null);
 const headerEl = ref(null);
 const bodyEl = ref(null);
-
-// Natürliche Höhe von Kopfzeile + kompletter Feldliste.
+const contentEl = ref(null);
 const contentHeight = ref(0);
-// Ausklapphöhe bis zur Grenze (Kopf + Trennlinie + Body bis zur Boundary).
 const openHeight = ref(0);
+const containerHeight = ref(0);
+const headerHeight = ref(0);
+const blockEndGap = ref(0);
+const hasMoreBelow = ref(false);
+let observer;
+let frame;
+let swapAnimations = [];
 
-function measureContent() {
-  const header = headerEl.value?.offsetHeight || 0;
+function updateScrollCue() {
   const body = bodyEl.value;
-  if (!body) {
-    contentHeight.value = 0;
-    openHeight.value = 0;
-    return;
-  }
-  const fullBody = body.scrollHeight;
-  contentHeight.value = header + DIVIDER_HEIGHT + fullBody;
-
-  // Body-Höhe bis zur Boundary (scroll-unabhängig über getBoundingClientRect).
-  let bodyCut = fullBody;
-  const boundary = props.expandBoundarySelector
-    ? body.querySelector(props.expandBoundarySelector)
-    : null;
-  if (boundary) {
-    const bodyTop = body.getBoundingClientRect().top;
-    const boundaryTop = boundary.getBoundingClientRect().top;
-    bodyCut = Math.max(0, Math.round(boundaryTop - bodyTop + body.scrollTop));
-  }
-  openHeight.value = header + DIVIDER_HEIGHT + bodyCut;
+  hasMoreBelow.value = Boolean(body && body.scrollHeight - body.clientHeight - body.scrollTop > 8);
 }
-
-let contentObserver = null;
-watch(bodyEl, (el) => {
-  contentObserver?.disconnect();
-  if (!el) return;
-  contentObserver = new ResizeObserver(measureContent);
-  contentObserver.observe(el);
-  if (headerEl.value) contentObserver.observe(headerEl.value);
+function measureContent() {
+  const root = rootEl.value;
+  const header = headerEl.value;
+  const body = bodyEl.value;
+  if (!root || !header || !body) return;
+  containerHeight.value = root.clientHeight;
+  blockEndGap.value = Number.parseFloat(getComputedStyle(root).getPropertyValue('--preview-drawer-block-end-gap')) || 0;
+  headerHeight.value = header.offsetHeight;
+  const fullBody = contentEl.value?.offsetHeight || 0;
+  contentHeight.value = headerHeight.value + 1 + fullBody;
+  const boundary = props.expandBoundarySelector ? body.querySelector(props.expandBoundarySelector) : null;
+  const bodyCut = boundary
+    ? Math.max(0, Math.round(boundary.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop))
+    : fullBody;
+  openHeight.value = headerHeight.value + 1 + bodyCut;
+  updateScrollCue();
+}
+function scheduleMeasure() {
+  cancelAnimationFrame(frame);
+  frame = requestAnimationFrame(measureContent);
+}
+function observeLayout() {
+  observer?.disconnect();
+  observer = new ResizeObserver(scheduleMeasure);
+  for (const el of [rootEl.value, headerEl.value, contentEl.value]) {
+    if (el) observer.observe(el);
+  }
+  measureContent();
+}
+onMounted(observeLayout);
+watch([headerEl, contentEl], () => { void nextTick(observeLayout); });
+watch(() => props.isOpen, async open => {
+  if (!open && bodyEl.value?.contains(document.activeElement)) {
+    headerEl.value?.querySelector('[aria-expanded]')?.focus();
+  }
+  await nextTick();
   measureContent();
 });
-
-// Nach dem Auf-/Zuklappen neu messen (Body wechselt zwischen Höhe 0 und auto).
-watch(
-  () => props.isOpen,
-  async () => {
-    await nextTick();
-    measureContent();
-  }
-);
-
-onBeforeUnmount(() => contentObserver?.disconnect());
-
-// Deckel: nie höher als der Inhalt (kein Leerraum) und nie höher als der
-// Container abzüglich der Mindesthöhe des Viewers (dann scrollt der Body).
-function maxAllowedHeight() {
-  const root = rootEl.value;
-  const blockEndGap = root
-    ? Number.parseFloat(getComputedStyle(root).getPropertyValue('--preview-drawer-block-end-gap')) || 0
-    : 0;
-  const containerCap = root
-    ? root.getBoundingClientRect().height - props.minViewerHeight - blockEndGap
-    : Infinity;
-  const contentCap = contentHeight.value || Infinity;
-  return Math.min(containerCap, contentCap);
+function cancelSwap() {
+  swapAnimations.forEach(animation => animation.cancel());
+  swapAnimations = [];
 }
-
-const drawerStyle = computed(() => {
-  if (!props.isOpen) {
-    // Negativer Margin = die eingeklappte Leiste greift über den unteren
-    // Viewer-Rand, statt darunter anzudocken. So scheint das Dokument durch die
-    // durchscheinende Leiste hindurch; der Viewer behält die volle Höhe.
-    return {
-      height: `${props.collapsedHeight}px`,
-      marginTop: `-${props.collapsedHeight}px`
-    };
+watch(() => props.contentKey, async () => {
+  cancelSwap();
+  await nextTick();
+  if (bodyEl.value) bodyEl.value.scrollTop = 0;
+  measureContent();
+  if (!props.isOpen || rootEl.value?.closest('.pm-no-animations')
+    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    || bodyEl.value?.contains(document.activeElement)) return;
+  // Animate existing nodes; field instances and keyboard focus survive.
+  for (const el of [headerEl.value?.querySelector('.details-drawer__title-wrap'), contentEl.value]) {
+    if (el) swapAnimations.push(el.animate([
+      { opacity: 0.25, transform: 'translateY(4px)' },
+      { opacity: 1, transform: 'translateY(0)' }
+    ], { duration: 220, easing: 'cubic-bezier(.16, 1, .3, 1)' }));
   }
-  const target = openHeight.value || contentHeight.value;
-  const cap = Math.round(Math.min(target, maxAllowedHeight()));
-  return { height: `${cap}px`, marginTop: '0px' };
+});
+const drawerStyle = computed(() => {
+  if (!props.isOpen) return { height: `${props.collapsedHeight}px`, marginTop: `-${props.collapsedHeight}px` };
+  const cap = Math.max(headerHeight.value, containerHeight.value - props.minViewerHeight - blockEndGap.value);
+  const target = openHeight.value || contentHeight.value || props.collapsedHeight;
+  const height = Math.round(Math.min(target, contentHeight.value || target, cap || props.collapsedHeight));
+  return { height: `${height}px`, marginTop: '0px' };
+});
+onBeforeUnmount(() => {
+  observer?.disconnect();
+  cancelAnimationFrame(frame);
+  cancelSwap();
 });
 </script>
 
@@ -157,8 +165,8 @@ const drawerStyle = computed(() => {
   --preview-drawer-collapsed-shadow:
     0 18px 48px rgba(15, 23, 42, 0.18),
     0 2px 8px rgba(15, 23, 42, 0.08);
-  --preview-drawer-motion-duration: 260ms;
-  --preview-drawer-motion-easing: cubic-bezier(0.2, 1.28, 0.34, 1);
+  --preview-drawer-motion-duration: 380ms;
+  --preview-drawer-motion-easing: cubic-bezier(0.2, 1.08, 0.32, 1);
   --preview-drawer-scrim-rgb: 255, 255, 255;
   position: relative;
   height: 100%;
@@ -176,7 +184,7 @@ const drawerStyle = computed(() => {
   --preview-drawer-card-bg: var(--pm-app-surface-raised);
   --preview-drawer-max-width: none;
   --preview-drawer-radius: 28px;
-  --preview-drawer-width: min(680px, calc(100% - 64px));
+  --preview-drawer-width: min(600px, calc(100% - 64px));
 }
 
 .preview-layout--floating-card::after {
@@ -196,7 +204,7 @@ const drawerStyle = computed(() => {
       rgba(var(--preview-drawer-scrim-rgb), 0.74) 46%,
       rgba(var(--preview-drawer-scrim-rgb), 0.98) 100%
     );
-  transition: opacity var(--pm-duration-normal) var(--pm-easing-decel);
+  transition: opacity 360ms ease;
 }
 
 .preview-layout--floating-card.preview-layout--drawer-open::after {
@@ -228,6 +236,9 @@ const drawerStyle = computed(() => {
   border-top: 1px solid var(--pm-drawer-border-collapsed, rgb(var(--v-theme-on-surface) / 0.12));
   border-radius: var(--preview-drawer-radius);
   transition:
+    width var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing),
+    border-radius var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing),
+    translate 240ms var(--preview-drawer-motion-easing),
     height var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing) var(--preview-drawer-close-delay, 0ms),
     margin-top var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing) var(--preview-drawer-close-delay, 0ms),
     margin-bottom var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing),
@@ -236,7 +247,7 @@ const drawerStyle = computed(() => {
     border-color var(--pm-duration-normal) var(--pm-easing-decel),
     box-shadow var(--pm-duration-normal) var(--pm-easing-decel),
     opacity var(--pm-duration-normal) var(--pm-easing-decel);
-  will-change: height, margin-top, margin-bottom, bottom;
+
 }
 
 /* Der inhaltliche Zustand der Schublade bleibt erhalten; außerhalb der
@@ -348,7 +359,7 @@ const drawerStyle = computed(() => {
   .preview-layout--floating-card {
     --preview-drawer-block-end-gap: 12px;
     --preview-drawer-radius: 22px;
-    --preview-drawer-width: calc(100% - 24px);
+    --preview-drawer-width: calc(100% - 32px);
   }
 }
 
@@ -386,5 +397,56 @@ const drawerStyle = computed(() => {
   .preview-layout__body :deep(.pm-metadata-row) { transform: none; }
 }
 
+
+/* The compact dock unfolds into a broader work surface. */
+.preview-layout--floating-card.preview-layout--drawer-open {
+  --preview-drawer-width: min(760px, calc(100% - 32px));
+  --preview-drawer-radius: 24px;
+}
+.preview-layout--floating-card .pm-drawer--expanded {
+  box-shadow: 0 28px 72px rgb(0 0 0 / .22), 0 6px 18px rgb(0 0 0 / .1);
+}
+.preview-layout--floating-card .preview-layout__header {
+  position: relative;
+  z-index: 2;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--pm-accent, #006b75) 4%, var(--preview-drawer-card-bg)), var(--preview-drawer-card-bg));
+}
+.preview-layout__handle {
+  position: absolute;
+  inset: 6px 0 auto;
+  display: flex;
+  justify-content: center;
+  z-index: 3;
+  pointer-events: none;
+}
+.preview-layout__handle span {
+  width: 28px; height: 3px; border-radius: 3px;
+  background: color-mix(in srgb, var(--pm-text, #526067) 18%, transparent);
+  transition: width 320ms ease, background-color 240ms ease;
+}
+.preview-layout--drawer-open .preview-layout__handle span { width: 40px; }
+@media (hover: hover) and (pointer: fine) {
+  .preview-layout--floating-card .pm-drawer--collapsed:hover { translate: 0 -2px; }
+  .preview-layout--floating-card .pm-drawer--collapsed:hover .preview-layout__handle span {
+    background: color-mix(in srgb, var(--pm-accent, #006b75) 50%, transparent);
+    width: 36px;
+  }
+}
+.preview-layout__content { display: flow-root; min-width: 0; }
+.preview-layout__scroll-cue {
+  position: absolute;
+  bottom: 0; inset-inline: 0; height: 30px;
+  z-index: 3; pointer-events: none; opacity: 0;
+  background: linear-gradient(transparent, var(--preview-drawer-card-bg));
+  transition: opacity 180ms ease;
+}
+.preview-layout__scroll-cue--visible { opacity: 1; }
+:global(.pm-no-animations) .preview-layout__handle span,
+:global(.pm-no-animations) .preview-layout__scroll-cue { transition: none; }
+:global(.pm-no-animations) .preview-layout__drawer { translate: none; }
+@media (prefers-reduced-motion: reduce) {
+  .preview-layout__handle span, .preview-layout__scroll-cue { transition: none; }
+  .preview-layout__drawer { translate: none !important; }
+}
 /* Keep theme-specific drawer selectors in global style.css to avoid scoped selector leaks. */
 </style>
