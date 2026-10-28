@@ -34,6 +34,7 @@
         class="preview-layout__body"
         :class="isOpen ? 'preview-layout__body--open' : 'preview-layout__body--closed'"
         :aria-hidden="String(!isOpen)"
+        :inert="!isOpen"
       >
         <slot name="drawer-body" />
       </div>
@@ -227,8 +228,8 @@ const drawerStyle = computed(() => {
   border-top: 1px solid var(--pm-drawer-border-collapsed, rgb(var(--v-theme-on-surface) / 0.12));
   border-radius: var(--preview-drawer-radius);
   transition:
-    height var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing),
-    margin-top var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing),
+    height var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing) var(--preview-drawer-close-delay, 0ms),
+    margin-top var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing) var(--preview-drawer-close-delay, 0ms),
     margin-bottom var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing),
     bottom var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing),
     background-color var(--pm-duration-normal) var(--pm-easing-decel),
@@ -330,8 +331,6 @@ const drawerStyle = computed(() => {
 }
 
 .preview-layout__body--closed {
-  flex: 0 0 auto;
-  height: 0;
   pointer-events: none;
 }
 
@@ -358,6 +357,33 @@ const drawerStyle = computed(() => {
     --preview-drawer-motion-duration: 120ms;
     --preview-drawer-motion-easing: ease-out;
   }
+}
+
+
+/* Contents follow the shell on opening and fade before closing. */
+.preview-layout:not(.preview-layout--drawer-open) { --preview-drawer-close-delay: 65ms; }
+.preview-layout__body { transition: opacity 70ms ease; }
+.preview-layout__body--open { transition: opacity 160ms ease 70ms; }
+.preview-layout__body :deep(.pm-metadata-row) {
+  opacity: 0; transform: translateY(5px);
+  transition: opacity 65ms ease, transform 65ms ease;
+}
+.preview-layout__body--open :deep(.pm-metadata-row) {
+  opacity: 1; transform: translateY(0);
+  transition: opacity 180ms ease var(--field-enter-delay, 80ms), transform 220ms cubic-bezier(.16, 1, .3, 1) var(--field-enter-delay, 80ms);
+}
+.preview-layout__body :deep(.pm-metadata-row:nth-child(2)) { --field-enter-delay: 100ms; }
+.preview-layout__body :deep(.pm-metadata-row:nth-child(3)) { --field-enter-delay: 120ms; }
+.preview-layout__body :deep(.pm-metadata-row:nth-child(4)) { --field-enter-delay: 140ms; }
+.preview-layout__body :deep(.pm-metadata-row:nth-child(5)) { --field-enter-delay: 160ms; }
+:global(.pm-no-animations) .preview-layout__drawer,
+:global(.pm-no-animations) .preview-layout__body,
+:global(.pm-no-animations) .preview-layout__body :deep(.pm-metadata-row) { transition: none; }
+:global(.pm-no-animations) .preview-layout__body :deep(.pm-metadata-row) { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .preview-layout__drawer, .preview-layout__body,
+  .preview-layout__body :deep(.pm-metadata-row) { transition: none; }
+  .preview-layout__body :deep(.pm-metadata-row) { transform: none; }
 }
 
 /* Keep theme-specific drawer selectors in global style.css to avoid scoped selector leaks. */

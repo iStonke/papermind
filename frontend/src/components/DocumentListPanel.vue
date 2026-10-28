@@ -43,7 +43,7 @@
           <span>{{ documents.length }}</span>
         </div>
 
-        <Transition name="pm-list-state" mode="out-in">
+        <Transition name="pm-list-state" mode="out-in" @after-enter="revealListRows">
           <div
             v-if="showDocumentListLoadingState"
             key="loading"
@@ -107,6 +107,7 @@
               erscheinende Einträge. Eine schlichte Liste patcht die keyed Zeilen
               ohne Layout-Messung und scrollt dadurch flüssig.
             -->
+            <span v-if="selectionMarkerStyle" class="document-list__selection-marker" :style="selectionMarkerStyle" aria-hidden="true" />
             <div class="document-list__rows">
               <div
                 v-for="document in renderedDocuments"
@@ -114,6 +115,7 @@
                 class="document-row pm-doc-item"
                 :data-document-id="document.id"
                 :class="{
+                  'document-row--reveal': revealRows.has(document.id),
                   'document-row--active': !isSelectionMode && document.id === selectedDocumentId,
                   'document-row--selected': isSelectionMode && selectionIds.has(document.id),
                   'document-row--selection-mode': isSelectionMode,
@@ -121,6 +123,7 @@
                   'document-row--arrival-marker-pending': document.id === importArrivalMarkerPendingDocId,
                   'document-row--just-arrived': document.id === justArrivedDocId
                 }"
+                :style="revealRows.has(document.id) ? { '--row-reveal-delay': `${revealRows.get(document.id)}ms` } : undefined"
                 role="button"
                 tabindex="0"
                 @click="onRowClick($event, document.id)"
@@ -466,6 +469,7 @@ import PmEmptyState from './PmEmptyState.vue';
 
 // ── Props & Emits ──────────────────────────────────────────────────────────
 const props = defineProps({
+  motionKey:                  { type: String, default: '' },
   listDropNotice:             { type: String,  default: '' },
   activeStatusFilterLabel:    { type: String,  default: '' },
   isImportsView:              { type: Boolean, default: false },
@@ -527,6 +531,53 @@ const { documents, selectedDocumentId } = storeToRefs(docStore);
 const listShell = ref(null);
 const documentListRef = ref(null);
 const trashNoteListRef = ref(null);
+
+// Selection position derives from the existing virtual row geometry. It does
+// not measure every row, and stays in content coordinates while scrolling.
+const selectionMarkerStyle = computed(() => {
+  if (props.isSelectionMode || props.showDocumentListLoadingState || props.showDocumentListEmptyState) return null;
+  const index = documents.value.findIndex(doc => doc.id === selectedDocumentId.value);
+  if (index < 0) return null;
+  return {
+    transform: `translateY(${10 + index * virtualRowStep.value + 14}px)`,
+    height: `${Math.max(20, virtualRowHeight.value - 28)}px`
+  };
+});
+const revealRows = ref(new Map());
+let revealPending = true;
+let revealTimer;
+function clearRowReveal() {
+  window.clearTimeout(revealTimer);
+  revealRows.value = new Map();
+}
+function revealListRows() {
+  if (!revealPending || props.showDocumentListLoadingState || props.showDocumentListEmptyState) return;
+  const shell = listShell.value;
+  if (!shell || shell.closest('.pm-no-animations') || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    revealPending = false;
+    return;
+  }
+  const bounds = shell.getBoundingClientRect();
+  const visible = Array.from(shell.querySelectorAll('.document-row[data-document-id]')).filter(row => {
+    const rect = row.getBoundingClientRect();
+    return rect.bottom > bounds.top && rect.top < bounds.bottom;
+  }).slice(0, 10);
+  if (!visible.length) return;
+  revealPending = false;
+  revealRows.value = new Map(visible.map((row, index) => [row.dataset.documentId, index * 25]));
+  revealTimer = window.setTimeout(clearRowReveal, 600);
+}
+watch(() => props.motionKey, () => {
+  clearRowReveal();
+  revealPending = true;
+  void nextTick(revealListRows);
+});
+watch(() => props.showDocumentListLoadingState, loading => {
+  if (!loading) void nextTick(revealListRows);
+});
+watch(() => documents.value, () => { if (revealPending) void nextTick(revealListRows); });
+onMounted(() => { void nextTick(revealListRows); });
+onBeforeUnmount(clearRowReveal);
 
 // ── Import-Fluganimation: Landezone ─────────────────────────────────────────
 // Das Ziel-Thumbnail ist ab dem ersten Rendern der neuen Zeile weiß. Erst die
@@ -941,6 +992,8 @@ function requestMoreIfNearEnd(element = listShell.value) {
 }
 
 function handleListScroll(event) {
+  clearRowReveal();
+  revealPending = false;
   const element = event.currentTarget;
   const nextScrollTop = element.scrollTop;
   const scrollingDown = nextScrollTop >= lastHandledListScrollTop;

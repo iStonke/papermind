@@ -900,6 +900,7 @@
               ref="documentListPanelRef"
               key="documents"
               class="panel-middle__view"
+              :motion-key="documentListQueryReloadKey"
               :list-drop-notice="listDropNotice"
               :active-status-filter-label="activeStatusFilterLabel"
               :is-imports-view="isImportsView"
@@ -1355,28 +1356,31 @@
                   <v-icon size="16">mdi-close</v-icon>
                   Schließen
                 </button>
-                <PdfPreview
-                  ref="panePreviewRef"
-                  :key="previewRenderKey"
-                  class="preview-frame"
-                  :src="previewSrc"
-                  :target-page="previewTargetPage"
-                  :highlight-text="previewHighlightText"
-                  :annotatable="true"
-                  :annotations="documentAnnotations"
-                  :enable-reader="true"
-                  :enable-download="true"
-                  @failed="onPreviewFrameError(selectedDocumentId)"
-                  @loaded="onPreviewFrameLoad(selectedDocumentId)"
-                  @create-annotation="onCreateAnnotation"
-                  @delete-annotation="onDeleteAnnotation"
-                  @update-annotation="onUpdateAnnotation"
-                  @open-reader="openReader"
-                  @download="downloadSelectedDocument('searchable')"
-                  @request-link="onRequestLink"
-                  @request-comment="onRequestCommentAnnotation"
-                  @create-note-quote="createNoteQuoteFromSelection"
-                />
+                <PreviewSwap ref="previewSwapRef" :transition-key="previewRenderKey">
+                  <PdfPreview
+                    ref="panePreviewRef"
+                    :key="previewRenderKey"
+                    class="preview-frame"
+                    :src="previewSrc"
+                    :target-page="previewTargetPage"
+                    :highlight-text="previewHighlightText"
+                    :annotatable="true"
+                    :annotations="documentAnnotations"
+                    :enable-reader="true"
+                    :enable-download="true"
+                    @first-page="previewSwapRef?.reveal(previewRenderKey)"
+                    @failed="previewSwapRef?.reveal(previewRenderKey); onPreviewFrameError(selectedDocumentId)"
+                    @loaded="onPreviewFrameLoad(selectedDocumentId)"
+                    @create-annotation="onCreateAnnotation"
+                    @delete-annotation="onDeleteAnnotation"
+                    @update-annotation="onUpdateAnnotation"
+                    @open-reader="openReader"
+                    @download="downloadSelectedDocument('searchable')"
+                    @request-link="onRequestLink"
+                    @request-comment="onRequestCommentAnnotation"
+                    @create-note-quote="createNoteQuoteFromSelection"
+                  />
+                </PreviewSwap>
               </div>
               <div v-else-if="isChatView" class="knowledge-home">
                 <KnowledgeStage
@@ -1640,6 +1644,7 @@ import ShortcutsHelpDialog from '../components/ShortcutsHelpDialog.vue';
 import PmEmptyState from '../components/PmEmptyState.vue';
 import KnowledgeStage from '../components/KnowledgeStage.vue';
 import DocumentPreviewLayout from '../components/DocumentPreviewLayout.vue';
+import PreviewSwap from '../components/PreviewSwap.vue';
 import DocumentPreviewIllustration from '../components/DocumentPreviewIllustration.vue';
 import NotificationStack from '../components/NotificationStack.vue';
 import AppSidebar from '../components/AppSidebar.vue';
@@ -2293,6 +2298,7 @@ async function createNoteQuoteFromSelection({ page, quote } = {}) {
 }
 
 const panePreviewRef = ref(null);
+const previewSwapRef = ref(null);
 
 // Wissen blendet die Vorschau erst ein, wenn eine Quelle aus einer Antwort
 // geöffnet wird. Die persistierte Dokumentauswahl bleibt davon unberührt.
@@ -3418,9 +3424,7 @@ const isDetailsDrawerOpen = computed({
   }
 });
 const isDetailsDrawerChevronExpanded = computed(() => isDetailsDrawerOpen.value);
-const detailsDrawerChevronIcon = computed(() =>
-  isDetailsDrawerChevronExpanded.value ? 'mdi-chevron-down' : 'mdi-chevron-up'
-);
+const detailsDrawerChevronIcon = 'mdi-chevron-up';
 const previewDrawerGradientEnabled = computed(
   () => settingsStore.settingsDraft.ui.previewDrawerGradientEnabled !== false
 );

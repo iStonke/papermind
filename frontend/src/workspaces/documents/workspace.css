@@ -3003,8 +3003,8 @@
   margin-top: var(--document-row-gap);
 }
 
-/* Hover-/Auswahl-Ringe als inset-Schatten (kein Layout-Sprung), jeweils
-   zusätzlich zum feinen Kartenschatten der Listen-Sprache. */
+/* Hover uses a neutral inset ring. Active selection keeps the normal card
+   contour; its inset moving marker supplies the accent without a double edge. */
 .document-row:hover {
   background: var(--pm-list-card);
   box-shadow: var(--pm-list-card-shadow), inset 0 0 0 1px var(--pm-list-hover-ring);
@@ -3013,7 +3013,7 @@
 .document-row--active,
 .document-row--active:hover {
   background-color: var(--pm-list-card-selected);
-  box-shadow: var(--pm-list-card-shadow), inset 0 0 0 2px var(--pm-list-accent);
+  box-shadow: var(--pm-list-card-shadow);
 }
 
 /* Ungelesene Zeilen deutlich hervorheben (Variante A): linker Akzentbalken,
@@ -5241,4 +5241,67 @@
 .papermind-app.v-theme--dark .panel-middle .document-list-body,
 .papermind-app.v-theme--dark .panel-middle .document-list-content {
   background: var(--pm-list-canvas);
+}
+
+/* Motion keeps the virtual list's content geometry fixed. */
+.document-list { position: relative; }
+.document-list__selection-marker {
+  position: absolute; top: 0; left: 17px; width: 3px; z-index: 2;
+  border-radius: 4px; background: var(--pm-list-accent); pointer-events: none;
+  transition: transform 280ms cubic-bezier(.16, 1, .3, 1), height 220ms ease;
+}
+.document-row { transition: background-color 240ms ease, box-shadow 240ms ease, transform 160ms cubic-bezier(.2, 1.2, .4, 1); }
+.document-row:active:not(:has(button:active)) { transform: scale(.992); }
+/* Independent timings let the paper tilt lag behind the lift. Explicit rest
+   values also let interrupted hovers glide back from their current position. */
+.document-row__thumb {
+  transform-origin: 35% 85%;
+  translate: 0 0;
+  rotate: 0deg;
+  scale: 1;
+  transition:
+    translate 560ms cubic-bezier(.16, 1, .3, 1),
+    rotate 760ms cubic-bezier(.22, 1, .36, 1),
+    scale 460ms cubic-bezier(.16, 1, .3, 1),
+    box-shadow 480ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .document-row:not(.document-row--selection-mode):not(.document-row--removing):not(.document-row--just-arrived):hover .document-row__thumb {
+    translate: 0 -4px;
+    rotate: -2deg;
+    scale: 1.025;
+    box-shadow: 0 6px 14px rgb(15 23 42 / .16);
+    transition-timing-function:
+      cubic-bezier(.18, 1.35, .32, 1),
+      linear(0, .48 15%, .85 30%, 1.12 49%, 1.035 67%, .985 84%, 1),
+      cubic-bezier(.16, 1, .3, 1), ease;
+  }
+}
+.document-row .document-row__actions { transition: transform 180ms ease; transform: translateY(2px); }
+.document-row:hover .document-row__actions,
+.document-row:focus-within .document-row__actions,
+.document-row--active .document-row__actions { transform: translateY(0); }
+@media (hover: none) { .document-row .document-row__actions { transform: none; } }
+.document-row--reveal:not(.document-row--just-arrived):not(.document-row--removing) {
+  animation: pm-document-reveal 280ms cubic-bezier(.16, 1, .3, 1) var(--row-reveal-delay, 0ms) both;
+}
+@keyframes pm-document-reveal {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.details-chevron-btn--expanded .v-icon { transform: rotate(180deg); }
+.details-chevron-btn .v-icon { transition: transform 280ms cubic-bezier(.2, 1.2, .4, 1); }
+.pm-no-animations .document-list__selection-marker,
+.pm-no-animations .document-row,
+.pm-no-animations .document-row__thumb,
+.pm-no-animations .document-row .document-row__actions,
+.pm-no-animations .details-chevron-btn .v-icon { transition: none; }
+.pm-no-animations .document-row--reveal { animation: none !important; }
+.pm-no-animations .document-row:active,
+.pm-no-animations .document-row:hover .document-row__thumb { transform: none; translate: none; rotate: none; scale: none; }
+@media (prefers-reduced-motion: reduce) {
+  .document-list__selection-marker, .document-row, .document-row__thumb,
+  .document-row .document-row__actions, .details-chevron-btn .v-icon { transition: none; }
+  .document-row--reveal { animation: none !important; }
+  .document-row:active, .document-row:hover .document-row__thumb { transform: none; translate: none; rotate: none; scale: none; }
 }
