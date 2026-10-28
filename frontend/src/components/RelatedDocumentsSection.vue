@@ -73,8 +73,8 @@ function formatDate(value) { return String(value).slice(0, 10).split('-').revers
 .related-documents__state { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 18px 0; font-size: 13px; color: var(--pm-muted); }
 .related-documents__retry { color: var(--pm-accent); font: inherit; font-weight: 600; }
 .related-documents__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.related-documents__item { width: 100%; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto 17px; align-items: center; gap: 12px; padding: 13px 14px; text-align: left; color: var(--pm-text); background: color-mix(in srgb, var(--pm-text) 2%, transparent); border: 1px solid var(--pm-divider); border-radius: 10px; cursor: pointer; transition: background-color 160ms ease, border-color 160ms ease; }
-.related-documents__item:hover { background: color-mix(in srgb, var(--pm-accent) 6%, transparent); border-color: color-mix(in srgb, var(--pm-accent) 35%, var(--pm-divider)); }
+.related-documents__item { width: 100%; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto 17px; align-items: center; gap: 12px; padding: 13px 14px; text-align: left; color: var(--pm-text); background: var(--pm-app-surface); border: 1px solid color-mix(in srgb, var(--pm-muted) 32%, var(--pm-divider)); border-radius: 10px; cursor: pointer; transition: background-color 160ms ease, border-color 160ms ease; }
+.related-documents__item:hover { background: color-mix(in srgb, var(--pm-accent) 7%, var(--pm-app-surface)); border-color: color-mix(in srgb, var(--pm-accent) 35%, var(--pm-divider)); }
 .related-documents__icon { display: grid; place-items: center; width: 34px; height: 40px; border-radius: 6px; background: color-mix(in srgb, var(--pm-accent) 8%, transparent); color: var(--pm-accent); }
 .related-documents__copy { min-width: 0; display: grid; gap: 6px; }
 .related-documents__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
