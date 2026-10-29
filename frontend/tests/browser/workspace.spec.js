@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { syntheticDocumentPdf } from './fixtures/syntheticDocumentPdf.js';
 
 const docId = '10000000-0000-4000-8000-000000000001';
 const user = { id: '20000000-0000-4000-8000-000000000001', username: 'review', is_admin: true, is_active: true };
@@ -136,6 +137,118 @@ for (const rememberDetails of [true, false]) {
     }
   });
 }
+
+test('turning a document and leaving its area preserves the remembered details state', async ({ page }) => {
+  await mockApi(page);
+  await page.route('**/api/documents/*/file?**', route => route.fulfill({ contentType: 'application/pdf', body: syntheticDocumentPdf() }));
+  await login(page);
+  const row = page.locator(`[data-document-id="${docId}"]`);
+  await row.click();
+  await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--expanded/);
+  await page.getByRole('button', { name: 'Dokument wenden – Zusammenhänge anzeigen' }).click();
+  await expect(page.locator('.document-flip')).not.toHaveClass(/document-flip--turning/);
+  await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--collapsed/);
+  const drawer = page.locator('.preview-layout__drawer');
+  await expect(drawer).toHaveAttribute('inert', '');
+  await expect(drawer).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('button', { name: 'Dokumentdetails öffnen', exact: true })).toHaveCount(0);
+  await page.getByRole('region', { name: 'Zusammenhänge zum Dokument' }).hover({ position: { x: 20, y: 20 } });
+  await expect(drawer).toHaveCSS('opacity', '0.45');
+  const header = page.locator('.details-drawer__header');
+  const bounds = await header.boundingBox();
+  await page.mouse.click(bounds.x + 30, bounds.y + 20);
+  await expect(drawer).toHaveCSS('opacity', '0.45');
+  // Even a synthetic click cannot bypass the inactive drawer's event guard.
+  await header.dispatchEvent('click');
+  await expect(page.locator('.document-flip')).toHaveClass(/document-flip--back/);
+  await expect(drawer).toHaveClass(/pm-drawer--collapsed/);
+  expect(await drawer.evaluate(el => { el.querySelector('button')?.focus(); return el.contains(document.activeElement); })).toBe(false);
+  expect(await page.evaluate(() => localStorage.getItem('pm.drawerExpanded'))).toBe('1');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--expanded/);
+  await expect(drawer).not.toHaveAttribute('inert', '');
+  await expect(drawer).toHaveCSS('opacity', '1');
+  await expect(page.getByRole('button', { name: 'Dokumentdetails schließen', exact: true })).toBeVisible();
+  await expect(row).toHaveClass(/document-row--active/);
+  await page.getByRole('button', { name: 'Dokument wenden – Zusammenhänge anzeigen' }).click();
+  await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--collapsed/);
+  await page.getByText('Alle Notizen', { exact: true }).first().click();
+  await expect(page.locator('.notes-ws__heading')).toHaveText('Notizen');
+  await page.getByText('Alle Dokumente', { exact: true }).first().click();
+  await row.click();
+  await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--expanded/);
+  await expect(page.locator('.document-flip')).not.toHaveClass(/document-flip--back/);
+  expect(await page.evaluate(() => localStorage.getItem('pm.drawerExpanded'))).toBe('1');
+});
+
+test('selecting another document keeps its back and ignores superseded connection responses', async ({ page }) => {
+  await mockApi(page);
+  const docs = ['A', 'B', 'C'].map((label, index) => ({
+    id: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+    original_filename: `Dokument ${label}.pdf`, display_name: `Dokument ${label}`,
+    notes: '', document_date: null, status: 'ready', ocr_status: 'not_started',
+    text_source: 'none', embedding_status: 'not_started', is_deleted: false,
+    is_unread: false, tags: [], files: [], jobs: [], flags: {}, page_count: 1,
+    created_at: '2026-10-01T10:00:00Z', updated_at: '2026-10-01T10:00:00Z',
+  }));
+  const releases = [];
+  let oldFinished = 0;
+  await page.route('**/api/**', async route => {
+    const url = new URL(route.request().url());
+    const json = body => route.fulfill({ json: body });
+    if (url.pathname === '/api/documents') return json({ items: docs, total: 3, limit: 100, offset: 0 });
+    if (url.pathname === '/api/notes' && url.searchParams.get('document_id')) {
+      const doc = docs.find(item => item.id === url.searchParams.get('document_id'));
+      if (doc) return json({ items: [{ id: `note-${doc.id}`, title: `Notiz zu ${doc.display_name}` }] });
+    }
+    const doc = docs.find(item => url.pathname.startsWith(`/api/documents/${item.id}`));
+    if (!doc) return route.fallback();
+    if (url.pathname.endsWith('/file')) return route.fulfill({ contentType: 'application/pdf', body: syntheticDocumentPdf() });
+    if (url.pathname.endsWith('/related')) {
+      if (doc.id === docs[1].id) await new Promise(resolve => releases.push(resolve));
+      await json({ items: [{ id: `related-${doc.id}`, title: `Verbindung zu ${doc.display_name}`, same_correspondent: true, shared_tags: [] }] });
+      if (doc.id === docs[1].id) oldFinished++;
+      return;
+    }
+    if (url.pathname.endsWith('/learn-highlights')) return json({ items: [{ id: `highlight-${doc.id}`, note_id: `note-${doc.id}`, quote: `Markierung zu ${doc.display_name}`, color: 'important', page: 1 }] });
+    if (url.pathname === `/api/documents/${doc.id}`) return json(doc);
+    return route.fallback();
+  });
+  try {
+    await login(page);
+    const row = index => page.locator(`[data-document-id="${docs[index].id}"]`);
+    await row(0).click();
+    await page.getByRole('button', { name: 'Dokument wenden – Zusammenhänge anzeigen' }).click();
+    const reverse = page.getByRole('region', { name: 'Zusammenhänge zum Dokument' });
+    await expect(reverse.getByRole('button', { name: /Verbindung zu Dokument A/ })).toBeVisible();
+    await row(1).click();
+    await expect.poll(() => releases.length).toBeGreaterThan(0);
+    await expect(page.locator('.document-flip')).toHaveClass(/document-flip--back/);
+    await expect(reverse.locator('.document-flip__heading p')).toHaveText('Dokument B');
+    await expect(reverse.getByText('Notiz zu Dokument A', { exact: true })).toHaveCount(0);
+    await row(2).click();
+    await expect(reverse.locator('.document-flip__heading p')).toHaveText('Dokument C');
+    for (const title of ['Verbindung zu Dokument C', 'Notiz zu Dokument C', 'Markierung zu Dokument C']) {
+      await expect(reverse.getByRole('button', { name: new RegExp(title) })).toBeVisible();
+    }
+    releases.splice(0).forEach(resolve => resolve());
+    await expect.poll(() => oldFinished).toBeGreaterThan(0);
+    await expect(reverse.getByRole('button', { name: /Verbindung zu Dokument C/ })).toBeVisible();
+    await expect(reverse.getByText('Verbindung zu Dokument B', { exact: true })).toHaveCount(0);
+    const drawer = page.locator('.preview-layout__drawer');
+    await expect(drawer).toHaveAttribute('inert', '');
+    await expect(drawer).toHaveCSS('opacity', '0.45');
+    await expect(page.locator('.details-chevron-btn')).toHaveCount(0);
+    await expect(page.locator('.document-flip__live .pdf-preview--document-ready')).toBeAttached();
+    await page.getByRole('button', { name: 'Zurück zum Dokument', exact: true }).click();
+    await expect(page.locator('.document-flip')).not.toHaveClass(/document-flip--turning|document-flip--back/);
+    await expect(row(2)).toHaveClass(/document-row--active/);
+    await expect(page.locator('.details-drawer__subtitle')).toHaveText('Dokument C');
+    await expect(drawer).not.toHaveAttribute('inert', '');
+    await row(0).click();
+    await expect(page.locator('.document-flip')).not.toHaveClass(/document-flip--back/);
+  } finally { releases.splice(0).forEach(resolve => resolve()); }
+});
 
 async function openTrashWithMixedItems(page) {
   await mockApi(page);

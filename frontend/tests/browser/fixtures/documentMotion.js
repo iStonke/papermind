@@ -14,11 +14,14 @@ export function mount() {
     store.selectedDocumentId = 'doc-0';
     const state = reactive({ key: 'a', open: false, filter: 'all' });
     const swap = ref(null);
-    window.motion = { state, store, reveal: () => swap.value.reveal(state.key), nextTick };
+    window.motion = { state, store, reveal: (key = state.key) => swap.value.reveal(key), nextTick };
     const app = createApp({ render: () => h('main', [
       h('div', { style: 'height:450px;width:500px;display:flex' }, [h(Swap, { ref: swap, transitionKey: state.key }, {
-        default: () => h('div', { key: state.key, class: 'pdf-preview pdf-preview--document-ready', style: 'flex:1;background:#ccc;display:flex' }, [
+        default: () => h('div', { key: state.key, class: 'pdf-preview pdf-preview--document-ready', style: 'flex:1;background:#ccc;display:flex;flex-direction:column' }, [
+          h('div', { class: 'pdf-preview__toolbar', style: 'height:28px' }, 'Steuerung'),
+          h('div', { class: 'pdf-preview__pages', style: 'flex:1' }, [
           h('canvas', { width: 100, height: 100, style: 'width:100px;height:100px', ref: el => { if (el) { const c = el.getContext('2d'); c.fillStyle = state.key === 'a' ? 'red' : 'blue'; c.fillRect(0, 0, 100, 100); } } })
+          ])
         ])
       })]),
       h('div', { style: 'height:450px;width:500px' }, [h(Drawer, { showDrawer: true, isOpen: state.open }, {

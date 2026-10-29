@@ -1,0 +1,105 @@
+import { test, expect } from '@playwright/test';
+import { syntheticDocumentPdf } from './fixtures/syntheticDocumentPdf.js';
+async function mount(page) {
+  await page.setViewportSize({ width: 1280, height: 950 });
+  await page.route('**/__details-test.pdf', route => route.fulfill({ contentType: 'application/pdf', body: syntheticDocumentPdf() }));
+  await page.route('**/__document-dock', route => route.fulfill({ contentType: 'text/html', body: '<html><body style="margin:0"><div id="app"></div></body></html>' }));
+  await page.route(url => url.pathname.startsWith('/api/'), route => route.fulfill({ json: { items: [], has_more: false } }));
+  await page.goto('/__document-dock');
+  await page.evaluate(async () => (await import('/tests/browser/fixtures/documentDock.js')).mount());
+  await expect(page.getByRole('button', { name: 'Dokument wenden – Zusammenhänge anzeigen' })).toBeVisible();
+}
+const settled = page => expect(page.locator('.document-flip')).not.toHaveClass(/document-flip--turning/);
+test('turns the actual sheet to a useful back, returns with Escape and keeps PDF and fields mounted', async ({ page }) => {
+  await mount(page);
+  await page.getByRole('button', { name: 'Dokumentdetails umschalten' }).click();
+  const name = page.getByLabel('Dokumentname', { exact: true });
+  await name.fill('Mein unveränderter Entwurf');
+  await name.evaluate(el => { window.originalField = el; });
+  await page.locator('.pdf-preview').evaluate(el => { window.originalPdfPreview = el; });
+  await page.getByRole('button', { name: 'Dokument wenden – Zusammenhänge anzeigen' }).click();
+  await expect.poll(() => page.locator('.document-flip__snapshot canvas').count()).toBeGreaterThan(0);
+  await expect(page.locator('.document-flip__live')).toHaveAttribute('inert', '');
+  await settled(page);
+  const reverse = page.getByRole('region', { name: 'Zusammenhänge zum Dokument' });
+  await expect(reverse).toBeFocused();
+  for (const title of ['Ähnliche Dokumente', 'Verknüpfte Notizen', 'Lernmarkierungen']) await expect(reverse.getByRole('heading', { name: new RegExp(title) })).toBeVisible();
+  await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--collapsed/);
+  await expect.poll(() => reverse.evaluate(el => el.clientHeight)).toBeGreaterThan(400);
+  await expect.poll(() => page.locator('.preview-layout__drawer').evaluate(el => el.getAnimations().filter(animation => animation.playState === 'running').length)).toBe(0);
+  await page.screenshot({ path: '/tmp/papermind-document-back-dark.png' });
+  await page.keyboard.press('Escape');
+  await settled(page);
+  await expect(page.getByRole('button', { name: 'Dokument wenden – Zusammenhänge anzeigen' })).toBeFocused();
+  await expect(page.locator('.document-flip__live')).not.toHaveAttribute('inert', '');
+  await expect(name).toHaveValue('Mein unveränderter Entwurf');
+  expect(await name.evaluate(el => el === window.originalField)).toBe(true);
+  expect(await page.locator('.pdf-preview').evaluate(el => el === window.originalPdfPreview)).toBe(true);
+  await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--expanded/);
+  await expect(page.locator('.document-flip__snapshot canvas')).toHaveCount(0);
+});
+test('loads connections on the back, opens their targets and clears the previous document', async ({ page }) => {
+  await mount(page);
+  let requests = 0;
+  await page.route('**/api/documents/*/related?limit=5', route => {
+    requests++;
+    return route.fulfill({ json: { items: [{ id: 'other-document', title: 'Police.pdf', same_correspondent: true, shared_tag_count: 1, shared_tags: ['Vertrag'] }] } });
+  });
+  await page.route('**/api/notes?**', route => route.fulfill({ json: { items: [{ id: 'note-a', title: 'Meine Notiz', preview: 'Ein Gedanke' }] } }));
+  await page.route('**/api/documents/*/learn-highlights', route => route.fulfill({ json: { items: [{ id: 'highlight-a', note_id: 'note-a', quote: 'Wichtige Stelle', color: 'important', page: 1, note_title: 'Meine Notiz' }] } }));
+  expect(requests).toBe(0);
+  await page.getByRole('button', { name: 'Dokument wenden – Zusammenhänge anzeigen' }).click();
+  await settled(page);
+  const reverse = page.getByRole('region', { name: 'Zusammenhänge zum Dokument' });
+  await reverse.getByRole('button', { name: /Meine Notiz Ein Gedanke/ }).click();
+  expect(await page.evaluate(() => window.dock.lastOpenedNote)).toBe('note-a');
+  await reverse.getByRole('button', { name: /Wichtige Stelle/ }).click();
+  expect(await page.evaluate(() => window.dock.lastOpenedHighlight.id)).toBe('highlight-a');
+  await reverse.getByRole('button', { name: 'Notiz hinzufügen', exact: true }).click();
+  expect(await page.evaluate(() => window.dock.createdNote)).toBe(true);
+  await reverse.getByRole('button', { name: /Police/ }).click();
+  await expect.poll(() => page.evaluate(() => window.dock.lastRelatedDocument)).toBe('other-document');
+  await expect(page.locator('.document-flip')).toHaveClass(/document-flip--back/);
+  await expect(page.locator('.document-flip__snapshot canvas')).toHaveCount(0);
+});
+test('rapid reversals, resizing, reduced motion and the animation switch settle on the requested side', async ({ page }) => {
+  await mount(page);
+  await page.evaluate(async () => {
+    void window.dock.flip.turn(true);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    void window.dock.flip.turn(false);
+    await new Promise(resolve => setTimeout(resolve, 70));
+    void window.dock.flip.turn(true);
+  });
+  await settled(page);
+  await expect(page.locator('.document-flip')).toHaveClass(/document-flip--back/);
+  await page.evaluate(() => { window.dock.width = 390; window.dock.height = 480; window.dock.theme = 'light'; });
+  const reverse = page.getByRole('region', { name: 'Zusammenhänge zum Dokument' });
+  await expect.poll(() => reverse.evaluate(el => el.getBoundingClientRect().width)).toBeLessThan(360);
+  expect(await reverse.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await page.screenshot({ path: '/tmp/papermind-document-back-narrow.png' });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByRole('button', { name: 'Zurück zum Dokument', exact: true }).click();
+  await settled(page);
+  await page.getByRole('button', { name: 'Dokument wenden – Zusammenhänge anzeigen' }).click();
+  await settled(page);
+  expect(await page.locator('.document-flip__card').evaluate(el => el.getAnimations().length)).toBe(0);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.locator('.papermind-app').evaluate(el => el.classList.add('pm-no-animations'));
+  await page.getByRole('button', { name: 'Zurück zum Dokument', exact: true }).click();
+  await settled(page);
+  expect(await page.locator('.document-flip__card').evaluate(el => el.getAnimations().length)).toBe(0);
+});
+
+test('returning remains possible when the PDF fails while showing its back', async ({ page }) => {
+  await mount(page);
+  await page.getByRole('button', { name: 'Dokument wenden – Zusammenhänge anzeigen' }).click();
+  await settled(page);
+  await page.route('**/__failed-preview.pdf', route => route.fulfill({ status: 404, body: '' }));
+  await page.evaluate(() => { window.dock.previewSource = '/__failed-preview.pdf'; });
+  await expect(page.locator('.document-flip__live .pdf-preview__placeholder')).toBeAttached();
+  await page.getByRole('button', { name: 'Zurück zum Dokument', exact: true }).click();
+  await settled(page);
+  await expect(page.getByText('Vorschau nicht verfügbar', { exact: true })).toBeVisible();
+  await expect(page.locator('.document-flip__snapshot canvas')).toHaveCount(0);
+});

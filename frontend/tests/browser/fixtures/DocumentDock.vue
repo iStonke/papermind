@@ -2,12 +2,18 @@
   <div :class="['papermind-app', `v-theme--${theme}`]" :data-theme="theme">
     <div class="dock-demo" :style="{ width: `${width}px`, height: `${height}px` }">
       <DocumentPreviewLayout class="panel-right__preview panel-right__preview--details-panel" show-drawer
-        :is-open="open" :content-key="documentKey" :section-key="activeTab" body-id="demo-details">
+        :drawer-disabled="backLocked" :is-open="open && !backVisible" :content-key="documentKey" :section-key="activeTab" body-id="demo-details">
         <template #viewer>
-          <PdfPreview ref="preview" src="/__details-test.pdf" fit-page enable-reader />
+          <DocumentFlipPreview ref="flip" @change="backVisible = $event" @lock-change="backLocked = $event" :document-key="documentKey" :title="title" :page="preview?.currentPage || 1">
+            <PdfPreview ref="preview" :src="previewSource" fit-page enable-reader />
+            <template #back="{ active }"><DocumentConnections :document-id="documentKey" :active="active" :show-suffix="showSuffix"
+              :match-key="String(matchRevision)" :reload-key="notesRevision"
+              @open-document="lastRelatedDocument = $event; documentKey = $event"
+              @open-note="lastOpenedNote = $event" @new-note="createdNote = true" @open-highlight="lastOpenedHighlight = $event" /></template>
+          </DocumentFlipPreview>
         </template>
         <template #drawer-header>
-          <div :class="['details-drawer__header', open ? 'details-drawer__header--expanded' : 'details-drawer__header--collapsed']" @click="open = !open">
+          <div :class="['details-drawer__header', open && !backVisible ? 'details-drawer__header--expanded' : 'details-drawer__header--collapsed']" @click="open = !open">
             <div class="details-drawer__inner"><div class="details-command-bar">
               <div class="details-command-bar__left"><div class="details-drawer__title-row"><div class="details-drawer__title-wrap">
                 <div class="details-drawer__eyebrow"><div class="details-drawer__eyebrow-inner"><MetadataSaveIndicator :saving="saving" :error="error" :document-key="documentKey" /></div></div>
@@ -16,12 +22,12 @@
               </div></div></div>
               <div class="details-command-bar__right" @click.stop>
                 <v-btn icon="mdi-dots-vertical" variant="text" size="small" class="details-action-btn details-action-btn--quiet" aria-label="Weitere Aktionen" />
-                <v-btn icon="mdi-chevron-up" variant="text" size="small" class="details-action-btn details-action-btn--quiet details-chevron-btn" :class="{ 'details-chevron-btn--expanded': open }" aria-label="Dokumentdetails umschalten" :aria-expanded="open" aria-controls="demo-details" @click="open = !open" />
+                <v-btn v-if="!backLocked" icon="mdi-chevron-up" variant="text" size="small" class="details-action-btn details-action-btn--quiet details-chevron-btn" :class="{ 'details-chevron-btn--expanded': open && !backVisible }" aria-label="Dokumentdetails umschalten" :aria-expanded="open && !backVisible" aria-controls="demo-details" @click="open = !open" />
               </div>
             </div></div>
           </div>
         </template>
-        <template #drawer-tabs><DocumentDetailsTabs :tabs="tabs" :active-tab="activeTab" :is-open="open" panel-id="demo-details" @select="selectTab" /></template>
+        <template #drawer-tabs><DocumentDetailsTabs :tabs="tabs" :active-tab="activeTab" :is-open="open && !backVisible" panel-id="demo-details" @select="selectTab" /></template>
         <template #drawer-body>
           <div class="details-drawer__body"><div class="details-drawer__inner pm-drawer-body">
             <section v-show="activeTab === 'metadata'" id="demo-details-metadata" role="tabpanel" aria-labelledby="demo-details-tab-metadata" class="details-tab-panel" tabindex="0">
@@ -53,6 +59,8 @@
   </div>
 </template>
 <script setup>
+import DocumentFlipPreview from '../../../src/components/DocumentFlipPreview.vue';
+import DocumentConnections from '../../../src/components/DocumentConnections.vue';
 import { reactive, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import DocumentPreviewLayout from '../../../src/components/DocumentPreviewLayout.vue';
@@ -64,11 +72,13 @@ import RelatedDocumentsSection from '../../../src/components/RelatedDocumentsSec
 import DocumentNotesSection from '../../../src/components/notes/DocumentNotesSection.vue';
 import DocumentLearnHighlightsSection from '../../../src/components/notes/DocumentLearnHighlightsSection.vue';
 import RetentionStatusBar from '../../../src/components/RetentionStatusBar.vue';
-const preview = ref(null);
+const preview = ref(null), flip = ref(null), lastOpenedNote = ref(null), lastOpenedHighlight = ref(null), createdNote = ref(false);
+const previewSource = ref('/__details-test.pdf');
 const showSuffix = ref(false);
 const activeTab = ref('metadata'), notesRevision = ref(0), matchRevision = ref(0), lastRelatedDocument = ref('');
 const tabs = [{ id: 'metadata', label: 'Metadaten' }, { id: 'related', label: 'Ähnliche Dokumente' }, { id: 'notes', label: 'Notizen' }, { id: 'highlights', label: 'Lernmarkierungen' }, { id: 'retention', label: 'Aufbewahrung' }];
 function selectTab(id) { activeTab.value = id; preview.value?.resetZoom(); open.value = true; }
+const backVisible = ref(false), backLocked = ref(false);
 const open = ref(false), saving = ref(false), error = ref(false);
 const documentKey = ref('document-a'), title = ref('Teilnahmebestätigung · Gestaltungsseminar');
 const theme = ref('dark'), width = ref(850), height = ref(720);
@@ -76,7 +86,7 @@ const activeTheme = useTheme();
 watch(theme, value => { activeTheme.global.name.value = value; });
 const form = reactive({ name: 'Teilnahmebestätigung · Gestaltungsseminar', date: '28.10.2026', category: 'Seminar', correspondent: 'nordlicht', note: 'Unterlagen für die nächste Weiterbildung aufbewahren.' });
 watch(open, value => { if (value) preview.value?.resetZoom(); });
-defineExpose({ showSuffix, activeTab, notesRevision, matchRevision, lastRelatedDocument, preview, open, saving, error, documentKey, title, form, theme, width, height });
+defineExpose({ flip, previewSource, lastOpenedNote, lastOpenedHighlight, createdNote, showSuffix, activeTab, notesRevision, matchRevision, lastRelatedDocument, preview, open, saving, error, documentKey, title, form, theme, width, height });
 </script>
 <style scoped>
 .papermind-app { min-height:100vh; padding:36px; background:var(--pm-app-bg, #182326); color:var(--pm-text); font-family:Arial,sans-serif; }

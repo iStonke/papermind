@@ -1125,11 +1125,12 @@
           <DocumentPreviewLayout
             class="panel-right__preview panel-right__preview--details-panel"
             :show-drawer="!selectedTrashNoteId && !isTagView && !isCategoryView && Boolean(selectedDocumentDetail) && (!isChatView || chatPreviewVisible)"
-            :is-open="isDetailsDrawerOpen"
+            :is-open="isDetailsDrawerVisuallyOpen"
             :content-key="selectedDocumentDetail?.id"
             :section-key="activeDetailsTab"
             :body-id="detailsBodyId"
             :auto-hide-drawer="autoHideDetailsDrawer"
+            :drawer-disabled="documentBackLocked"
             :collapsed-height="DETAILS_DRAWER_COLLAPSED_HEIGHT"
           >
             <template #viewer>
@@ -1357,32 +1358,42 @@
                   <v-icon size="16">mdi-close</v-icon>
                   Schließen
                 </button>
-                <PreviewSwap ref="previewSwapRef" :transition-key="previewRenderKey">
-                  <PdfPreview
-                    ref="panePreviewRef"
-                    :key="previewRenderKey"
-                    class="preview-frame"
-                    :src="previewSrc"
-                    fit-page
-                    :target-page="previewTargetPage"
-                    :highlight-text="previewHighlightText"
-                    :annotatable="true"
-                    :annotations="documentAnnotations"
-                    :enable-reader="true"
-                    :enable-download="true"
-                    @first-page="previewSwapRef?.reveal(previewRenderKey)"
-                    @failed="previewSwapRef?.reveal(previewRenderKey); onPreviewFrameError(selectedDocumentId)"
-                    @loaded="onPreviewFrameLoad(selectedDocumentId)"
-                    @create-annotation="onCreateAnnotation"
-                    @delete-annotation="onDeleteAnnotation"
-                    @update-annotation="onUpdateAnnotation"
-                    @open-reader="openReader"
-                    @download="downloadSelectedDocument('searchable')"
-                    @request-link="onRequestLink"
-                    @request-comment="onRequestCommentAnnotation"
-                    @create-note-quote="createNoteQuoteFromSelection"
-                  />
-                </PreviewSwap>
+                <DocumentFlipPreview ref="documentFlipRef" @before-turn="previewSwapRef?.settleEntrance()" @change="documentBackVisible = $event" @lock-change="documentBackLocked = $event" :document-key="selectedDocumentId" :title="previewDocumentTitle"
+                  :page="panePreviewRef?.currentPage || 1" :enabled="Boolean(selectedDocumentId)">
+                  <PreviewSwap ref="previewSwapRef" :transition-key="previewRenderKey">
+                    <PdfPreview
+                      ref="panePreviewRef"
+                      :key="previewRenderKey"
+                      class="preview-frame"
+                      :src="previewSrc"
+                      fit-page
+                      :target-page="previewTargetPage"
+                      :highlight-text="previewHighlightText"
+                      :annotatable="true"
+                      :annotations="documentAnnotations"
+                      :enable-reader="true"
+                      :enable-download="true"
+                      @first-page="previewSwapRef?.reveal(previewRenderKey)"
+                      @failed="previewSwapRef?.reveal(previewRenderKey); onPreviewFrameError(selectedDocumentId)"
+                      @loaded="onPreviewFrameLoad(selectedDocumentId)"
+                      @create-annotation="onCreateAnnotation"
+                      @delete-annotation="onDeleteAnnotation"
+                      @update-annotation="onUpdateAnnotation"
+                      @open-reader="openReader"
+                      @download="downloadSelectedDocument('searchable')"
+                      @request-link="onRequestLink"
+                      @request-comment="onRequestCommentAnnotation"
+                      @create-note-quote="createNoteQuoteFromSelection"
+                    />
+                  </PreviewSwap>
+                  <template #back="{ active }">
+                    <DocumentConnections :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
+                      :match-key="relatedDocumentMatchKey" :active="active" :in-trash="isTrashView" :show-suffix="showPdfSuffix"
+                      :reload-key="linkedNotesReloadKey" :creating="isCreatingLinkedNote"
+                      @open-document="openDocumentFromDashboard" @open-note="openLinkedNoteInWorkspace"
+                      @new-note="createLinkedNoteForSelectedDocument" @open-highlight="openLearnHighlightInNote" />
+                  </template>
+                </DocumentFlipPreview>
               </div>
               <div v-else-if="isChatView" class="knowledge-home">
                 <KnowledgeStage
@@ -1402,7 +1413,7 @@
             <template #drawer-header>
               <div
                 class="details-drawer__header"
-                :class="isDetailsDrawerOpen ? 'details-drawer__header--expanded' : 'details-drawer__header--collapsed'"
+                :class="isDetailsDrawerVisuallyOpen ? 'details-drawer__header--expanded' : 'details-drawer__header--collapsed'"
                 @click="handleDetailsDrawerHeaderClick"
               >
                 <div class="details-drawer__inner">
@@ -1515,14 +1526,15 @@
 
                       <!-- Disclosure: Auf-/Zuklappen (leise, strukturell) -->
                       <v-btn
+                        v-if="!documentBackLocked"
                         :icon="detailsDrawerChevronIcon"
                         size="small"
                         density="comfortable"
                         variant="text"
                         class="details-action-btn details-action-btn--quiet details-chevron-btn"
                         :class="{ 'details-chevron-btn--expanded': isDetailsDrawerChevronExpanded }"
-                        :aria-label="isDetailsDrawerOpen ? 'Dokumentdetails schließen' : 'Dokumentdetails öffnen'"
-                        :aria-expanded="isDetailsDrawerOpen"
+                        :aria-label="isDetailsDrawerVisuallyOpen ? 'Dokumentdetails schließen' : 'Dokumentdetails öffnen'"
+                        :aria-expanded="isDetailsDrawerVisuallyOpen"
                         :aria-controls="detailsBodyId"
                         @click="toggleDetailsDrawer"
                       />
@@ -1534,7 +1546,7 @@
 
             <template #drawer-tabs>
               <DocumentDetailsTabs :tabs="detailsTabs" :active-tab="activeDetailsTab" :panel-id="detailsBodyId"
-                :is-open="isDetailsDrawerOpen" @select="selectDetailsTab" />
+                :is-open="isDetailsDrawerVisuallyOpen" @select="selectDetailsTab" />
             </template>
             <template #drawer-body>
               <div v-if="selectedDocumentDetail" class="details-drawer__body">
@@ -1578,7 +1590,7 @@
                     :aria-labelledby="`${detailsBodyId}-tab-related`" tabindex="0" class="details-tab-panel">
                     <RelatedDocumentsSection :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
                       :match-key="relatedDocumentMatchKey" :in-trash="isTrashView" :show-suffix="showPdfSuffix"
-                      :enabled="isDetailsDrawerOpen && activeDetailsTab === 'related'"
+                      :enabled="isDetailsDrawerVisuallyOpen && activeDetailsTab === 'related'"
                       @open-document="openDocumentFromDashboard" />
                   </section>
                   <section v-show="activeDetailsTab === 'notes'" :id="`${detailsBodyId}-notes`" role="tabpanel"
@@ -1665,6 +1677,8 @@
 </template>
 
 <script setup>
+import DocumentFlipPreview from '../components/DocumentFlipPreview.vue';
+import DocumentConnections from '../components/DocumentConnections.vue';
 import { vListReveal } from '../directives/listReveal.js';
 import DocumentMetadataFields from '../components/DocumentMetadataFields.vue';
 import { rememberBootTheme } from '../utils/bootTheme.js';
@@ -2334,6 +2348,7 @@ async function createNoteQuoteFromSelection({ page, quote } = {}) {
 }
 
 const panePreviewRef = ref(null);
+const documentFlipRef = ref(null), documentBackVisible = ref(false), documentBackLocked = ref(false);
 const previewSwapRef = ref(null);
 
 // Wissen blendet die Vorschau erst ein, wenn eine Quelle aus einer Antwort
@@ -3483,7 +3498,8 @@ const isDetailsDrawerOpen = computed({
 watch([activeView, () => route.path], () => {
   settingsStore.initializeDrawerExpandedState();
 });
-const isDetailsDrawerChevronExpanded = computed(() => isDetailsDrawerOpen.value);
+const isDetailsDrawerVisuallyOpen = computed(() => isDetailsDrawerOpen.value && !documentBackVisible.value);
+const isDetailsDrawerChevronExpanded = computed(() => isDetailsDrawerVisuallyOpen.value);
 const detailsDrawerChevronIcon = 'mdi-chevron-up';
 const autoHideDetailsDrawer = computed(
   () => settingsStore.settingsDraft.ui.autoHideDetailsDrawer === true
@@ -4210,6 +4226,13 @@ const activeSavedSearch = computed(() => {
 });
 const activeSavedSearchName = computed(() => activeSavedSearch.value?.name || '');
 
+const previewDocumentTitle = computed(() => {
+  const id = selectedDocumentId.value;
+  const document = selectedDocumentDetail.value?.id === id
+    ? selectedDocumentDetail.value
+    : documents.value.find(item => item.id === id);
+  return document ? formatDocumentTitle(document) : '';
+});
 const previewRenderKey = computed(() => {
   if (!selectedDocumentId.value) {
     return `empty:${previewReloadNonce.value}`;
@@ -6815,6 +6838,7 @@ function closeDetailsDrawerWithGuard({ preserveRememberedState = false } = {}) {
 }
 
 function toggleDetailsDrawer() {
+  if (documentBackLocked.value) return;
   if (isDetailsDrawerOpen.value) {
     closeDetailsDrawerWithGuard();
     return;

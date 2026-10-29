@@ -4,7 +4,8 @@
     class="preview-layout"
     :class="{
       'preview-layout--drawer-open': showDrawer && isOpen,
-      'preview-layout--drawer-auto-hide': showDrawer && autoHideDrawer
+      'preview-layout--drawer-auto-hide': showDrawer && autoHideDrawer,
+      'preview-layout--drawer-disabled': showDrawer && drawerDisabled
     }"
   >
     <div class="preview-layout__viewer">
@@ -19,6 +20,9 @@
         isOpen ? 'pm-drawer--expanded' : 'pm-drawer--collapsed'
       ]"
       :style="drawerStyle"
+      :inert="drawerDisabled"
+      :aria-disabled="drawerDisabled || undefined"
+      @click.capture="blockDisabledDrawer"
       role="region"
       aria-label="Dokumentdetails"
     >
@@ -52,6 +56,7 @@ const props = defineProps({
   showDrawer: { type: Boolean, default: false },
   isOpen: { type: Boolean, default: false },
   autoHideDrawer: { type: Boolean, default: false },
+  drawerDisabled: { type: Boolean, default: false },
   contentKey: { type: [String, Number], default: '' },
   sectionKey: { type: String, default: '' },
   bodyId: { type: String, default: '' },
@@ -74,6 +79,12 @@ const hasMoreBelow = ref(false);
 let observer;
 let frame;
 let swapAnimations = [];
+
+function blockDisabledDrawer(event) {
+  if (!props.drawerDisabled) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
 
 function updateScrollCue() {
   const body = bodyEl.value;
@@ -189,7 +200,8 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--pm-divider);
   background: var(--preview-drawer-card-bg);
   box-shadow: 0 -6px 24px rgb(0 0 0 / .045);
-  transition: height var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing), opacity 180ms ease;
+  opacity: 1;
+  transition: height var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing), opacity 420ms cubic-bezier(.4, 0, .2, 1);
 }
 .preview-layout__drawer::before {
   content: ''; position: absolute; inset: 0 auto auto 0; height: 2px; width: 100%;
@@ -221,6 +233,8 @@ onBeforeUnmount(() => {
 .preview-layout__scroll-cue { position: absolute; bottom: 0; inset-inline: 0; height: 20px; z-index: 3; pointer-events: none; opacity: 0; background: linear-gradient(transparent, var(--preview-drawer-card-bg)); transition: opacity 180ms ease; }
 .preview-layout__scroll-cue--visible { opacity: 1; }
 .preview-layout--drawer-auto-hide:not(:hover):not(:focus-within) .preview-layout__drawer { opacity: .45; }
+.preview-layout--drawer-disabled .preview-layout__drawer { opacity: .45; pointer-events: none; }
+.preview-layout--drawer-disabled :deep(.details-drawer__header) { cursor: default; }
 .pm-drawer :deep(:focus-visible) { outline: 2px solid color-mix(in srgb, var(--pm-accent) 55%, transparent); outline-offset: 2px; border-radius: 6px; }
 :global(.pm-no-animations .preview-layout__drawer),
 :global(.pm-no-animations .preview-layout__drawer::before),

@@ -61,3 +61,46 @@ test('the app animation switch skips movement as well', async ({ page }) => {
   expect(await page.locator('.document-row').evaluateAll(rows => rows.flatMap(row => row.getAnimations()).length)).toBe(0);
   await expect(page.locator('.preview-layout__drawer')).toHaveCSS('transition-duration', '0s');
 });
+
+test('paper settles independently of the toolbar and interaction completes the entrance without replay', async ({ page }) => {
+  await mountMotion(page);
+  await page.evaluate(() => window.motion.reveal());
+  const paper = page.locator('.preview-swap .pdf-preview__pages');
+  await expect.poll(() => paper.evaluate(el => el.getAnimations().length)).toBe(1);
+  const timing = await paper.evaluate(el => el.getAnimations()[0].effect.getTiming());
+  expect(timing.duration).toBe(640);
+  await expect(page.locator('.preview-swap .pdf-preview__toolbar')).toHaveCSS('transform', 'none');
+  await expect.poll(() => paper.evaluate(el => el.getAnimations().length)).toBe(0);
+  await expect(paper).toHaveCSS('transform', 'none');
+  const heldOpacity = await page.evaluate(async () => {
+    window.motion.state.key = 'b';
+    await window.motion.nextTick();
+    return getComputedStyle(document.querySelector('.preview-swap__snapshot')).opacity;
+  });
+  expect(heldOpacity).toBe('1');
+  await page.evaluate(() => window.motion.reveal());
+  await expect.poll(() => paper.evaluate(el => el.getAnimations().length)).toBe(1);
+  await paper.dispatchEvent('pointerdown');
+  expect(await paper.evaluate(el => el.getAnimations().length)).toBe(0);
+  await expect(page.locator('.preview-swap__snapshot canvas')).toHaveCount(0);
+  await expect(page.locator('.preview-swap__live')).toHaveCSS('opacity', '1');
+  await page.evaluate(() => window.motion.reveal());
+  expect(await paper.evaluate(el => el.getAnimations().length)).toBe(0);
+});
+
+test('an older reveal and cleanup cannot interrupt a newer pending document', async ({ page }) => {
+  await mountMotion(page);
+  await page.evaluate(() => { window.motion.state.key = 'b'; });
+  await page.evaluate(() => window.motion.reveal());
+  await expect(page.locator('.preview-swap')).toHaveAttribute('aria-busy', 'false');
+  await page.evaluate(() => { window.motion.state.key = 'c'; });
+  await page.evaluate(async () => {
+    // Simulate the first-page event from an already superseded PDF render.
+    window.motion.reveal('b');
+    await new Promise(resolve => setTimeout(resolve, 760));
+  });
+  await expect(page.locator('.preview-swap')).toHaveAttribute('aria-busy', 'true');
+  expect(await page.locator('.preview-swap__snapshot canvas').count()).toBe(1);
+  await page.evaluate(() => window.motion.reveal());
+  await expect(page.locator('.preview-swap__snapshot canvas')).toHaveCount(0);
+});
