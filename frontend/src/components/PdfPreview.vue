@@ -457,6 +457,8 @@ const ZOOM_RENDER_DEBOUNCE_MS = 240;
 const ZOOM_EPSILON = 0.001;
 const MAX_CACHED_PAGES = 12;
 const PAGE_INFO_BATCH_SIZE = 6;
+const FIT_RENDER_UPSCALE_LIMIT = 1.02;
+const FIT_RENDER_DOWNSCALE_LIMIT = 0.45;
 // pdfByteCache + PDF_BYTE_CACHE_MAX_ENTRIES liegen modulweit (oberer <script>-Block),
 // damit sie das Neu-Mounten der Komponente überleben.
 
@@ -755,6 +757,7 @@ const pagesEl    = ref(null);
 const stageSize = ref({ width: 0, height: 0 });
 const renderedViewports = ref({});
 let resizePage = null;
+let renderDeferred = false;
 const isLoading  = ref(false);
 const errorMessage = ref('');
 
@@ -901,6 +904,15 @@ function pageInnerStyle(info) {
   if (!props.fitPage || !rendered) return {};
   const width = visualPageDimensions(info).width * computeScale(info);
   return { width: `${rendered.width}px`, height: `${rendered.height}px`, transformOrigin: 'top left', transform: `scale(${width / rendered.width})` };
+}
+
+// Downscaling a devicePixelRatio bitmap stays sharp; upscaling blurs and a
+// heavy downscale wastes memory, so only those cases need a fresh render.
+function fitRenderIsStale(info) {
+  const rendered = info && renderedViewports.value[info.page];
+  if (!rendered) return true;
+  const ratio = visualPageDimensions(info).width * computeScale(info) / rendered.width;
+  return ratio > FIT_RENDER_UPSCALE_LIMIT || ratio < FIT_RENDER_DOWNSCALE_LIMIT;
 }
 
 function pdfCacheKey(src) {
@@ -2579,6 +2591,7 @@ function teardownObservers() {
 
 async function setupObservers() {
   teardownObservers();
+  renderDeferred = false;
   await nextTick();
 
   const container = pagesEl.value;
@@ -2587,7 +2600,11 @@ async function setupObservers() {
   renderObserver = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
-        if (entry.isIntersecting) renderPage(Number(entry.target.dataset.page));
+        if (!entry.isIntersecting) continue;
+        // Pages entering the margin mid-resize would render at a transient
+        // scale and stall the drawer motion; the settle timer picks them up.
+        if (resizePage !== null) { renderDeferred = true; continue; }
+        renderPage(Number(entry.target.dataset.page));
       }
     },
     { root: container, rootMargin: '600px 0px', threshold: 0 }
@@ -2887,8 +2904,18 @@ async function updateStageSize(box) {
   zoomRenderTimer = window.setTimeout(async () => {
     zoomRenderTimer = 0;
     if (epoch !== loadEpoch) return;
+    // Fit-page pages are scaled by transform, so a smaller stage (drawer opens)
+    // only needs a new pdf.js render where the bitmap would be upscaled.
+    const stalePages = props.fitPage
+      ? [...renderedPages].filter(pageNum => fitRenderIsStale(pageInfos.value[pageNum - 1]))
+      : [...renderedPages];
+    if (!stalePages.length && !renderQueue.size && !renderDeferred) {
+      resizePage = null;
+      recalcCurrentPage();
+      return;
+    }
     renderGeneration++;
-    renderedPages.clear();
+    stalePages.forEach(pageNum => renderedPages.delete(pageNum));
     renderQueue.clear();
     await setupObservers();
     if (epoch === loadEpoch) { resizePage = null; recalcCurrentPage(); }
