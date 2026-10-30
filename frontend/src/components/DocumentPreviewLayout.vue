@@ -2,19 +2,20 @@
   <div
     ref="rootEl"
     class="preview-layout"
-    :style="overlapStyle"
     :class="{
       'preview-layout--drawer-open': showDrawer && isOpen && !drawerHidden,
       'preview-layout--drawer-disabled': showDrawer && drawerDisabled,
-      'preview-layout--drawer-hidden': showDrawer && drawerHidden
+      'preview-layout--drawer-hidden': showDrawer && drawerHidden,
+      'preview-layout--drawer-moving': drawerMoving
     }"
   >
-    <div class="preview-layout__viewer">
+    <div class="preview-layout__viewer" :style="viewerStyle">
       <slot name="viewer" />
     </div>
 
     <section
       v-if="showDrawer"
+      ref="drawerEl"
       :class="[
         'preview-layout__drawer',
         'pm-drawer',
@@ -52,7 +53,8 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, useId, watch } from 'vue';
+import { PREVIEW_STAGE, animateTravel, currentTranslateY } from '../utils/previewStageMotion.js';
 
 const props = defineProps({
   showDrawer: { type: Boolean, default: false },
@@ -68,6 +70,7 @@ const props = defineProps({
 });
 const fallbackBodyId = `document-details-${useId()}`;
 const rootEl = ref(null);
+const drawerEl = ref(null);
 const headerEl = ref(null);
 const tabsEl = ref(null);
 const tabsHeight = ref(0);
@@ -79,13 +82,29 @@ const containerHeight = ref(0);
 const headerHeight = ref(0);
 const hasMoreBelow = ref(false);
 const measuredOpen = ref(props.isOpen);
-const overlapStyle = computed(() => ({
-  '--preview-drawer-overlap': props.showDrawer && !props.isOpen && !props.drawerHidden
-    ? `${Math.max(props.collapsedHeight, headerHeight.value)}px` : '0px'
-}));
+// The drawer only ever moves by transform. Its layout target jumps at once;
+// while it travels the box keeps the taller of both heights so no edge shows,
+// and the viewer keeps the larger of both stages. The PDF learns the final
+// stage through `stageInset` and follows with its own transform.
+const drawerBox = ref(null);
+const drawerMoving = ref(false);
+const hiddenSettled = ref(props.drawerHidden);
+const appliedReserve = ref(0);
+const stageInset = ref(0);
+const stageMotion = shallowRef(null);
+// Only the collapsed header overlays the PDF; its pages scroll clear of it.
+const overlap = computed(() => (props.showDrawer && !props.isOpen && !props.drawerHidden
+  ? Math.max(props.collapsedHeight, headerHeight.value) : 0));
+provide(PREVIEW_STAGE, { motion: stageMotion, bottomInset: computed(() => overlap.value + stageInset.value) });
+const viewerStyle = computed(() => ({ marginBottom: `${appliedReserve.value}px` }));
 let observer;
 let frame;
 let swapAnimations = [];
+let drawerAnimation = null;
+let timing = null;
+let hiddenTimer = 0;
+let measured = false;
+let skipMotion = true;
 
 function blockDisabledDrawer(event) {
   if (!props.drawerDisabled && !props.drawerHidden) return;
@@ -102,6 +121,10 @@ function measureContent() {
   const header = headerEl.value;
   const body = bodyEl.value;
   if (!root || !header || !body) return;
+  // A resized container (window, split pane) follows immediately; only
+  // drawer-driven height changes are animated.
+  skipMotion = !measured || Math.abs(root.clientHeight - containerHeight.value) > 0.5;
+  measured = true;
   containerHeight.value = root.clientHeight;
   headerHeight.value = header.offsetHeight;
   tabsHeight.value = tabsEl.value?.offsetHeight || 0;
@@ -161,18 +184,97 @@ watch(() => [props.contentKey, props.sectionKey], async ([documentKey], [previou
     ], { duration: 220, easing: 'cubic-bezier(.16, 1, .3, 1)' }));
   }
 });
-const drawerStyle = computed(() => {
-  if (props.drawerHidden) return { height: '0px' };
-  if (!measuredOpen.value) return { height: `${Math.max(props.collapsedHeight, headerHeight.value)}px` };
+const targetHeight = computed(() => {
+  if (!measuredOpen.value) return Math.max(props.collapsedHeight, headerHeight.value);
   const cap = Math.max(headerHeight.value + tabsHeight.value + 1, containerHeight.value - props.minViewerHeight);
   const target = openHeight.value || contentHeight.value || props.collapsedHeight;
-  const height = Math.round(Math.min(target, contentHeight.value || target, cap || props.collapsedHeight));
-  return { height: `${height}px` };
+  return Math.round(Math.min(target, contentHeight.value || target, cap || props.collapsedHeight));
+});
+// Only the expanded drawer takes space from the viewer; the collapsed header
+// overlays the PDF.
+const reservedHeight = computed(() => (props.showDrawer && measuredOpen.value && !props.drawerHidden ? targetHeight.value : 0));
+const drawerStyle = computed(() => {
+  if (props.drawerHidden && hiddenSettled.value) return { height: '0px' };
+  return { height: `${drawerBox.value ?? targetHeight.value}px` };
+});
+
+function motionDisabled() {
+  return Boolean(rootEl.value?.closest('.pm-no-animations'))
+    || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+// Read once: getComputedStyle at toggle time would force a style recalc.
+function motionTiming() {
+  if (timing) return timing;
+  const style = getComputedStyle(rootEl.value);
+  timing = {
+    duration: parseFloat(style.getPropertyValue('--preview-drawer-motion-duration')) || 420,
+    easing: style.getPropertyValue('--preview-drawer-travel-easing').trim() || 'ease-out'
+  };
+  return timing;
+}
+function visibleDrawerHeight(fallback) {
+  const el = drawerEl.value;
+  if (!drawerAnimation || !el) return fallback;
+  return (drawerBox.value ?? fallback) - currentTranslateY(el);
+}
+function stopDrawerMotion() {
+  drawerAnimation?.cancel();
+  drawerAnimation = null;
+}
+function settleDrawer(reserve) {
+  drawerBox.value = null;
+  drawerMoving.value = false;
+  appliedReserve.value = reserve;
+  stageInset.value = 0;
+  stageMotion.value = null;
+}
+function moveDrawer(from, to, reserve) {
+  const el = drawerEl.value;
+  const visible = visibleDrawerHeight(from);
+  stopDrawerMotion();
+  if (skipMotion || !el || props.drawerHidden || !from || Math.abs(visible - to) < 1 || motionDisabled()) {
+    settleDrawer(reserve);
+    return;
+  }
+  const { duration, easing } = motionTiming();
+  const box = Math.max(visible, to);
+  drawerBox.value = box;
+  drawerMoving.value = true;
+  appliedReserve.value = Math.min(appliedReserve.value, reserve);
+  stageInset.value = reserve - appliedReserve.value;
+  stageMotion.value = { duration, easing, start: performance.now(), inset: stageInset.value };
+  // Start once the box has its travel height, still before the next paint.
+  void nextTick(() => {
+    if (drawerBox.value !== box || drawerEl.value !== el) return;
+    const animation = animateTravel(el, progress => ({
+      transform: `translateY(${box - visible + (visible - to) * progress}px)`
+    }), { duration, easing, fill: 'forwards' });
+    drawerAnimation = animation;
+    animation.finished.then(() => {
+      if (drawerAnimation !== animation) return;
+      drawerAnimation = null;
+      settleDrawer(reservedHeight.value);
+      // Drop the held end frame together with the final layout.
+      void nextTick(() => animation.cancel());
+    }, () => {});
+  });
+}
+watch([targetHeight, reservedHeight], ([to, reserve], [from]) => moveDrawer(from, to, reserve));
+watch(() => props.drawerHidden, hidden => {
+  window.clearTimeout(hiddenTimer);
+  hiddenSettled.value = false;
+  if (!hidden) return;
+  stopDrawerMotion();
+  settleDrawer(reservedHeight.value);
+  // Keep the height while the CSS slide-out runs, then release the space.
+  hiddenTimer = window.setTimeout(() => { hiddenSettled.value = true; }, motionDisabled() ? 0 : motionTiming().duration);
 });
 onBeforeUnmount(() => {
   observer?.disconnect();
   cancelAnimationFrame(frame);
   cancelSwap();
+  stopDrawerMotion();
+  window.clearTimeout(hiddenTimer);
 });
 </script>
 
@@ -201,14 +303,13 @@ onBeforeUnmount(() => {
   flex-direction: column;
   overflow: hidden;
   background: var(--pm-pdf-stage-bg, var(--pm-viewer-surface));
-  margin-bottom: calc(-1 * var(--preview-drawer-overlap, 0px));
-  transition: margin-bottom var(--preview-drawer-motion-duration) var(--preview-drawer-travel-easing);
 }
-/* Only the collapsed header overlays the PDF. Expansion removes the overlap
-   as the panel grows, so the editing form still pushes the page upwards. */
+/* Only the collapsed header overlays the PDF. Expansion reserves the panel
+   height below the viewer, so the editing form still pushes the page upwards.
+   The panel itself is positioned out of flow and travels by transform. */
 .preview-layout__drawer {
-  flex: 0 0 auto;
-  position: relative;
+  position: absolute;
+  inset: auto 0 0;
   z-index: 2;
   display: flex;
   flex-direction: column;
@@ -220,10 +321,8 @@ onBeforeUnmount(() => {
   opacity: 1;
   transform: translateY(0);
   visibility: visible;
-  transition: height var(--preview-drawer-motion-duration) var(--preview-drawer-travel-easing),
-    transform var(--preview-drawer-motion-duration) var(--preview-drawer-travel-easing),
+  transition: transform var(--preview-drawer-motion-duration) var(--preview-drawer-travel-easing),
     border-top-width var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing),
-    background-color 240ms ease,
     opacity 420ms cubic-bezier(.4, 0, .2, 1), visibility 0s;
 }
 .preview-layout__drawer.pm-drawer--collapsed {
@@ -231,8 +330,13 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
-.preview-layout__viewer :deep(.pdf-preview__pages) {
-  transition: padding-bottom var(--preview-drawer-motion-duration) var(--preview-drawer-travel-easing);
+/* While travelling the panel stays opaque: a moving backdrop blur and a
+   background-color transition both repaint it every frame (costly in WebKit).
+   The translucent collapsed surface appears once the panel has landed. */
+.preview-layout--drawer-moving .preview-layout__drawer.pm-drawer--collapsed {
+  background: var(--preview-drawer-card-bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 .preview-layout__drawer::before {
   content: ''; position: absolute; inset: 0 auto auto 0; height: 2px; width: 100%;
@@ -270,13 +374,11 @@ onBeforeUnmount(() => {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition-delay: 0s, 0s, 0s, 0s, 0s, var(--preview-drawer-motion-duration);
+  transition-delay: 0s, 0s, 0s, var(--preview-drawer-motion-duration);
 }
 .preview-layout--drawer-disabled :deep(.details-drawer__header) { cursor: default; }
 .pm-drawer :deep(:focus-visible) { outline: 2px solid color-mix(in srgb, var(--pm-accent) 55%, transparent); outline-offset: 2px; border-radius: 6px; }
 :global(.pm-no-animations .preview-layout__drawer),
-:global(.pm-no-animations .preview-layout__viewer),
-:global(.pm-no-animations .preview-layout__viewer .pdf-preview__pages),
 :global(.pm-no-animations .preview-layout__drawer::before),
 :global(.pm-no-animations .preview-layout__body),
 :global(.pm-no-animations .preview-layout__scroll-cue),
@@ -284,7 +386,6 @@ onBeforeUnmount(() => {
 :global(.pm-no-animations .preview-layout__body .pm-metadata-row) { transform: none; }
 @media (prefers-reduced-motion: reduce) {
   .preview-layout__drawer, .preview-layout__drawer::before, .preview-layout__body,
-  .preview-layout__viewer, .preview-layout__viewer :deep(.pdf-preview__pages),
   .preview-layout__scroll-cue,
   .preview-layout__body :deep(.pm-metadata-row) { transition: none; }
   .preview-layout__body :deep(.pm-metadata-row) { transform: none; }

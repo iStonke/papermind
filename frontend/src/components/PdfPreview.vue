@@ -241,6 +241,7 @@
         ref="pagesEl"
         class="pdf-preview__pages"
         :class="{ 'pdf-preview__pages--magnify': magnifierEnabled }"
+        :style="pagesStyle"
         tabindex="0"
         @pointerdown="onPagesPointerDown"
         @pointermove="onPagesPointerMove"
@@ -344,7 +345,7 @@ const PDF_RANGE_CHUNK_SIZE = 262144;
 </script>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
 import 'pdfjs-dist/web/pdf_viewer.css';
@@ -353,6 +354,7 @@ import { useTheme } from 'vuetify';
 import PmEmptyState from './PmEmptyState.vue';
 import PreviewToolbar from './PreviewToolbar.vue';
 import { PDF_WORKER_SRC } from '../utils/pdfWorker.js';
+import { PREVIEW_STAGE, activeStageMotion, animateTravel, currentScale } from '../utils/previewStageMotion.js';
 
 GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
 
@@ -758,6 +760,17 @@ const stageSize = ref({ width: 0, height: 0 });
 const renderedViewports = ref({});
 let resizePage = null;
 let renderDeferred = false;
+// Stage from DocumentPreviewLayout. A motion's `inset` is the part of the box
+// the drawer will cover, so the page fits the final stage before it shrinks.
+const previewStage = inject(PREVIEW_STAGE, null);
+const stageMotion = previewStage?.motion;
+const pagesStyle = computed(() => {
+  if (!previewStage) return undefined;
+  const bottom = `${(props.fitPage ? 16 : 14) + previewStage.bottomInset.value}px`;
+  return { paddingBottom: bottom, scrollPaddingBottom: bottom };
+});
+let pageMotion = null;
+let observedHeight = 0;
 const isLoading  = ref(false);
 const errorMessage = ref('');
 
@@ -2567,7 +2580,7 @@ function recalcCurrentPage() {
   if (resizePage !== null) return;
   const container = pagesEl.value;
   if (!container) return;
-  const mid = container.scrollTop + container.clientHeight * 0.5;
+  const mid = container.scrollTop + (container.clientHeight - stageInset()) * 0.5;
   const articles = container.querySelectorAll('.pdf-preview__page');
   let best = 1, bestDist = Infinity;
   for (const el of articles) {
@@ -2884,23 +2897,58 @@ function onResize(entries) {
   });
 }
 
+function stageInset() {
+  return props.fitPage ? stageMotion?.value?.inset || 0 : 0;
+}
+
+// Returns the visual scale a running follow animation had reached.
+function settlePageMotion() {
+  const el = pagesEl.value;
+  if (!pageMotion || !el) return 1;
+  const scale = currentScale(el);
+  pageMotion.cancel();
+  pageMotion = null;
+  return scale;
+}
+
+// The page layout is already final; a transform carries it from the previous
+// size so it travels with the drawer on the compositor.
+function followStageMotion(el, ratio, motion) {
+  const elapsed = performance.now() - motion.start;
+  if (elapsed >= motion.duration || Math.abs(ratio - 1) < 0.002) return;
+  const animation = animateTravel(el, progress => ({
+    transform: `scale(${ratio + (1 - ratio) * progress})`,
+    transformOrigin: '50% 0'
+  }), { duration: motion.duration, delay: -elapsed, easing: motion.easing });
+  pageMotion = animation;
+  animation.finished.then(() => { if (pageMotion === animation) pageMotion = null; }, () => {});
+}
+
 async function updateStageSize(box) {
   const el = pagesEl.value;
   if (!el) return;
   const width = el.clientWidth;
   // Preserve fractional layout sizes without reading transformed screen bounds.
   // Subtract borders/scrollbars just as clientHeight does for the integer case.
-  const height = box ? box.blockSize - (el.offsetHeight - el.clientHeight) : el.clientHeight;
+  if (box) observedHeight = box.blockSize - (el.offsetHeight - el.clientHeight);
+  else if (Math.abs(observedHeight - el.clientHeight) >= 1) observedHeight = el.clientHeight;
+  const height = observedHeight - stageInset();
   const changed = props.fitPage
     ? Math.abs(width - stageSize.value.width) > 0.01 || Math.abs(height - stageSize.value.height) > 0.01
     : Math.abs(Math.max(340, width) - lastRenderWidth) > 2;
   if (!changed) return;
+  const motion = props.fitPage && pdfDoc ? activeStageMotion(stageMotion?.value) : null;
+  const visualScale = settlePageMotion();
   if (props.fitPage && pdfDoc) resizePage ??= currentPage.value;
+  const anchorInfo = motion ? pageInfos.value[resizePage - 1] : null;
+  const fromScale = anchorInfo ? computeScale(anchorInfo) * visualScale : 0;
   stageSize.value = { width, height };
   lastRenderWidth = Math.max(340, width);
   if (!pdfDoc) return;
   if (zoomRenderTimer) window.clearTimeout(zoomRenderTimer);
   const epoch = loadEpoch;
+  // Re-render only after the drawer has landed.
+  const settleDelay = Math.max(160, motion ? motion.start + motion.duration - performance.now() + 40 : 0);
   zoomRenderTimer = window.setTimeout(async () => {
     zoomRenderTimer = 0;
     if (epoch !== loadEpoch) return;
@@ -2919,13 +2967,17 @@ async function updateStageSize(box) {
     renderQueue.clear();
     await setupObservers();
     if (epoch === loadEpoch) { resizePage = null; recalcCurrentPage(); }
-  }, 160);
+  }, settleDelay);
   await nextTick();
   if (props.fitPage && resizePage !== null) {
     const page = el.querySelector(`.pdf-preview__page[data-page="${resizePage}"]`);
     if (page) el.scrollTop += page.getBoundingClientRect().top - el.getBoundingClientRect().top;
   }
+  if (anchorInfo && motion && pagesEl.value === el) followStageMotion(el, fromScale / computeScale(anchorInfo), motion);
 }
+
+// The inset changes without resizing the box, so no ResizeObserver fires.
+if (stageMotion) watch(stageMotion, () => { void updateStageSize(); }, { flush: 'post' });
 
 watch(pagesEl, (el, oldEl) => {
   resizeObserver?.disconnect();
@@ -2945,6 +2997,7 @@ onBeforeUnmount(() => {
   loadEpoch++;
   teardownObservers();
   resizeObserver?.disconnect();
+  pageMotion?.cancel();
   detachGestureZoomListeners(pagesEl.value);
   if (resizeRaf)      cancelAnimationFrame(resizeRaf);
   if (scrollRafId)    cancelAnimationFrame(scrollRafId);
@@ -3358,8 +3411,8 @@ onBeforeUnmount(() => {
   /* Die erste Seite beginnt bündig mit der Oberkante des Vorschaubereichs und
      damit auf einer Höhe mit dem linken Container. Seitlich und unten bleibt
      der Abstand zur Stage erhalten. */
-  padding: 0 14px calc(14px + var(--preview-drawer-overlap, 0px));
-  scroll-padding-bottom: calc(14px + var(--preview-drawer-overlap, 0px));
+  padding: 0 14px 14px;
+  scroll-padding-bottom: 14px;
 }
 
 .pdf-preview__pages:focus {
@@ -3939,6 +3992,6 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped>
-.pdf-preview--fit-page .pdf-preview__pages { padding: 0 20px calc(16px + var(--preview-drawer-overlap, 0px)); scroll-padding-bottom: calc(16px + var(--preview-drawer-overlap, 0px)); gap: 16px; overflow-anchor: none; scroll-padding-top: 0; justify-content: flex-start; }
+.pdf-preview--fit-page .pdf-preview__pages { padding: 0 20px 16px; scroll-padding-bottom: 16px; gap: 16px; overflow-anchor: none; scroll-padding-top: 0; justify-content: flex-start; }
 .pdf-preview--fit-page .pdf-preview__page { border-radius: 3px; box-shadow: 0 10px 28px rgb(0 0 0 / .12), 0 1px 3px rgb(0 0 0 / .1); }
 </style>

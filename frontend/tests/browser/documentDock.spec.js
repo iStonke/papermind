@@ -78,25 +78,34 @@ test('collapsed details show the PDF behind a translucent surface and expanded d
   await pages.evaluate(el => { el.scrollTop = el.scrollHeight; });
   await expect.poll(() => page.locator('.pdf-preview__page').last().evaluate(el => el.getBoundingClientRect().bottom - document.querySelector('.preview-layout__drawer').getBoundingClientRect().top)).toBeLessThan(-10);
 });
-test('opening and closing the drawer each run one uninterrupted height transition', async ({ page }) => {
+test('opening and closing the drawer each run one transform motion without height transitions', async ({ page }) => {
   await mountDock(page);
   const drawer = page.locator('.preview-layout__drawer');
   await expect.poll(() => drawer.evaluate(el => el.getAnimations({ subtree: true }).filter(a => a.playState === 'running').length)).toBe(0);
   await drawer.evaluate(el => {
-    window.drawerHeightStarts = 0;
+    window.drawerMotions = [];
+    window.drawerHeightTransitions = 0;
+    const animate = el.animate.bind(el);
+    el.animate = (keyframes, options) => { window.drawerMotions.push(keyframes.map(frame => frame.transform)); return animate(keyframes, options); };
     el.addEventListener('transitionrun', event => {
-      if (event.target === el && event.propertyName === 'height') window.drawerHeightStarts++;
+      if (event.target === el && event.propertyName === 'height') window.drawerHeightTransitions++;
     });
   });
   const toggle = page.getByRole('button', { name: 'Dokumentdetails umschalten' });
   await toggle.click();
   await expect.poll(() => drawer.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(300);
   await expect.poll(() => drawer.evaluate(el => el.getAnimations({ subtree: true }).filter(a => a.playState === 'running').length)).toBe(0);
-  expect(await page.evaluate(() => window.drawerHeightStarts)).toBe(1);
+  expect(await drawer.evaluate(el => new DOMMatrixReadOnly(getComputedStyle(el).transform).m42)).toBe(0);
+  expect(await page.evaluate(() => window.drawerMotions.length)).toBe(1);
   await toggle.click();
   await expect(drawer).toHaveCSS('height', '72px');
   await expect.poll(() => drawer.evaluate(el => el.getAnimations({ subtree: true }).filter(a => a.playState === 'running').length)).toBe(0);
-  expect(await page.evaluate(() => window.drawerHeightStarts)).toBe(2);
+  const motions = await page.evaluate(() => window.drawerMotions);
+  expect(motions).toHaveLength(2);
+  expect(motions.flat().every(transform => /^translateY\(/.test(transform))).toBe(true);
+  expect(await page.evaluate(() => window.drawerHeightTransitions)).toBe(0);
+  // The page follows the drawer by transform and keeps no residue afterwards.
+  await expect(page.locator('.pdf-preview__pages')).toHaveCSS('transform', 'none');
 });
 test('rapid reversals settle, resizing keeps the header accessible and scrolling cue follows content', async ({ page }) => {
   await mountDock(page);
