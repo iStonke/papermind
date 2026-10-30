@@ -9,6 +9,7 @@ from app.core.errors import BadRequestError, ForbiddenError
 from app.models.global_setting import GlobalSetting
 from app.models.user_setting import UserSetting
 from app.schemas.speech_options import SpeechOptions
+from app.schemas.related_preferences import RelatedPreferences
 from app.schemas.settings import (
     ANSWER_PROMPT_TEMPLATE_DEFAULT,
     AppSettingsPatch,
@@ -22,12 +23,12 @@ from app.schemas.settings import (
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "ui": {
+        "related_documents": RelatedPreferences().model_dump(mode="json"),
         "theme_mode": "system",
         "start_view": "all",
         "search_scope_default": "current",
         "showFilenameSuffix": True,
         "previewDrawerGradientEnabled": True,
-        "autoHideDetailsDrawer": False,
         "drawerRememberState": True,
         "tagDrawerRememberState": True,
         "sidebar_show_recent": True,
@@ -209,6 +210,7 @@ def _merge_defaults(raw_settings: dict[str, Any] | None) -> dict[str, Any]:
     if isinstance(ui_settings, dict):
         ui_settings.pop("color_variant", None)
         ui_settings.pop("sidebar_show_favorites", None)
+        ui_settings.pop("autoHideDetailsDrawer", None)
     return _deep_merge_dict(DEFAULT_SETTINGS, base)
 
 
@@ -230,10 +232,11 @@ class SettingsService:
         if not isinstance(ui, dict):
             return {}
         clean_ui = dict(ui)
-        legacy_keys = {"color_variant", "sidebar_show_favorites"}
+        legacy_keys = {"color_variant", "sidebar_show_favorites", "autoHideDetailsDrawer"}
         had_legacy_ui_setting = any(key in clean_ui for key in legacy_keys)
         clean_ui.pop("color_variant", None)
         clean_ui.pop("sidebar_show_favorites", None)
+        clean_ui.pop("autoHideDetailsDrawer", None)
         if had_legacy_ui_setting:
             current = dict(row.settings_json)
             current["ui"] = clean_ui

@@ -2,10 +2,11 @@
   <div
     ref="rootEl"
     class="preview-layout"
+    :style="overlapStyle"
     :class="{
-      'preview-layout--drawer-open': showDrawer && isOpen,
-      'preview-layout--drawer-auto-hide': showDrawer && autoHideDrawer,
-      'preview-layout--drawer-disabled': showDrawer && drawerDisabled
+      'preview-layout--drawer-open': showDrawer && isOpen && !drawerHidden,
+      'preview-layout--drawer-disabled': showDrawer && drawerDisabled,
+      'preview-layout--drawer-hidden': showDrawer && drawerHidden
     }"
   >
     <div class="preview-layout__viewer">
@@ -20,8 +21,9 @@
         isOpen ? 'pm-drawer--expanded' : 'pm-drawer--collapsed'
       ]"
       :style="drawerStyle"
-      :inert="drawerDisabled"
-      :aria-disabled="drawerDisabled || undefined"
+      :inert="drawerDisabled || drawerHidden"
+      :aria-disabled="drawerDisabled || drawerHidden || undefined"
+      :aria-hidden="drawerHidden || undefined"
       @click.capture="blockDisabledDrawer"
       role="region"
       aria-label="Dokumentdetails"
@@ -55,8 +57,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } fro
 const props = defineProps({
   showDrawer: { type: Boolean, default: false },
   isOpen: { type: Boolean, default: false },
-  autoHideDrawer: { type: Boolean, default: false },
   drawerDisabled: { type: Boolean, default: false },
+  drawerHidden: { type: Boolean, default: false },
   contentKey: { type: [String, Number], default: '' },
   sectionKey: { type: String, default: '' },
   bodyId: { type: String, default: '' },
@@ -76,12 +78,17 @@ const openHeight = ref(0);
 const containerHeight = ref(0);
 const headerHeight = ref(0);
 const hasMoreBelow = ref(false);
+const measuredOpen = ref(props.isOpen);
+const overlapStyle = computed(() => ({
+  '--preview-drawer-overlap': props.showDrawer && !props.isOpen && !props.drawerHidden
+    ? `${Math.max(props.collapsedHeight, headerHeight.value)}px` : '0px'
+}));
 let observer;
 let frame;
 let swapAnimations = [];
 
 function blockDisabledDrawer(event) {
-  if (!props.drawerDisabled) return;
+  if (!props.drawerDisabled && !props.drawerHidden) return;
   event.preventDefault();
   event.stopImmediatePropagation();
 }
@@ -105,6 +112,10 @@ function measureContent() {
     ? Math.max(0, Math.round(boundary.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop))
     : fullBody;
   openHeight.value = headerHeight.value + tabsHeight.value + 1 + bodyCut;
+  // Switch height modes only after the new header and tabs have been measured.
+  // Otherwise stale collapsed dimensions start a transition that is replaced
+  // immediately by the expanded target in the next frame.
+  measuredOpen.value = props.isOpen;
   updateScrollCue();
 }
 function scheduleMeasure() {
@@ -122,7 +133,7 @@ function observeLayout() {
 onMounted(observeLayout);
 watch([headerEl, tabsEl, contentEl], () => { void nextTick(observeLayout); });
 watch(() => props.isOpen, async open => {
-  if (!open && (bodyEl.value?.contains(document.activeElement) || tabsEl.value?.contains(document.activeElement))) {
+  if (!open && !props.drawerHidden && (bodyEl.value?.contains(document.activeElement) || tabsEl.value?.contains(document.activeElement))) {
     headerEl.value?.querySelector('[aria-expanded]')?.focus();
   }
   await nextTick();
@@ -137,7 +148,7 @@ watch(() => [props.contentKey, props.sectionKey], async ([documentKey], [previou
   await nextTick();
   if (bodyEl.value) bodyEl.value.scrollTop = 0;
   measureContent();
-  if (!props.isOpen || rootEl.value?.closest('.pm-no-animations')
+  if (!props.isOpen || props.drawerHidden || rootEl.value?.closest('.pm-no-animations')
     || window.matchMedia('(prefers-reduced-motion: reduce)').matches
     || bodyEl.value?.contains(document.activeElement)) return;
   // Animate existing nodes; field instances and keyboard focus survive.
@@ -151,7 +162,8 @@ watch(() => [props.contentKey, props.sectionKey], async ([documentKey], [previou
   }
 });
 const drawerStyle = computed(() => {
-  if (!props.isOpen) return { height: `${Math.max(props.collapsedHeight, headerHeight.value)}px` };
+  if (props.drawerHidden) return { height: '0px' };
+  if (!measuredOpen.value) return { height: `${Math.max(props.collapsedHeight, headerHeight.value)}px` };
   const cap = Math.max(headerHeight.value + tabsHeight.value + 1, containerHeight.value - props.minViewerHeight);
   const target = openHeight.value || contentHeight.value || props.collapsedHeight;
   const height = Math.round(Math.min(target, contentHeight.value || target, cap || props.collapsedHeight));
@@ -169,6 +181,9 @@ onBeforeUnmount(() => {
   --preview-drawer-card-bg: var(--pm-app-surface-raised, rgb(var(--v-theme-surface)));
   --preview-drawer-motion-duration: 420ms;
   --preview-drawer-motion-easing: cubic-bezier(.22, 1, .36, 1);
+  /* Damped spring with ~3.5% overshoot; the viewer follows the same motion.
+     Sampled continuously so the rebound has no separate stop or restart. */
+  --preview-drawer-travel-easing: linear(0, 0.02763, 0.09746, 0.19296, 0.30129, 0.41289, 0.52095, 0.62091, 0.71006, 0.78705, 0.85158, 0.90412, 0.94558, 0.9772, 1.00033, 1.01638, 1.02666, 1.03241, 1.03472, 1.03451, 1.03257, 1.02952, 1.02587, 1.02199, 1.01815, 1.01453, 1.01127, 1.00842, 1.006, 1.00401, 1.00241, 1.00117, 1.00025, 0.99968, 0.99945, 0.99947, 0.99962, 0.9998, 0.99993, 0.99999, 1);
   position: relative;
   height: 100%;
   min-height: 0;
@@ -186,9 +201,11 @@ onBeforeUnmount(() => {
   flex-direction: column;
   overflow: hidden;
   background: var(--pm-pdf-stage-bg, var(--pm-viewer-surface));
+  margin-bottom: calc(-1 * var(--preview-drawer-overlap, 0px));
+  transition: margin-bottom var(--preview-drawer-motion-duration) var(--preview-drawer-travel-easing);
 }
-/* The panel participates in layout: its top edge and the page above move
-   together. No overlap, floating margin, backdrop or translated card. */
+/* Only the collapsed header overlays the PDF. Expansion removes the overlap
+   as the panel grows, so the editing form still pushes the page upwards. */
 .preview-layout__drawer {
   flex: 0 0 auto;
   position: relative;
@@ -201,7 +218,21 @@ onBeforeUnmount(() => {
   background: var(--preview-drawer-card-bg);
   box-shadow: 0 -6px 24px rgb(0 0 0 / .045);
   opacity: 1;
-  transition: height var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing), opacity 420ms cubic-bezier(.4, 0, .2, 1);
+  transform: translateY(0);
+  visibility: visible;
+  transition: height var(--preview-drawer-motion-duration) var(--preview-drawer-travel-easing),
+    transform var(--preview-drawer-motion-duration) var(--preview-drawer-travel-easing),
+    border-top-width var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing),
+    background-color 240ms ease,
+    opacity 420ms cubic-bezier(.4, 0, .2, 1), visibility 0s;
+}
+.preview-layout__drawer.pm-drawer--collapsed {
+  background: color-mix(in srgb, var(--preview-drawer-card-bg) 84%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.preview-layout__viewer :deep(.pdf-preview__pages) {
+  transition: padding-bottom var(--preview-drawer-motion-duration) var(--preview-drawer-travel-easing);
 }
 .preview-layout__drawer::before {
   content: ''; position: absolute; inset: 0 auto auto 0; height: 2px; width: 100%;
@@ -215,7 +246,7 @@ onBeforeUnmount(() => {
   z-index: 2;
   flex: 0 0 auto;
   min-height: 56px;
-  background: var(--preview-drawer-card-bg);
+  background: transparent;
 }
 .pm-drawer-divider { width: 100%; height: 1px; flex: 0 0 1px; opacity: 0; background: var(--pm-divider-soft, var(--pm-divider)); transition: opacity 160ms ease; }
 .pm-drawer-divider--visible { opacity: 1; }
@@ -232,11 +263,20 @@ onBeforeUnmount(() => {
 .preview-layout__body :deep(.pm-metadata-row:nth-child(5)) { --field-enter-delay: 180ms; }
 .preview-layout__scroll-cue { position: absolute; bottom: 0; inset-inline: 0; height: 20px; z-index: 3; pointer-events: none; opacity: 0; background: linear-gradient(transparent, var(--preview-drawer-card-bg)); transition: opacity 180ms ease; }
 .preview-layout__scroll-cue--visible { opacity: 1; }
-.preview-layout--drawer-auto-hide:not(:hover):not(:focus-within) .preview-layout__drawer { opacity: .45; }
-.preview-layout--drawer-disabled .preview-layout__drawer { opacity: .45; pointer-events: none; }
+.preview-layout--drawer-disabled:not(.preview-layout--drawer-hidden) .preview-layout__drawer { pointer-events: none; }
+.preview-layout--drawer-hidden .preview-layout__drawer {
+  transform: translateY(100%);
+  border-top-width: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition-delay: 0s, 0s, 0s, 0s, 0s, var(--preview-drawer-motion-duration);
+}
 .preview-layout--drawer-disabled :deep(.details-drawer__header) { cursor: default; }
 .pm-drawer :deep(:focus-visible) { outline: 2px solid color-mix(in srgb, var(--pm-accent) 55%, transparent); outline-offset: 2px; border-radius: 6px; }
 :global(.pm-no-animations .preview-layout__drawer),
+:global(.pm-no-animations .preview-layout__viewer),
+:global(.pm-no-animations .preview-layout__viewer .pdf-preview__pages),
 :global(.pm-no-animations .preview-layout__drawer::before),
 :global(.pm-no-animations .preview-layout__body),
 :global(.pm-no-animations .preview-layout__scroll-cue),
@@ -244,6 +284,7 @@ onBeforeUnmount(() => {
 :global(.pm-no-animations .preview-layout__body .pm-metadata-row) { transform: none; }
 @media (prefers-reduced-motion: reduce) {
   .preview-layout__drawer, .preview-layout__drawer::before, .preview-layout__body,
+  .preview-layout__viewer, .preview-layout__viewer :deep(.pdf-preview__pages),
   .preview-layout__scroll-cue,
   .preview-layout__body :deep(.pm-metadata-row) { transition: none; }
   .preview-layout__body :deep(.pm-metadata-row) { transform: none; }

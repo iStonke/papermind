@@ -57,7 +57,9 @@ async function onFocusOut() {
   focused.value = Boolean(toolbar.value?.contains(document.activeElement));
 }
 onMounted(() => {
-  surface = toolbar.value?.parentElement;
+  // Include sibling controls such as the document-turn button in the same
+  // hover surface; entering one control must not hide the other toolbar.
+  surface = toolbar.value?.closest('.document-flip') || toolbar.value?.parentElement;
   surface?.addEventListener('pointerenter', enter);
   surface?.addEventListener('pointerleave', leave);
   hovered.value = Boolean(surface?.matches(':hover'));

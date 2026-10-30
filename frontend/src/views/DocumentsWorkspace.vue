@@ -1129,8 +1129,8 @@
             :content-key="selectedDocumentDetail?.id"
             :section-key="activeDetailsTab"
             :body-id="detailsBodyId"
-            :auto-hide-drawer="autoHideDetailsDrawer"
             :drawer-disabled="documentBackLocked"
+            :drawer-hidden="documentBackVisible"
             :collapsed-height="DETAILS_DRAWER_COLLAPSED_HEIGHT"
           >
             <template #viewer>
@@ -1359,6 +1359,7 @@
                   Schließen
                 </button>
                 <DocumentFlipPreview ref="documentFlipRef" @before-turn="previewSwapRef?.settleEntrance()" @change="documentBackVisible = $event" @lock-change="documentBackLocked = $event" :document-key="selectedDocumentId" :title="previewDocumentTitle"
+                  :correspondent="previewDocument?.correspondent_name || ''" :page-count="previewDocumentPageCount"
                   :page="panePreviewRef?.currentPage || 1" :enabled="Boolean(selectedDocumentId)">
                   <PreviewSwap ref="previewSwapRef" :transition-key="previewRenderKey">
                     <PdfPreview
@@ -1386,10 +1387,10 @@
                       @create-note-quote="createNoteQuoteFromSelection"
                     />
                   </PreviewSwap>
-                  <template #back="{ active }">
+                  <template #back="{ active, reportLoading }">
                     <DocumentConnections :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
-                      :match-key="relatedDocumentMatchKey" :active="active" :in-trash="isTrashView" :show-suffix="showPdfSuffix"
-                      :reload-key="linkedNotesReloadKey" :creating="isCreatingLinkedNote"
+                      :preferences="settingsStore.settings.ui.related_documents" :match-key="relatedDocumentMatchKey" :active="active" :in-trash="isTrashView" :show-suffix="showPdfSuffix"
+                      :reload-key="linkedNotesReloadKey" :creating="isCreatingLinkedNote" @loading-change="reportLoading"
                       @open-document="openDocumentFromDashboard" @open-note="openLinkedNoteInWorkspace"
                       @new-note="createLinkedNoteForSelectedDocument" @open-highlight="openLearnHighlightInNote" />
                   </template>
@@ -1524,9 +1525,23 @@
                         </v-list>
                       </v-menu>
 
+                      <v-btn
+                        :icon="isDetailsDrawerPinned ? 'mdi-pin' : 'mdi-pin-outline'"
+                        size="small"
+                        density="comfortable"
+                        variant="text"
+                        class="details-action-btn details-action-btn--quiet details-pin-btn"
+                        :class="{ 'details-pin-btn--active': isDetailsDrawerPinned }"
+                        aria-label="Schubladenposition merken"
+                        :aria-pressed="isDetailsDrawerPinned"
+                        :title="isDetailsDrawerPinned ? 'Position wird gemerkt – Fixierung lösen' : 'Position merken – automatisches Minimieren ausschalten'"
+                        :loading="settingsStore.isSettingSaving.drawer_remember_state"
+                        :disabled="settingsStore.isSettingSaving.drawer_remember_state"
+                        @click="toggleDetailsDrawerPin"
+                      />
+
                       <!-- Disclosure: Auf-/Zuklappen (leise, strukturell) -->
                       <v-btn
-                        v-if="!documentBackLocked"
                         :icon="detailsDrawerChevronIcon"
                         size="small"
                         density="comfortable"
@@ -1586,35 +1601,17 @@
                       </template>
                     </DocumentMetadataFields>
                   </section>
+                  <section v-show="activeDetailsTab === 'notes'" :id="`${detailsBodyId}-notes`" role="tabpanel"
+                    :aria-labelledby="`${detailsBodyId}-tab-notes`" tabindex="0" class="details-tab-panel">
+                    <DocumentMetadataFields :field-keys="['note']" :note="metadataNotes" standalone-note
+                      @update:note="metadataNotes = $event" @text-blur="commitMetadataTextFields" />
+                  </section>
                   <section v-show="activeDetailsTab === 'related'" :id="`${detailsBodyId}-related`" role="tabpanel"
                     :aria-labelledby="`${detailsBodyId}-tab-related`" tabindex="0" class="details-tab-panel">
                     <RelatedDocumentsSection :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
-                      :match-key="relatedDocumentMatchKey" :in-trash="isTrashView" :show-suffix="showPdfSuffix"
+                      :preferences="settingsStore.settings.ui.related_documents" :match-key="relatedDocumentMatchKey" :in-trash="isTrashView" :show-suffix="showPdfSuffix"
                       :enabled="isDetailsDrawerVisuallyOpen && activeDetailsTab === 'related'"
                       @open-document="openDocumentFromDashboard" />
-                  </section>
-                  <section v-show="activeDetailsTab === 'notes'" :id="`${detailsBodyId}-notes`" role="tabpanel"
-                    :aria-labelledby="`${detailsBodyId}-tab-notes`" tabindex="0" class="details-tab-panel">
-                    <DocumentMetadataFields :field-keys="['note']" :note="metadataNotes"
-                      @update:note="metadataNotes = $event" @text-blur="commitMetadataTextFields" />
-                    <DocumentNotesSection
-                      class="details-drawer__notes"
-                    :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
-                    :creating="isCreatingLinkedNote"
-                    :reload-key="linkedNotesReloadKey"
-                      @open-note="openLinkedNoteInWorkspace"
-                      @new-note="createLinkedNoteForSelectedDocument"
-                    />
-                  </section>
-                  <section v-show="activeDetailsTab === 'highlights'" :id="`${detailsBodyId}-highlights`" role="tabpanel"
-                    :aria-labelledby="`${detailsBodyId}-tab-highlights`" tabindex="0" class="details-tab-panel">
-                    <DocumentLearnHighlightsSection
-                      show-empty
-                      class="details-drawer__notes"
-                    :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
-                    :reload-key="linkedNotesReloadKey"
-                      @open-highlight="openLearnHighlightInNote"
-                    />
                   </section>
                   <section v-if="isRetentionFeatureEnabled" v-show="activeDetailsTab === 'retention'"
                     :id="`${detailsBodyId}-retention`" role="tabpanel" :aria-labelledby="`${detailsBodyId}-tab-retention`"
@@ -1716,8 +1713,6 @@ import TagDialogs from '../components/TagDialogs.vue';
 import CategoryDialogs from '../components/CategoryDialogs.vue';
 import RenameDocumentDialog from '../components/RenameDocumentDialog.vue';
 import RetentionStatusBar from '../components/RetentionStatusBar.vue';
-import DocumentNotesSection from '../components/notes/DocumentNotesSection.vue';
-import DocumentLearnHighlightsSection from '../components/notes/DocumentLearnHighlightsSection.vue';
 
 // Boolean-gesteuerte Dialoge (öffnen über v-model). Erst bei Bedarf gebraucht
 // und teils sehr groß (ImportStagingDialog/SmartFolderEditor) → eigene Chunks,
@@ -3476,10 +3471,9 @@ const relatedDocumentMatchKey = computed(() => JSON.stringify([
   (selectedDocumentDetail.value?.tags || []).map(tag => tag.id).sort()
 ]));
 const detailsTabs = computed(() => [
-  { id: 'metadata', label: 'Metadaten' },
-  { id: 'related', label: 'Ähnliche Dokumente' },
+  { id: 'metadata', label: 'Überblick' },
   { id: 'notes', label: 'Notizen' },
-  { id: 'highlights', label: 'Lernmarkierungen' },
+  { id: 'related', label: 'Ähnliche Dokumente' },
   ...(isRetentionFeatureEnabled.value ? [{ id: 'retention', label: 'Aufbewahrung' }] : [])
 ]);
 function selectDetailsTab(id) {
@@ -3498,12 +3492,15 @@ const isDetailsDrawerOpen = computed({
 watch([activeView, () => route.path], () => {
   settingsStore.initializeDrawerExpandedState();
 });
+watch(selectedDocumentId, (id, previousId) => {
+  if (id && id !== previousId && !settingsStore.settings.ui.drawerRememberState) {
+    settingsStore.setDrawerExpanded(false, { persist: false });
+  }
+}, { flush: 'sync' });
 const isDetailsDrawerVisuallyOpen = computed(() => isDetailsDrawerOpen.value && !documentBackVisible.value);
 const isDetailsDrawerChevronExpanded = computed(() => isDetailsDrawerVisuallyOpen.value);
+const isDetailsDrawerPinned = computed(() => Boolean(settingsStore.settings.ui.drawerRememberState));
 const detailsDrawerChevronIcon = 'mdi-chevron-up';
-const autoHideDetailsDrawer = computed(
-  () => settingsStore.settingsDraft.ui.autoHideDetailsDrawer === true
-);
 // Expanding returns to the whole-page overview, while zoom remains available
 // for reading details afterward. The reader keeps its own zoom behavior.
 watch(isDetailsDrawerOpen, open => { if (open) panePreviewRef.value?.resetZoom(); });
@@ -4226,12 +4223,18 @@ const activeSavedSearch = computed(() => {
 });
 const activeSavedSearchName = computed(() => activeSavedSearch.value?.name || '');
 
-const previewDocumentTitle = computed(() => {
+const previewDocument = computed(() => {
   const id = selectedDocumentId.value;
-  const document = selectedDocumentDetail.value?.id === id
+  return selectedDocumentDetail.value?.id === id
     ? selectedDocumentDetail.value
     : documents.value.find(item => item.id === id);
-  return document ? formatDocumentTitle(document) : '';
+});
+const previewDocumentTitle = computed(() => previewDocument.value ? formatDocumentTitle(previewDocument.value) : '');
+const previewDocumentPageCount = computed(() => {
+  const count = Number(previewDocument.value?.page_count);
+  if (Number.isInteger(count) && count > 0) return count;
+  // Only use the loaded PDF when it belongs to the current selection.
+  return panePreviewRef.value?.$props?.src === previewSrc.value ? panePreviewRef.value.pageCount || undefined : undefined;
 });
 const previewRenderKey = computed(() => {
   if (!selectedDocumentId.value) {
@@ -6835,6 +6838,18 @@ function closeDetailsDrawerWithGuard({ preserveRememberedState = false } = {}) {
     applyMetadataFromDetail(selectedDocumentDetail.value);
   }
   return true;
+}
+
+async function toggleDetailsDrawerPin() {
+  if (documentBackLocked.value || settingsStore.isSettingSaving.drawer_remember_state) return;
+  try {
+    await settingsStore.saveSettingPatch(apiBaseUrl, {
+      patch: buildDrawerRememberStatePatch(!isDetailsDrawerPinned.value),
+      controlKey: 'drawer_remember_state'
+    });
+  } catch (error) {
+    notifyError(error, 'Schubladenposition konnte nicht gespeichert werden.');
+  }
 }
 
 function toggleDetailsDrawer() {

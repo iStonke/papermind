@@ -889,8 +889,8 @@ function pageStyle(info) {
   const scale = computeScale(info);
   const visual = visualPageDimensions(info);
   return {
-    width:  `${Math.floor(visual.width  * scale)}px`,
-    height: `${Math.floor(visual.height * scale)}px`,
+    width:  `${visual.width * scale}px`,
+    height: `${visual.height * scale}px`,
   };
 }
 
@@ -2708,14 +2708,19 @@ async function loadPdf(src) {
 function scrollToPage(pageNum) {
   if (!pageNum || pageNum < 1 || !pagesEl.value) return;
   const el = pagesEl.value.querySelector(`.pdf-preview__page[data-page="${pageNum}"]`);
-  el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // During a drawer resize, the page anchor is adjusted on every frame.
+  // A second smooth scroll would compete with that anchor and lose its target.
+  el?.scrollIntoView({ behavior: props.fitPage && resizePage !== null ? 'instant' : 'smooth', block: 'start' });
 }
 
 function goToPage(pageNum) {
   const total = pageInfos.value.length;
   if (!total) return;
   const target = Math.min(Math.max(1, pageNum), total);
-  if (resizePage !== null) resizePage = target;
+  if (resizePage !== null) {
+    resizePage = target;
+    currentPage.value = target;
+  }
   scrollToPage(target);
 }
 
@@ -2848,39 +2853,51 @@ watch(() => props.targetPage, (page) => nextTick(() => scrollToPage(page)));
 
 // ─── Resize ──────────────────────────────────────────────────────────────────
 
-function onResize() {
+function onResize(entries) {
+  // ResizeObserver already runs before paint. Whole-page fitting must follow
+  // the drawer in that same frame instead of lagging one rAF behind it.
+  if (props.fitPage) {
+    void updateStageSize(entries?.[0]?.borderBoxSize?.[0]);
+    return;
+  }
   if (resizeRaf) cancelAnimationFrame(resizeRaf);
-  resizeRaf = requestAnimationFrame(async () => {
+  resizeRaf = requestAnimationFrame(() => {
     resizeRaf = 0;
-    const el = pagesEl.value;
-    if (!el) return;
-    const width = el.clientWidth;
-    const height = el.clientHeight;
-    const changed = props.fitPage
-      ? Math.abs(width - stageSize.value.width) > 0.5 || Math.abs(height - stageSize.value.height) > 0.5
-      : Math.abs(containerWidth() - lastRenderWidth) > 2;
-    if (!changed) return;
-    if (props.fitPage && pdfDoc) resizePage ??= currentPage.value;
-    stageSize.value = { width, height };
-    lastRenderWidth = containerWidth();
-    if (!pdfDoc) return;
-    if (zoomRenderTimer) window.clearTimeout(zoomRenderTimer);
-    const epoch = loadEpoch;
-    zoomRenderTimer = window.setTimeout(async () => {
-      zoomRenderTimer = 0;
-      if (epoch !== loadEpoch) return;
-      renderGeneration++;
-      renderedPages.clear();
-      renderQueue.clear();
-      await setupObservers();
-      if (epoch === loadEpoch) { resizePage = null; recalcCurrentPage(); }
-    }, 160);
-    await nextTick();
-    if (props.fitPage && resizePage !== null) {
-      const page = el.querySelector(`.pdf-preview__page[data-page="${resizePage}"]`);
-      if (page) el.scrollTop += page.getBoundingClientRect().top - el.getBoundingClientRect().top;
-    }
+    void updateStageSize();
   });
+}
+
+async function updateStageSize(box) {
+  const el = pagesEl.value;
+  if (!el) return;
+  const width = el.clientWidth;
+  // Preserve fractional layout sizes without reading transformed screen bounds.
+  // Subtract borders/scrollbars just as clientHeight does for the integer case.
+  const height = box ? box.blockSize - (el.offsetHeight - el.clientHeight) : el.clientHeight;
+  const changed = props.fitPage
+    ? Math.abs(width - stageSize.value.width) > 0.01 || Math.abs(height - stageSize.value.height) > 0.01
+    : Math.abs(Math.max(340, width) - lastRenderWidth) > 2;
+  if (!changed) return;
+  if (props.fitPage && pdfDoc) resizePage ??= currentPage.value;
+  stageSize.value = { width, height };
+  lastRenderWidth = Math.max(340, width);
+  if (!pdfDoc) return;
+  if (zoomRenderTimer) window.clearTimeout(zoomRenderTimer);
+  const epoch = loadEpoch;
+  zoomRenderTimer = window.setTimeout(async () => {
+    zoomRenderTimer = 0;
+    if (epoch !== loadEpoch) return;
+    renderGeneration++;
+    renderedPages.clear();
+    renderQueue.clear();
+    await setupObservers();
+    if (epoch === loadEpoch) { resizePage = null; recalcCurrentPage(); }
+  }, 160);
+  await nextTick();
+  if (props.fitPage && resizePage !== null) {
+    const page = el.querySelector(`.pdf-preview__page[data-page="${resizePage}"]`);
+    if (page) el.scrollTop += page.getBoundingClientRect().top - el.getBoundingClientRect().top;
+  }
 }
 
 watch(pagesEl, (el, oldEl) => {
@@ -3314,7 +3331,8 @@ onBeforeUnmount(() => {
   /* Die erste Seite beginnt bündig mit der Oberkante des Vorschaubereichs und
      damit auf einer Höhe mit dem linken Container. Seitlich und unten bleibt
      der Abstand zur Stage erhalten. */
-  padding: 0 14px 14px;
+  padding: 0 14px calc(14px + var(--preview-drawer-overlap, 0px));
+  scroll-padding-bottom: calc(14px + var(--preview-drawer-overlap, 0px));
 }
 
 .pdf-preview__pages:focus {
@@ -3894,6 +3912,6 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped>
-.pdf-preview--fit-page .pdf-preview__pages { padding: 0 20px 16px; gap: 16px; overflow-anchor: none; scroll-padding-top: 0; justify-content: flex-start; }
+.pdf-preview--fit-page .pdf-preview__pages { padding: 0 20px calc(16px + var(--preview-drawer-overlap, 0px)); scroll-padding-bottom: calc(16px + var(--preview-drawer-overlap, 0px)); gap: 16px; overflow-anchor: none; scroll-padding-top: 0; justify-content: flex-start; }
 .pdf-preview--fit-page .pdf-preview__page { border-radius: 3px; box-shadow: 0 10px 28px rgb(0 0 0 / .12), 0 1px 3px rgb(0 0 0 / .1); }
 </style>

@@ -128,9 +128,10 @@ const resolvedMenuProps = computed(() => ({
 
 <style scoped>
 .pm-tags-input {
-  --pm-detail-chip-bg: var(--pm-chip-bg, rgba(var(--v-theme-on-surface), 0.06));
-  --pm-detail-chip-border: color-mix(in srgb, var(--pm-chip-text, var(--pm-text)) 14%, transparent);
-  --pm-detail-chip-close-color: var(--pm-chip-count, var(--pm-muted));
+  --pm-detail-chip-bg: var(--pm-tag-editor-chip-bg, rgb(var(--v-theme-surface)));
+  --pm-detail-chip-border: var(--pm-tag-editor-chip-border, rgba(var(--v-theme-on-surface), .5));
+  --pm-detail-chip-text: var(--pm-tag-editor-chip-text, rgb(var(--v-theme-on-surface)));
+  --pm-detail-chip-close-color: var(--pm-tag-editor-chip-close, var(--pm-muted, rgb(var(--v-theme-on-surface))));
   --pm-detail-chip-add-border: color-mix(in srgb, var(--pm-muted) 55%, transparent);
   --pm-detail-field-hover-border: color-mix(in srgb, var(--pm-divider) 55%, var(--pm-text));
   display: flex;
@@ -191,7 +192,7 @@ const resolvedMenuProps = computed(() => ({
   border: 1px solid var(--pm-detail-chip-border) !important;
   border-radius: 15px !important;
   background: var(--pm-detail-chip-bg) !important;
-  color: rgba(var(--v-theme-on-surface), 0.88) !important;
+  color: var(--pm-detail-chip-text) !important;
   font-size: 12.5px !important;
   padding-inline: 11px 7px !important;
 }

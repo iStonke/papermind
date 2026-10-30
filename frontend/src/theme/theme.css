@@ -48,10 +48,12 @@
   --pm-text:  #0e181b;
   --pm-muted: #535e62;
 
-  /* Metadatenfelder: erkennbare Fläche und Kontur auch ohne Hover. */
-  --pm-metadata-field-bg: #eef2f3;
-  --pm-metadata-field-border: #7c8b91;
-  --pm-metadata-field-hover-border: #4f646d;
+  /* Zurückhaltende Formularflächen; Fokus bleibt klar vom Ruhezustand getrennt. */
+  --pm-metadata-field-bg: #fbfcfd;
+  --pm-metadata-field-border: #b8c6ce;
+  --pm-metadata-field-hover-bg: #ffffff;
+  --pm-metadata-field-hover-border: #899faa;
+  --pm-metadata-field-focus-ring: rgba(var(--v-theme-primary), .12);
   --pm-import-pages-footer-bg: color-mix(in srgb, var(--pm-app-surface) 68%, transparent);
 
   /* Trennlinien & Schatten */
@@ -133,6 +135,10 @@
   --pm-chip-bg:    #e7eef0;
   --pm-chip-text:  #2b3538;
   --pm-chip-count: #6c777a;
+  --pm-tag-editor-chip-bg: #ffffff;
+  --pm-tag-editor-chip-border: #708792;
+  --pm-tag-editor-chip-text: #24343b;
+  --pm-tag-editor-chip-close: #455b65;
 
   /* Codeblöcke im Leser */
   --pm-code-bg:     #edf4f5;
@@ -169,9 +175,11 @@
   --pm-text:  #f0f4f6;
   --pm-muted: #a8b3b7;
 
-  --pm-metadata-field-bg: #252f33;
-  --pm-metadata-field-border: #7c8e95;
-  --pm-metadata-field-hover-border: #9aadb5;
+  --pm-metadata-field-bg: #28353b;
+  --pm-metadata-field-border: #617782;
+  --pm-metadata-field-hover-bg: #2d3d45;
+  --pm-metadata-field-hover-border: #8099a6;
+  --pm-metadata-field-focus-ring: rgba(var(--v-theme-primary), .18);
   --pm-import-pages-footer-bg: color-mix(in srgb, var(--pm-app-surface) 78%, transparent);
 
   /* Trennlinien & Schatten */
@@ -263,6 +271,10 @@
   --pm-chip-bg:    #3e484c;
   --pm-chip-text:  #e9eef0;
   --pm-chip-count: #adb8bc;
+  --pm-tag-editor-chip-bg: #1a292f;
+  --pm-tag-editor-chip-border: #7e959f;
+  --pm-tag-editor-chip-text: #edf4f6;
+  --pm-tag-editor-chip-close: #bacdd5;
 
   /* Codeblöcke */
   --pm-code-bg:     #263033;

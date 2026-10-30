@@ -17,7 +17,7 @@
       <span>Einstellungen werden geladen...</span>
     </div>
     <template v-else>
-      <div class="pm-settings-layout" :class="{ 'pm-settings-layout--with-rail': isNotesPreviewCategory, 'pm-settings-layout--no-animations': !animationsEnabled }">
+      <div class="pm-settings-layout" :class="{ 'pm-settings-layout--with-rail': hasSettingsPreview, 'pm-settings-layout--no-animations': !animationsEnabled }">
         <nav ref="settingsNavRef" class="pm-settings-nav" role="tablist" aria-label="Einstellungskategorien">
           <div
             v-for="group in visibleCategoryGroups"
@@ -31,6 +31,7 @@
               type="button"
               class="pm-settings-nav__item"
               :class="{ 'pm-settings-nav__item--active': activeCategory === cat.value }"
+              :title="cat.label"
               role="tab"
               :aria-selected="activeCategory === cat.value"
               @click="activeCategory = cat.value"
@@ -247,29 +248,6 @@
               class="pm-setting-row"
               role="button"
               tabindex="0"
-              @click="toggleShowFilenameSuffixFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleShowFilenameSuffixFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Dateiendung anzeigen</div>
-                <div class="pm-setting-description">Blendet .pdf in Listen und Details ein/aus.</div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.ui.showFilenameSuffix"
-                color="primary"
-                density="comfortable"
-                hide-details
-                :loading="isSettingSaving.show_filename_suffix"
-                :disabled="isSettingSaving.show_filename_suffix"
-                @click.stop
-                @update:model-value="onShowFilenameSuffixChange"
-              />
-            </div>
-
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
               @click="toggleAnimationsFromRow"
               @keydown="handleSettingRowShortcut($event, toggleAnimationsFromRow)"
             >
@@ -307,56 +285,6 @@
                 hide-details
                 @click.stop
                 @update:model-value="onScanLineAnimationEnabledChange"
-              />
-            </div>
-
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleAutoHideDetailsDrawerFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleAutoHideDetailsDrawerFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Detailleiste bei Inaktivität dimmen</div>
-                <div class="pm-setting-description">
-                  Dimmt die Dokumentdetails im ein- und ausgeklappten Zustand, bis du die Vorschau berührst oder mit ihr arbeitest.
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.ui.autoHideDetailsDrawer"
-                color="primary"
-                density="comfortable"
-                hide-details
-                :loading="isSettingSaving.auto_hide_details_drawer"
-                :disabled="isSettingSaving.auto_hide_details_drawer"
-                @click.stop
-                @update:model-value="onAutoHideDetailsDrawerChange"
-              />
-            </div>
-
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleDrawerRememberStateFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleDrawerRememberStateFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Dokumentdetails merken</div>
-                <div class="pm-setting-description">
-                  Merkt sich, ob die Dokumentdetails zuletzt ein- oder ausgeklappt waren.
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.ui.drawerRememberState"
-                color="primary"
-                density="comfortable"
-                hide-details
-                :loading="isSettingSaving.drawer_remember_state"
-                :disabled="isSettingSaving.drawer_remember_state"
-                @click.stop
-                @update:model-value="onDrawerRememberStateChange"
               />
             </div>
 
@@ -402,6 +330,64 @@
                 Onboarding anzeigen
               </v-btn>
             </div>
+          </div>
+        </section>
+
+        <section v-if="activeCategory === 'document_details'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <SettingsInfoCard icon="mdi-file-document-outline" title="Allgemein"
+              subtitle="Vorschau, Detailleiste und verwandte Dokumente anpassen." />
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleShowFilenameSuffixFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleShowFilenameSuffixFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Dateiendung anzeigen</div>
+                <div class="pm-setting-description">Blendet .pdf in Listen und Details ein/aus.</div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.ui.showFilenameSuffix"
+                color="primary"
+                density="comfortable"
+                hide-details
+                :loading="isSettingSaving.show_filename_suffix"
+                :disabled="isSettingSaving.show_filename_suffix"
+                @click.stop
+                @update:model-value="onShowFilenameSuffixChange"
+              />
+            </div>
+
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleDrawerAutoMinimizeFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleDrawerAutoMinimizeFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Dokumentendetails automatisch minimieren</div>
+                <div class="pm-setting-description">
+                  Klappt die Details bei jedem Dokumentenwechsel ein. Ausgeschaltet bleibt der zuletzt gewählte Zustand erhalten. Die Pinnadel in der Detailleiste schaltet diese Option ebenfalls um.
+                </div>
+              </div>
+              <v-switch
+                :model-value="drawerAutoMinimizeEnabled"
+                aria-label="Dokumentendetails automatisch minimieren"
+                color="primary"
+                density="comfortable"
+                hide-details
+                :loading="isSettingSaving.drawer_remember_state"
+                :disabled="isSettingSaving.drawer_remember_state"
+                @click.stop
+                @update:model-value="onDrawerAutoMinimizeChange"
+              />
+            </div>
+
+            <RelatedDocumentSettings />
+            <RelatedDocumentSettings v-if="compactDocumentPreview" preview class="document-details-preview--inline" />
           </div>
         </section>
 
@@ -2912,11 +2898,13 @@
 
         <Transition name="pm-preview-rail">
           <aside
-            v-if="isNotesPreviewCategory"
+            v-if="hasSettingsPreview"
+            :key="isNotesPreviewCategory ? 'notes' : 'documents'"
             class="pm-settings-preview-rail"
-            aria-label="Live-Vorschau der Notizdarstellung"
+            :aria-label="isNotesPreviewCategory ? 'Live-Vorschau der Notizdarstellung' : 'Beispielvorschau ähnlicher Dokumente'"
           >
-            <div class="notes-settings-preview notes-settings-preview--rail" :style="notesSettingsPreviewStyle">
+            <RelatedDocumentSettings v-if="activeCategory === 'document_details'" preview />
+            <div v-else class="notes-settings-preview notes-settings-preview--rail" :style="notesSettingsPreviewStyle">
               <div class="notes-settings-preview__eyebrow">Live-Vorschau</div>
               <div class="notes-settings-preview__body">
                 <h3>Eine klare Überschrift</h3>
@@ -2943,7 +2931,7 @@ import { useSidebarAppearance } from '../composables/useSidebarAppearance.js';
 const { lightSidebar, setLightSidebar } = useSidebarAppearance();
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRecordAutosave } from '../composables/useRecordAutosave.js';
-import { useTheme } from 'vuetify';
+import { useDisplay, useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import DestructiveDialog from './DestructiveDialog.vue';
@@ -2952,6 +2940,7 @@ import RecordSaveStatus from './RecordSaveStatus.vue';
 import VocabularySearch from './VocabularySearch.vue';
 // Nur in den Admin-Tabs „Dienste"/„System" sichtbar → als eigene Chunks lazy
 // geladen, damit sie den Haupt-Chunk des Dialogs nicht aufblähen.
+const RelatedDocumentSettings = defineAsyncComponent(() => import('./RelatedDocumentSettings.vue'));
 const NoteSpeechSettings = defineAsyncComponent(() => import('./notes/NoteSpeechSettings.vue'));
 const ScannerSettingsPanel = defineAsyncComponent(() => import('./ScannerSettingsPanel.vue'));
 const ServiceStatusPanel = defineAsyncComponent(() => import('./ServiceStatusPanel.vue'));
@@ -2998,7 +2987,6 @@ import {
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
   buildOcrBackfillEnabledPatch,
-  buildAutoHideDetailsDrawerPatch,
   buildDrawerRememberStatePatch,
   buildTagDrawerRememberStatePatch,
   buildSidebarShowRecentPatch,
@@ -3172,6 +3160,7 @@ const settingsCategories = [
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', group: 'import', adminOnly: true },
   { value: 'local_ai', label: 'KI-Anbieter', icon: 'mdi-robot-outline', group: 'ai', adminOnly: true },
   { value: 'wiki', label: 'Wissen', icon: 'mdi-source-merge', group: 'ai', adminOnly: true },
+  { value: 'document_details', label: 'Allgemein', icon: 'mdi-file-document-outline', group: 'documents' },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline', group: 'documents' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline', group: 'documents' },
   { value: 'retention', label: 'Aufbewahrung', icon: 'mdi-folder-clock-outline', group: 'documents', adminOnly: true },
@@ -4046,7 +4035,10 @@ const isNotesPreviewCategory = computed(
 
 // Locked control-panel width (598) + nav (220) + rail (340) + 2px border = 1160.
 // Growing the dialog by exactly the rail width keeps nav + panel unchanged.
-const settingsDialogMaxWidth = computed(() => isNotesPreviewCategory.value ? 1160 : 820);
+const { width: settingsViewportWidth } = useDisplay();
+const compactDocumentPreview = computed(() => settingsViewportWidth.value < 1100);
+const hasSettingsPreview = computed(() => isNotesPreviewCategory.value || (activeCategory.value === 'document_details' && !compactDocumentPreview.value));
+const settingsDialogMaxWidth = computed(() => hasSettingsPreview.value ? 1160 : 820);
 
 const notesSettingsPreviewStyle = computed(() => {
   const fontFamily = {
@@ -5011,31 +5003,13 @@ function toggleShowFilenameSuffixFromRow() {
   void onShowFilenameSuffixChange(!settingsDraft.ui.showFilenameSuffix);
 }
 
-// ── Dokumentdetails im Vorschaubereich automatisch einblenden ──────────────
+// Keep the existing stored preference compatible: automatic minimization is
+// the inverse of remembering the state, so existing users keep their behavior.
+const drawerAutoMinimizeEnabled = computed(() => !settingsDraft.ui.drawerRememberState);
 
-async function onAutoHideDetailsDrawerChange(nextValue) {
-  if (isSettingSaving.auto_hide_details_drawer) return;
-  const nextBool = Boolean(nextValue);
-  if (nextBool === settingsDraft.ui.autoHideDetailsDrawer) return;
-  const previous = settingsDraft.ui.autoHideDetailsDrawer;
-  settingsStore.setDraftPatch({ ui: { autoHideDetailsDrawer: nextBool } });
-  await patchSettingsWithRevert({
-    patch: buildAutoHideDetailsDrawerPatch(nextBool),
-    controlKey: 'auto_hide_details_drawer',
-    revert: () => settingsStore.setDraftPatch({ ui: { autoHideDetailsDrawer: previous } })
-  });
-}
-
-function toggleAutoHideDetailsDrawerFromRow() {
-  if (isSettingSaving.auto_hide_details_drawer) return;
-  void onAutoHideDetailsDrawerChange(!settingsDraft.ui.autoHideDetailsDrawer);
-}
-
-// ── Drawer: Zustand merken ───────────────────────────────────────────────────
-
-async function onDrawerRememberStateChange(nextValue) {
+async function onDrawerAutoMinimizeChange(nextValue) {
   if (isSettingSaving.drawer_remember_state) return;
-  const nextBool = Boolean(nextValue);
+  const nextBool = !Boolean(nextValue);
   if (nextBool === settingsDraft.ui.drawerRememberState) return;
   const previous = settingsDraft.ui.drawerRememberState;
   settingsStore.setDraftPatch({ ui: { drawerRememberState: nextBool } });
@@ -5046,9 +5020,9 @@ async function onDrawerRememberStateChange(nextValue) {
   });
 }
 
-function toggleDrawerRememberStateFromRow() {
+function toggleDrawerAutoMinimizeFromRow() {
   if (isSettingSaving.drawer_remember_state) return;
-  void onDrawerRememberStateChange(!settingsDraft.ui.drawerRememberState);
+  void onDrawerAutoMinimizeChange(!drawerAutoMinimizeEnabled.value);
 }
 
 // ── Tag-Schublade: Zustand merken ────────────────────────────────────────────

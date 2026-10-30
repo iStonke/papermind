@@ -15,9 +15,11 @@ class SettingsValidationTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             AppSettingsPatch.model_validate({"ui": {"theme_mode": "blue"}})
 
-    def test_legacy_color_variant_is_removed(self) -> None:
-        payload = _merge_defaults({"ui": {"color_variant": "rose"}})
+    def test_obsolete_ui_preferences_are_removed(self) -> None:
+        payload = _merge_defaults({"ui": {"color_variant": "rose", "autoHideDetailsDrawer": True}})
         self.assertNotIn("color_variant", payload["ui"])
+        self.assertNotIn("autoHideDetailsDrawer", payload["ui"])
+        self.assertNotIn("autoHideDetailsDrawer", AppSettingsRead.model_validate(payload).ui.model_dump())
 
     def test_sort_order_accepts_valid_values(self) -> None:
         payload = AppSettingsPatch.model_validate({"documents": {"sort_order": "last_opened"}})
@@ -55,7 +57,6 @@ class SettingsValidationTest(unittest.TestCase):
                 "ui": {
                     "showFilenameSuffix": False,
                     "previewDrawerGradientEnabled": False,
-                    "autoHideDetailsDrawer": True,
                     "drawerRememberState": True,
                     "tagDrawerRememberState": False,
                     "sidebar_show_dossiers": False,
@@ -67,7 +68,6 @@ class SettingsValidationTest(unittest.TestCase):
         )
         self.assertIs(payload.ui.showFilenameSuffix, False)
         self.assertIs(payload.ui.previewDrawerGradientEnabled, False)
-        self.assertIs(payload.ui.autoHideDetailsDrawer, True)
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, False)
         self.assertIs(payload.ui.sidebar_show_dossiers, False)
@@ -79,7 +79,6 @@ class SettingsValidationTest(unittest.TestCase):
         payload = AppSettingsRead.model_validate({})
         self.assertIs(payload.ui.showFilenameSuffix, True)
         self.assertIs(payload.ui.previewDrawerGradientEnabled, True)
-        self.assertIs(payload.ui.autoHideDetailsDrawer, False)
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, True)
         self.assertIs(payload.ui.sidebar_show_dossiers, True)

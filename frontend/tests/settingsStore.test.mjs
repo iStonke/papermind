@@ -41,15 +41,16 @@ test("patchSettings normalizes an empty API base URL", async () => {
   assert.equal(calls[0].options.body, JSON.stringify({ ui: { theme_mode: "dark" } }));
 });
 
-test("normalizeSettingsPayload drops legacy color variants", () => {
+test("normalizeSettingsPayload drops obsolete UI preferences", () => {
   setActivePinia(createPinia());
   const store = useSettingsStore();
 
   const normalized = store.normalizeSettingsPayload({
-    ui: { theme_mode: "light", color_variant: "violet" },
+    ui: { theme_mode: "light", color_variant: "violet", autoHideDetailsDrawer: true },
   });
 
   assert.equal("color_variant" in normalized.ui, false);
+  assert.equal("autoHideDetailsDrawer" in normalized.ui, false);
 });
 
 test("normalizeSettingsPayload drops legacy favorite sidebar visibility", () => {

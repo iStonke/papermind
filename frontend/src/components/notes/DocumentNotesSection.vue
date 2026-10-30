@@ -5,10 +5,9 @@
   über Events an DocumentsWorkspace, das in den Notizbereich wechselt.
 -->
 <template>
-  <DocumentSectionCard :reveal-key="documentId" class="doc-notes" title="Verknüpfte Notizen" label="Notizen zu diesem Dokument"
-    icon="mdi-note-multiple-outline" :count="notes.length" :loading="loading" :empty="!notes.length"
-    empty-icon="mdi-note-plus-outline" empty-title="Noch keine verknüpften Notizen"
-    empty-description="Erstelle eine Notiz direkt zu diesem Dokument.">
+  <DocumentSectionCard class="doc-notes" title="Verknüpfte Notizen" label="Notizen zu diesem Dokument"
+    :count="notes.length" :loading="loading" :empty="!notes.length"
+    empty-message="Füge die erste Notiz zu diesem Dokument hinzu.">
     <template #actions>
       <v-btn
         class="doc-notes__new"
@@ -57,7 +56,7 @@ const props = defineProps({
   reloadKey: { type: Number, default: 0 },
 });
 
-const emit = defineEmits(['open-note', 'new-note']);
+const emit = defineEmits(['open-note', 'new-note', 'loading-change']);
 
 const notes = ref([]);
 const loading = ref(false);
@@ -81,6 +80,7 @@ async function load() {
 
 watch(() => props.documentId, load, { immediate: true });
 watch(() => props.reloadKey, load);
+watch(loading, value => emit('loading-change', value), { immediate: true, flush: 'sync' });
 
 function formatDate(value) {
   if (!value) return '';

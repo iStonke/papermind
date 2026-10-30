@@ -123,5 +123,15 @@ export const documentThumbnailUrl = (documentId) =>
   authedUrl(`${getBaseUrl()}/api/documents/${documentId}/thumbnail`);
 
 /** Metadata-based recommendations across the current user's document library. */
-export const getRelatedDocuments = (documentId) =>
-  apiGet(`/api/documents/${encodeURIComponent(documentId)}/related?limit=5`);
+export const getRelatedDocuments = (documentId, { mode = 'recommended', limit = 5, offset = 0, preferences } = {}) => {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (mode !== 'recommended') query.set('mode', mode);
+  if (offset) query.set('offset', String(offset));
+  if (preferences) {
+    query.set('profile', preferences.profile);
+    if (preferences.profile === 'custom') {
+      for (const [key, level] of Object.entries(preferences.weights)) query.set(`${key}_weight`, level);
+    }
+  }
+  return apiGet(`/api/documents/${encodeURIComponent(documentId)}/related?${query}`);
+};

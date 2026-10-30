@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.speech_options import SpeechOptions
+from app.schemas.related_preferences import RelatedPreferences
 
 from app.schemas.retention import RetentionPaperOriginal
 
@@ -350,12 +351,12 @@ def _normalize_dashboard_layout(
 
 
 class UISettingsRead(BaseModel):
+    related_documents: RelatedPreferences = Field(default_factory=RelatedPreferences)
     theme_mode: ThemeMode = ThemeMode.system
     start_view: StartView = StartView.all
     search_scope_default: SearchScopeDefault = SearchScopeDefault.current
     showFilenameSuffix: bool = True
     previewDrawerGradientEnabled: bool = True
-    autoHideDetailsDrawer: bool = False
     drawerRememberState: bool = True
     tagDrawerRememberState: bool = True
     sidebar_show_recent: bool = True
@@ -574,12 +575,12 @@ class AppSettingsRead(BaseModel):
 
 
 class UISettingsPatch(BaseModel):
+    related_documents: RelatedPreferences | None = None
     theme_mode: ThemeMode | None = None
     start_view: StartView | None = None
     search_scope_default: SearchScopeDefault | None = None
     showFilenameSuffix: bool | None = None
     previewDrawerGradientEnabled: bool | None = None
-    autoHideDetailsDrawer: bool | None = None
     drawerRememberState: bool | None = None
     tagDrawerRememberState: bool | None = None
     sidebar_show_recent: bool | None = None

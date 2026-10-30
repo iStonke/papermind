@@ -6,11 +6,10 @@
   Erscheint nur, wenn es Lernmarkierungen gibt.
 -->
 <template>
-  <DocumentSectionCard :reveal-key="documentId" v-if="highlights.length || showEmpty" class="doc-learn" title="Lernmarkierungen"
-    label="Lernmarkierungen in diesem Dokument" icon="mdi-format-color-highlight" :count="highlights.length"
+  <DocumentSectionCard v-if="highlights.length || showEmpty" class="doc-learn" title="Lernmarkierungen"
+    label="Lernmarkierungen in diesem Dokument" :count="highlights.length"
     :loading="loading" loading-label="Lernmarkierungen werden geladen …" :empty="!loadError && !highlights.length"
-    empty-title="Noch keine Lernmarkierungen" empty-icon="mdi-format-color-highlight"
-    empty-description="Markiere wichtige Stellen in einer verknüpften Notiz zu diesem Dokument.">
+    empty-message="Wichtige Stellen aus verknüpften Notizen erscheinen hier.">
     <p v-if="showEmpty && loadError" class="doc-learn__error" role="status">Lernmarkierungen konnten nicht geladen werden.</p>
     <div v-if="highlights.length" class="doc-learn__filters" role="group" aria-label="Nach Bedeutung filtern">
       <button
@@ -76,7 +75,7 @@ const props = defineProps({
   reloadKey: { type: Number, default: 0 },
 });
 
-const emit = defineEmits(['open-highlight']);
+const emit = defineEmits(['open-highlight', 'loading-change']);
 
 const highlights = ref([]);
 const loading = ref(false);
@@ -126,6 +125,7 @@ watch(() => props.documentId, () => {
   load();
 }, { immediate: true });
 watch(() => props.reloadKey, load);
+watch(loading, value => emit('loading-change', value), { immediate: true, flush: 'sync' });
 </script>
 
 <style scoped>

@@ -44,6 +44,60 @@ test('attached panel shrinks the page, keeps field nodes and returns focus when 
   await expect.poll(() => page.locator('.preview-layout__content').evaluate(el => el.getAnimations().filter(a => a.playState === 'running').length)).toBe(0);
   await page.screenshot({ path: '/tmp/papermind-document-dock-dark.png' });
 });
+test('collapsed details show the PDF behind a translucent surface and expanded details remain opaque', async ({ page }) => {
+  await mountDock(page);
+  const drawer = page.locator('.preview-layout__drawer');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { window.dock.theme = theme; window.dock.open = false; }, theme);
+    await expect(drawer).toHaveCSS('height', '72px');
+    const geometry = () => page.locator('.preview-layout').evaluate(el => {
+      const viewer = el.querySelector('.preview-layout__viewer').getBoundingClientRect();
+      const details = el.querySelector('.preview-layout__drawer').getBoundingClientRect();
+      const page = el.querySelector('.pdf-preview__page').getBoundingClientRect();
+      return { reserved: Math.abs(viewer.bottom - el.getBoundingClientRect().bottom), overlap: page.bottom - details.top };
+    });
+    await expect.poll(async () => (await geometry()).reserved).toBeLessThan(1);
+    await expect.poll(async () => (await geometry()).overlap).toBeGreaterThan(40);
+    await expect(drawer).toHaveCSS('backdrop-filter', 'blur(6px)');
+    await expect.poll(() => drawer.evaluate(el => el.getAnimations().filter(effect => effect.playState === 'running').length)).toBe(0);
+    const alpha = await drawer.evaluate(el => {
+      const color = getComputedStyle(el).backgroundColor;
+      return Number(color.match(/\/\s*([\d.]+)/)?.[1] ?? color.match(/rgba\([^)]*,\s*([\d.]+)\)/)?.[1] ?? 1);
+    });
+    expect(alpha).toBeCloseTo(.84, 2);
+    await expect(page.locator('.preview-layout__header')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await page.screenshot({ path: `/tmp/papermind-translucent-details-${theme}.png` });
+    await page.getByRole('button', { name: 'Dokumentdetails umschalten' }).click();
+    await expect(drawer).toHaveCSS('background-color', theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(51, 59, 62)');
+    await expect.poll(() => page.locator('.preview-layout__viewer').evaluate(el => Math.abs(el.getBoundingClientRect().bottom - el.nextElementSibling.getBoundingClientRect().top))).toBeLessThan(1);
+  }
+  await page.evaluate(() => { window.dock.open = false; });
+  const pages = page.locator('.pdf-preview__pages');
+  await expect(drawer).toHaveCSS('height', '72px');
+  await expect.poll(() => pages.evaluate(el => parseFloat(getComputedStyle(el).paddingBottom))).toBe(88);
+  await pages.evaluate(el => { el.scrollTop = el.scrollHeight; });
+  await expect.poll(() => page.locator('.pdf-preview__page').last().evaluate(el => el.getBoundingClientRect().bottom - document.querySelector('.preview-layout__drawer').getBoundingClientRect().top)).toBeLessThan(-10);
+});
+test('opening and closing the drawer each run one uninterrupted height transition', async ({ page }) => {
+  await mountDock(page);
+  const drawer = page.locator('.preview-layout__drawer');
+  await expect.poll(() => drawer.evaluate(el => el.getAnimations({ subtree: true }).filter(a => a.playState === 'running').length)).toBe(0);
+  await drawer.evaluate(el => {
+    window.drawerHeightStarts = 0;
+    el.addEventListener('transitionrun', event => {
+      if (event.target === el && event.propertyName === 'height') window.drawerHeightStarts++;
+    });
+  });
+  const toggle = page.getByRole('button', { name: 'Dokumentdetails umschalten' });
+  await toggle.click();
+  await expect.poll(() => drawer.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(300);
+  await expect.poll(() => drawer.evaluate(el => el.getAnimations({ subtree: true }).filter(a => a.playState === 'running').length)).toBe(0);
+  expect(await page.evaluate(() => window.drawerHeightStarts)).toBe(1);
+  await toggle.click();
+  await expect(drawer).toHaveCSS('height', '72px');
+  await expect.poll(() => drawer.evaluate(el => el.getAnimations({ subtree: true }).filter(a => a.playState === 'running').length)).toBe(0);
+  expect(await page.evaluate(() => window.drawerHeightStarts)).toBe(2);
+});
 test('rapid reversals settle, resizing keeps the header accessible and scrolling cue follows content', async ({ page }) => {
   await mountDock(page);
   await page.evaluate(() => { window.dock.open = true; });
@@ -105,14 +159,15 @@ test('whole active page stays above the panel in portrait, landscape and narrow 
   await page.evaluate(() => { window.dock.width = 390; window.dock.height = 480; });
   await expect.poll(withinStage).toBe(true);
   await expect.poll(() => page.evaluate(() => window.dock.preview.currentPage)).toBe(2);
-  const geometry = await page.locator('.preview-layout').evaluate(el => {
+  const geometry = () => page.locator('.preview-layout').evaluate(el => {
     const viewer = el.querySelector('.preview-layout__viewer').getBoundingClientRect();
     const details = el.querySelector('.preview-layout__drawer').getBoundingClientRect();
     const root = el.getBoundingClientRect();
     return { gap: Math.abs(viewer.bottom - details.top), bottomGap: Math.abs(details.bottom - root.bottom) };
   });
-  expect(geometry.gap).toBeLessThan(1);
-  expect(geometry.bottomGap).toBeLessThan(1);
+  // A fitted page can already be visible while the drawer is still rebounding.
+  await expect.poll(async () => (await geometry()).gap).toBeLessThan(1);
+  await expect.poll(async () => (await geometry()).bottomGap).toBeLessThan(1);
 });
 
 
@@ -120,8 +175,8 @@ test('tabs hide when collapsed, size to each section and retain input nodes', as
   await mountDock(page);
   await expect(page.getByRole('tablist')).toBeHidden();
   await page.getByRole('button', { name: 'Dokumentdetails umschalten' }).click();
-  await page.getByRole('tab', { name: 'Metadaten', exact: true }).click();
-  const metadataPanel = page.getByRole('tabpanel', { name: 'Metadaten', exact: true });
+  await page.getByRole('tab', { name: 'Überblick', exact: true }).click();
+  const metadataPanel = page.getByRole('tabpanel', { name: 'Überblick', exact: true });
   await expect(metadataPanel).toBeVisible();
   const name = page.getByLabel('Dokumentname', { exact: true });
   await name.fill('Titel bleibt beim Wechsel erhalten');
@@ -130,22 +185,26 @@ test('tabs hide when collapsed, size to each section and retain input nodes', as
   await expect.poll(() => drawer.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(300);
   await expect.poll(() => page.locator('.preview-layout__body').evaluate(el => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(2);
   const metadataHeight = await drawer.evaluate(el => el.getBoundingClientRect().height);
-  await page.getByRole('tab', { name: 'Lernmarkierungen', exact: true }).click();
-  await expect(page.getByText('Noch keine Lernmarkierungen')).toBeVisible();
+  await expect(page.getByRole('tab')).toHaveText(['Überblick', 'Notizen', 'Ähnliche Dokumente', 'Aufbewahrung']);
+  await expect(page.getByRole('tab', { name: 'Lernmarkierungen', exact: true })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Notizen', exact: true }).click();
+  const notesPanel = page.getByRole('tabpanel', { name: 'Notizen', exact: true });
+  await expect(notesPanel.locator('.pm-metadata-label, .doc-notes')).toHaveCount(0);
+  await expect.poll(() => notesPanel.evaluate(el => Math.abs(el.clientWidth - el.querySelector('.pm-metadata-control').getBoundingClientRect().width))).toBeLessThan(2);
   await expect(metadataPanel).toBeHidden();
   await expect.poll(() => drawer.evaluate(el => el.getBoundingClientRect().height)).toBeLessThan(metadataHeight - 30);
   await expect.poll(() => drawer.evaluate(el => el.getAnimations({ subtree: true }).filter(a => a.playState === 'running').length)).toBe(0);
-  await page.locator('.doc-learn').screenshot({ path: '/tmp/papermind-learn-card.png' });
-  await page.getByRole('tab', { name: 'Notizen', exact: true }).click();
   const note = page.getByRole('textbox', { name: 'Notizen', exact: true });
   await note.fill('Eine erhaltene Textnotiz');
-  await page.getByRole('tab', { name: 'Metadaten', exact: true }).click();
+  await page.getByRole('tab', { name: 'Überblick', exact: true }).click();
   await expect(name).toHaveValue('Titel bleibt beim Wechsel erhalten');
   expect(await name.evaluate(el => el === window.originalTabInput)).toBe(true);
   await page.getByRole('tab', { name: 'Notizen', exact: true }).click();
   await expect(note).toHaveValue('Eine erhaltene Textnotiz');
   await expect.poll(() => drawer.evaluate(el => el.getAnimations({ subtree: true }).filter(a => a.playState === 'running').length)).toBe(0);
-  await page.locator('.doc-notes').screenshot({ path: '/tmp/papermind-notes-card.png' });
+  await notesPanel.screenshot({ path: '/tmp/papermind-notes-field.png' });
+  await page.evaluate(() => { window.dock.theme = 'light'; });
+  await page.screenshot({ path: '/tmp/papermind-notes-field-light.png', animations: 'disabled' });
   const toggle = page.getByRole('button', { name: 'Dokumentdetails umschalten' });
   await toggle.click();
   await expect(page.getByRole('tablist')).toBeHidden();
@@ -157,17 +216,13 @@ test('tabs hide when collapsed, size to each section and retain input nodes', as
 test('tabs support keyboard navigation, async height changes and overflow', async ({ page }) => {
   await mountDock(page);
   await page.getByRole('button', { name: 'Dokumentdetails umschalten' }).click();
-  const firstTab = page.getByRole('tab', { name: 'Metadaten', exact: true });
+  const firstTab = page.getByRole('tab', { name: 'Überblick', exact: true });
   await firstTab.focus();
   await firstTab.press('ArrowRight');
-  await page.getByRole('tab', { name: 'Ähnliche Dokumente', exact: true }).press('ArrowRight');
   await expect(page.getByRole('tab', { name: 'Notizen', exact: true })).toBeFocused();
   await expect(page.getByRole('tabpanel', { name: 'Notizen', exact: true })).toBeVisible();
-  await page.route(url => url.pathname === '/api/notes', route => route.fulfill({ json: {
-    items: Array.from({ length: 12 }, (_, i) => ({ id: `note-${i}`, title: `Notiz ${i + 1}`, preview: 'Verknuepfte Gedanken zum Dokument', updated_at: '2026-10-28T12:00:00Z' })), has_more: false
-  } }));
-  await page.evaluate(() => { window.dock.notesRevision++; });
-  await expect(page.getByRole('button', { name: /Notiz 12/ })).toBeAttached();
+  await page.evaluate(() => { window.dock.height = 480; });
+  await page.getByRole('textbox', { name: 'Notizen', exact: true }).fill(Array.from({ length: 30 }, (_, index) => `Gedanke ${index + 1}`).join('\n'));
   await expect.poll(() => page.locator('.preview-layout__body').evaluate(el => el.scrollHeight - el.clientHeight)).toBeGreaterThan(100);
   await expect.poll(() => page.locator('.preview-layout__viewer').evaluate(el => el.clientHeight)).toBeGreaterThanOrEqual(178);
   await page.getByRole('tab', { name: 'Notizen', exact: true }).press('End');
@@ -195,10 +250,10 @@ test('related tab loads on demand, explains matches, caches and opens documents'
   await openRelated(page);
   const panel = page.getByRole('tabpanel', { name: 'Ähnliche Dokumente', exact: true });
   await expect(panel.getByRole('button', { name: /Beitragsrechnung 2025/ })).toBeVisible();
-  await expect(panel.getByText('Gleicher Korrespondent').first()).toBeVisible();
-  await expect(panel.getByText('2 gemeinsame Tags').first()).toHaveAttribute('title', 'Auto, Versicherung');
+  await expect(panel.getByText('Gleicher Korrespondent und Dokumenttyp').first()).toBeVisible();
+  await expect(panel.getByText('Gemeinsame Tags: Auto, Versicherung').first()).toHaveAttribute('title', '2 gemeinsame Tags: Auto, Versicherung');
   await expect(panel.getByText('01.10.2026').first()).toBeVisible();
-  await page.getByRole('tab', { name: 'Metadaten', exact: true }).click();
+  await page.getByRole('tab', { name: 'Überblick', exact: true }).click();
   await page.getByRole('tab', { name: 'Ähnliche Dokumente', exact: true }).click();
   expect(requests).toBe(1);
   await expect.poll(() => panel.evaluate(el => el.closest('.preview-layout__drawer').getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length)).toBe(0);
@@ -219,7 +274,7 @@ test('related tab handles errors, retry and empty results', async ({ page }) => 
   await openRelated(page);
   await expect(page.getByText('Ähnliche Dokumente konnten nicht geladen werden.')).toBeVisible();
   await page.getByRole('button', { name: 'Erneut versuchen' }).click();
-  await expect(page.getByText('Keine ähnlichen Dokumente gefunden')).toBeVisible();
+  await expect(page.getByText('Keine Vorschläge. Probiere „Gleicher Absender“ oder „Gemeinsame Tags“.')).toBeVisible();
   await expect.poll(() => page.locator('.preview-layout__drawer').evaluate(el => el.getAnimations({ subtree: true }).filter(a => a.playState === 'running').length)).toBe(0);
   await page.locator('.related-documents').screenshot({ path: '/tmp/papermind-related-card.png' });
   expect(requests).toBe(2);
@@ -267,4 +322,70 @@ test('related titles and tooltips follow the suffix preference without changing 
   await page.evaluate(() => { window.dock.showSuffix = false; });
   await expect(labels).toHaveText(hidden);
   expect(requests).toBe(1);
+});
+
+test('related filters cache independently, explain series and load additional pages with retry', async ({ page }) => {
+  await mountDock(page);
+  const calls = [];
+  let failNextPage = true;
+  await page.route('**/api/documents/*/related?**', route => {
+    const url = new URL(route.request().url());
+    const mode = url.searchParams.get('mode') || 'recommended';
+    const offset = Number(url.searchParams.get('offset') || 0);
+    calls.push({ mode, offset });
+    if (mode === 'recommended') return route.fulfill({ json: { total: 1, has_more: false,
+      items: [{ ...relatedItem('series', 'Beitragsrechnung 2025'), same_series: true }] } });
+    if (mode === 'tags') return route.fulfill({ json: { items: [], total: 0, has_more: false } });
+    if (offset && failNextPage) { failNextPage = false; return route.fulfill({ status: 500, json: {} }); }
+    return route.fulfill({ json: { items: Array.from({ length: offset ? 2 : 5 }, (_, i) => relatedItem(`sender-${offset + i}`, `Absenderbeleg ${offset + i}`)), total: 7, has_more: offset === 0 } });
+  });
+  await openRelated(page);
+  const panel = page.getByRole('tabpanel', { name: 'Ähnliche Dokumente', exact: true });
+  await expect(panel.getByText('Gleiche Dokumentserie', { exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: 'Gleicher Absender', exact: true }).click();
+  await expect(panel.locator('.related-documents__item')).toHaveCount(5);
+  await expect(panel.getByText('5 von 7 Vorschlägen', { exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: 'Mehr anzeigen', exact: true }).click();
+  await expect(panel.getByText('Weitere Dokumente konnten nicht geladen werden.', { exact: true })).toBeVisible();
+  await expect(panel.locator('.related-documents__item')).toHaveCount(5);
+  await panel.getByRole('button', { name: 'Erneut versuchen', exact: true }).click();
+  await expect(panel.locator('.related-documents__item')).toHaveCount(7);
+  await expect(panel.getByRole('button', { name: 'Mehr anzeigen', exact: true })).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Gemeinsame Tags', exact: true }).click();
+  await expect(panel.getByText('Es wurden keine weiteren Dokumente mit gemeinsamen Tags gefunden.', { exact: true })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Gleicher Absender', exact: true })).toBeVisible();
+  const before = calls.length;
+  await panel.getByRole('button', { name: 'Gleicher Absender', exact: true }).click();
+  await expect(panel.locator('.related-documents__item')).toHaveCount(7);
+  expect(calls.length).toBe(before);
+  expect(calls.filter(call => call.mode === 'correspondent' && call.offset === 5)).toHaveLength(2);
+  await panel.getByRole('button', { name: 'Empfohlen', exact: true }).click();
+  await expect(panel.getByText('Gleiche Dokumentserie', { exact: true })).toBeVisible();
+  expect(calls.length).toBe(before);
+});
+
+test('a late filtered page cannot overwrite another selected filter', async ({ page }) => {
+  await mountDock(page);
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/documents/*/related?**', async route => {
+    const url = new URL(route.request().url());
+    const mode = url.searchParams.get('mode');
+    if (mode === 'correspondent') await gate;
+    return route.fulfill({ json: { total: 1, has_more: false, items: [relatedItem(mode || 'recommended', mode === 'correspondent' ? 'Verspäteter Absenderbeleg' : mode === 'tags' ? 'Tag-Treffer' : 'Empfehlung')] } });
+  });
+  try {
+    await openRelated(page);
+    const panel = page.getByRole('tabpanel', { name: 'Ähnliche Dokumente', exact: true });
+    await panel.getByRole('button', { name: 'Gleicher Absender', exact: true }).click();
+    await expect(panel.getByText('Ähnliche Dokumente werden gesucht …')).toBeVisible();
+    await panel.getByRole('button', { name: 'Gemeinsame Tags', exact: true }).click();
+    await expect(panel.getByRole('button', { name: /Tag-Treffer/ })).toBeVisible();
+    const response = page.waitForResponse(response => response.url().includes('mode=correspondent'));
+    release();
+    await (await response).finished();
+    await expect(panel.getByRole('button', { name: /Tag-Treffer/ })).toBeVisible();
+    await expect(panel.getByRole('button', { name: /Verspäteter Absenderbeleg/ })).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: 'Gemeinsame Tags', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  } finally { release(); }
 });

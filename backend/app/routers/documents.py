@@ -19,6 +19,7 @@ from app.schemas.documents import (
     DocumentFileRole,
     DocumentListResponse,
     RelatedDocumentListResponse,
+    RelatedDocumentMode,
     DocumentMetadataSuggestion,
     DocumentOCRBatchRequest,
     DocumentSortField,
@@ -33,6 +34,8 @@ from app.schemas.documents import (
 from app.schemas.retrieval import DocumentChunkListResponse, DocumentChunkDebugRead, DocumentEmbeddingStatusResponse
 from app.services.documents import DocumentService
 from app.services.related_documents import RelatedDocumentService
+from app.schemas.related_preferences import RelatedPreferences, RelatedProfile, RelatedWeight
+from app.services.settings import SettingsService
 from app.services.embeddings import EmbeddingService
 
 router = APIRouter(prefix="/api/documents", tags=["Documents"])
@@ -254,15 +257,29 @@ def backfill_ocr(
 @router.get(
     "/{document_id}/related",
     response_model=RelatedDocumentListResponse,
-    summary="Find related documents by tags, type and correspondent",
+    summary="Find related documents by weighted tags, titles, type and correspondent",
     responses={404: {"model": ErrorResponse}},
 )
 def related_documents(
     document_id: uuid.UUID,
-    limit: int = Query(default=5, ge=1, le=10),
+    limit: int = Query(default=5, ge=1, le=20),
+    offset: int = Query(default=0, ge=0, le=10000),
+    mode: RelatedDocumentMode = Query(default=RelatedDocumentMode.recommended),
+    profile: RelatedProfile | None = Query(default=None),
+    series_weight: RelatedWeight | None = Query(default=None),
+    title_weight: RelatedWeight | None = Query(default=None),
+    tags_weight: RelatedWeight | None = Query(default=None),
+    correspondent_weight: RelatedWeight | None = Query(default=None),
+    type_weight: RelatedWeight | None = Query(default=None),
     db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> RelatedDocumentListResponse:
-    return RelatedDocumentService(db, user.id).list(document_id, limit)
+    preferences = SettingsService(db, user.id).get_settings().ui.related_documents
+    overrides = {key: value for key, value in dict(series=series_weight, title=title_weight, tags=tags_weight,
+                 correspondent=correspondent_weight, type=type_weight).items() if value is not None}
+    if profile is not None or overrides:
+        preferences = RelatedPreferences(profile=profile or RelatedProfile.custom,
+            weights={**preferences.weights.model_dump(), **overrides})
+    return RelatedDocumentService(db, user.id).list(document_id, limit, offset, mode, preferences)
 
 
 @router.post(

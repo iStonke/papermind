@@ -46,10 +46,6 @@ export function buildPreviewDrawerGradientPatch(enabled) {
   return { ui: { previewDrawerGradientEnabled: Boolean(enabled) } };
 }
 
-export function buildAutoHideDetailsDrawerPatch(enabled) {
-  return { ui: { autoHideDetailsDrawer: Boolean(enabled) } };
-}
-
 export function buildDrawerRememberStatePatch(enabled) {
   return { ui: { drawerRememberState: Boolean(enabled) } };
 }

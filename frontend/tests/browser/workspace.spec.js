@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { syntheticDocumentPdf } from './fixtures/syntheticDocumentPdf.js';
 
+async function clickDocumentTurn(page, back = false) {
+  await page.locator('.document-flip').hover({ position: { x: 12, y: 12 } });
+  await page.getByRole('button', { name: back ? 'Zurück zum Dokument' : 'Dokument wenden – Zusammenhänge anzeigen', exact: true }).click();
+}
+
 const docId = '10000000-0000-4000-8000-000000000001';
 const user = { id: '20000000-0000-4000-8000-000000000001', username: 'review', is_admin: true, is_active: true };
 
@@ -76,7 +81,7 @@ async function mockApi(page, { rememberDetails = true, initialDrawerExpanded = t
       localStorage.setItem('pm.drawerExpanded', expanded ? '1' : '0');
     }
   }, initialDrawerExpanded);
-  return { patches, imports };
+  return { patches, imports, document, settings };
 }
 
 async function login(page) {
@@ -89,8 +94,11 @@ async function login(page) {
 }
 
 for (const rememberDetails of [true, false]) {
-  test(`document details preserve manual state across areas only when remembering is ${rememberDetails}`, async ({ page }) => {
-    await mockApi(page, { rememberDetails, initialDrawerExpanded: false });
+  test(`document details preserve manual state across documents and areas only when remembering is ${rememberDetails}`, async ({ page }) => {
+    const { document } = await mockApi(page, { rememberDetails, initialDrawerExpanded: false });
+    const second = { ...document, id: '10000000-0000-4000-8000-000000000002', display_name: 'Zweites Dokument', original_filename: 'Zweites Dokument.pdf' };
+    await page.route('**/api/documents?**', route => route.fulfill({ json: { items: [document, second], total: 2, limit: 100, offset: 0 } }));
+    await page.route(`**/api/documents/${second.id}`, route => route.fulfill({ json: second }));
     await login(page);
     const documentRow = page.locator(`[data-document-id="${docId}"]`);
     const drawer = page.locator('.preview-layout__drawer');
@@ -103,6 +111,17 @@ for (const rememberDetails of [true, false]) {
     await documentRow.click();
     await page.locator('.details-drawer__subtitle').click();
     await expect(drawer).toHaveClass(/pm-drawer--expanded/);
+
+    const secondRow = page.locator(`[data-document-id="${second.id}"]`);
+    await secondRow.click();
+    await expect(drawer).toHaveClass(rememberDetails ? /pm-drawer--expanded/ : /pm-drawer--collapsed/);
+    if (!rememberDetails) await page.locator('.details-drawer__subtitle').click();
+    await expect(drawer).toHaveClass(/pm-drawer--expanded/);
+    await secondRow.click();
+    await expect(drawer).toHaveClass(/pm-drawer--expanded/);
+    await documentRow.click();
+    await expect(drawer).toHaveClass(rememberDetails ? /pm-drawer--expanded/ : /pm-drawer--collapsed/);
+    if (!rememberDetails) await page.locator('.details-drawer__subtitle').click();
 
     await page.getByRole('button', { name: 'Alle Tags anzeigen', exact: true }).click();
     await expect(page.getByLabel('Tagliste durchsuchen')).toBeVisible();
@@ -138,6 +157,81 @@ for (const rememberDetails of [true, false]) {
   });
 }
 
+test('drawer pin shares the automatic minimization preference and remembers both open and closed states', async ({ page }) => {
+  const { document, settings } = await mockApi(page, { rememberDetails: false, initialDrawerExpanded: false });
+  const second = { ...document, id: '10000000-0000-4000-8000-000000000002', display_name: 'Zweites Dokument' };
+  await page.route('**/api/documents?**', route => route.fulfill({ json: { items: [document, second], total: 2 } }));
+  await page.route(`**/api/documents/${second.id}`, route => route.fulfill({ json: second }));
+  await login(page);
+  // The development-only onboarding launcher overlaps the collapsed controls.
+  await page.addStyleTag({ content: '.onboarding-dev-launcher { display:none !important; }' });
+  const firstRow = page.locator(`[data-document-id="${docId}"]`);
+  const secondRow = page.locator(`[data-document-id="${second.id}"]`);
+  await firstRow.click();
+  const drawer = page.locator('.preview-layout__drawer');
+  const pin = page.getByRole('button', { name: 'Schubladenposition merken', exact: true });
+  await expect(pin).toHaveAttribute('aria-pressed', 'false');
+  await page.getByRole('button', { name: 'Dokumentdetails öffnen', exact: true }).click();
+  await pin.click();
+  await expect(pin).toHaveAttribute('aria-pressed', 'true');
+  expect(settings.ui.drawerRememberState).toBe(true);
+  await page.locator('.details-drawer__subtitle').hover();
+  await expect(pin).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(pin.locator('.v-btn__overlay')).toHaveCSS('opacity', '0');
+  await expect(drawer).toHaveClass(/pm-drawer--expanded/);
+  const position = await pin.evaluate(el => ({ pin: el.getBoundingClientRect().right, arrow: el.nextElementSibling.getBoundingClientRect().left }));
+  expect(position.pin).toBeLessThanOrEqual(position.arrow);
+  await page.locator('.details-command-bar').screenshot({ path: '/tmp/papermind-drawer-pin.png', animations: 'disabled' });
+  await secondRow.click();
+  await expect(drawer).toHaveClass(/pm-drawer--expanded/);
+  await page.getByRole('button', { name: 'Dokumentdetails schließen', exact: true }).click();
+  await firstRow.click();
+  await expect(drawer).toHaveClass(/pm-drawer--collapsed/);
+  expect(await page.evaluate(() => localStorage.getItem('pm.drawerExpanded'))).toBe('0');
+  await page.reload();
+  await page.addStyleTag({ content: '.onboarding-dev-launcher { display:none !important; }' });
+  await firstRow.click();
+  await expect(pin).toHaveAttribute('aria-pressed', 'true');
+  await expect(drawer).toHaveClass(/pm-drawer--collapsed/);
+
+  await page.getByRole('button', { name: 'Einstellungen', exact: true }).first().click();
+  const documentsGroup = page.locator('.pm-settings-nav__group').filter({ has: page.locator('.pm-settings-nav__group-label', { hasText: /^Dokumente$/ }) });
+  await documentsGroup.getByRole('tab', { name: 'Allgemein', exact: true }).click();
+  const autoMinimize = page.getByRole('checkbox', { name: 'Dokumentendetails automatisch minimieren', exact: true });
+  await expect(autoMinimize).not.toBeChecked();
+  await autoMinimize.click();
+  await expect.poll(() => settings.ui.drawerRememberState).toBe(false);
+  await page.getByRole('dialog').getByRole('button', { name: 'Dialog schließen', exact: true }).click();
+  await expect(pin).toHaveAttribute('aria-pressed', 'false');
+  await page.getByRole('button', { name: 'Dokumentdetails öffnen', exact: true }).click();
+  await secondRow.click();
+  await expect(drawer).toHaveClass(/pm-drawer--collapsed/);
+  await pin.click();
+  await expect(pin).toHaveAttribute('aria-pressed', 'true');
+  await expect(drawer).toHaveClass(/pm-drawer--collapsed/);
+  await pin.click();
+  await expect(pin).toHaveAttribute('aria-pressed', 'false');
+  expect(settings.ui.drawerRememberState).toBe(false);
+});
+
+test('failed drawer pin saves retain the current preference and drawer state', async ({ page }) => {
+  await mockApi(page, { rememberDetails: false });
+  await login(page);
+  await page.addStyleTag({ content: '.onboarding-dev-launcher { display:none !important; }' });
+  await page.locator(`[data-document-id="${docId}"]`).click();
+  await page.getByRole('button', { name: 'Dokumentdetails öffnen', exact: true }).click();
+  await page.route('**/api/settings', async route => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    return route.fulfill({ status: 500, json: { error: { message: 'Speichern fehlgeschlagen' } } });
+  });
+  const pin = page.getByRole('button', { name: 'Schubladenposition merken', exact: true });
+  await pin.click();
+  await expect(page.getByText('Speichern fehlgeschlagen', { exact: true })).toBeVisible();
+  await expect(pin).toHaveAttribute('aria-pressed', 'false');
+  await expect(pin).toBeEnabled();
+  await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--expanded/);
+});
+
 test('turning a document and leaving its area preserves the remembered details state', async ({ page }) => {
   await mockApi(page);
   await page.route('**/api/documents/*/file?**', route => route.fulfill({ contentType: 'application/pdf', body: syntheticDocumentPdf() }));
@@ -145,32 +239,62 @@ test('turning a document and leaving its area preserves the remembered details s
   const row = page.locator(`[data-document-id="${docId}"]`);
   await row.click();
   await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--expanded/);
-  await page.getByRole('button', { name: 'Dokument wenden – Zusammenhänge anzeigen' }).click();
+  await page.evaluate(() => {
+    window.originalDrawerControls = [...document.querySelectorAll('.details-pin-btn, .details-chevron-btn')];
+  });
+  await clickDocumentTurn(page);
   await expect(page.locator('.document-flip')).not.toHaveClass(/document-flip--turning/);
+  await expect(page.locator('.document-flip__heading p')).toHaveText('Prüfbeleg · 2 Seiten');
   await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--collapsed/);
   const drawer = page.locator('.preview-layout__drawer');
   await expect(drawer).toHaveAttribute('inert', '');
   await expect(drawer).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByRole('button', { name: 'Dokumentdetails öffnen', exact: true })).toHaveCount(0);
   await page.getByRole('region', { name: 'Zusammenhänge zum Dokument' }).hover({ position: { x: 20, y: 20 } });
-  await expect(drawer).toHaveCSS('opacity', '0.45');
+  await expect(drawer).not.toBeVisible();
+  await expect(drawer).toHaveCSS('opacity', '0');
+  await expect(drawer).toHaveCSS('height', '0px');
   const header = page.locator('.details-drawer__header');
-  const bounds = await header.boundingBox();
-  await page.mouse.click(bounds.x + 30, bounds.y + 20);
-  await expect(drawer).toHaveCSS('opacity', '0.45');
   // Even a synthetic click cannot bypass the inactive drawer's event guard.
   await header.dispatchEvent('click');
   await expect(page.locator('.document-flip')).toHaveClass(/document-flip--back/);
   await expect(drawer).toHaveClass(/pm-drawer--collapsed/);
   expect(await drawer.evaluate(el => { el.querySelector('button')?.focus(); return el.contains(document.activeElement); })).toBe(false);
   expect(await page.evaluate(() => localStorage.getItem('pm.drawerExpanded'))).toBe('1');
+  // Freeze only the return turn, so the controls must already travel with the
+  // drawer while interaction stays locked. Their DOM instances must survive.
+  await page.evaluate(() => {
+    const animate = Element.prototype.animate;
+    Element.prototype.animate = function (frames, options) {
+      const effect = animate.call(this, frames, options);
+      if (this.matches('.document-flip__card')) {
+        Element.prototype.animate = animate;
+        effect.pause(); effect.currentTime = options.duration / 2;
+      }
+      return effect;
+    };
+  });
   await page.keyboard.press('Escape');
   await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--expanded/);
+  await expect(drawer).toHaveCSS('opacity', '1');
+  await expect(page.locator('.document-flip')).toHaveClass(/document-flip--turning/);
+  await expect(page.getByRole('button', { name: 'Schubladenposition merken', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Dokumentdetails schließen', exact: true })).toBeVisible();
+  await expect(drawer).toHaveAttribute('inert', '');
+  expect(await page.evaluate(() => {
+    const controls = [...document.querySelectorAll('.details-pin-btn, .details-chevron-btn')];
+    return controls.length === 2 && controls.every((el, i) => el === window.originalDrawerControls[i]);
+  })).toBe(true);
+  await page.evaluate(() => {
+    for (const selector of ['.document-flip__card', '.document-flip__paper', '.document-flip__reverse']) {
+      document.querySelector(selector).getAnimations().forEach(effect => effect.finish());
+    }
+  });
   await expect(drawer).not.toHaveAttribute('inert', '');
   await expect(drawer).toHaveCSS('opacity', '1');
   await expect(page.getByRole('button', { name: 'Dokumentdetails schließen', exact: true })).toBeVisible();
   await expect(row).toHaveClass(/document-row--active/);
-  await page.getByRole('button', { name: 'Dokument wenden – Zusammenhänge anzeigen' }).click();
+  await clickDocumentTurn(page);
   await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--collapsed/);
   await page.getByText('Alle Notizen', { exact: true }).first().click();
   await expect(page.locator('.notes-ws__heading')).toHaveText('Notizen');
@@ -186,6 +310,7 @@ test('selecting another document keeps its back and ignores superseded connectio
   const docs = ['A', 'B', 'C'].map((label, index) => ({
     id: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
     original_filename: `Dokument ${label}.pdf`, display_name: `Dokument ${label}`,
+    correspondent_name: `Absender ${label}`,
     notes: '', document_date: null, status: 'ready', ocr_status: 'not_started',
     text_source: 'none', embedding_status: 'not_started', is_deleted: false,
     is_unread: false, tags: [], files: [], jobs: [], flags: {}, page_count: 1,
@@ -218,16 +343,16 @@ test('selecting another document keeps its back and ignores superseded connectio
     await login(page);
     const row = index => page.locator(`[data-document-id="${docs[index].id}"]`);
     await row(0).click();
-    await page.getByRole('button', { name: 'Dokument wenden – Zusammenhänge anzeigen' }).click();
+    await clickDocumentTurn(page);
     const reverse = page.getByRole('region', { name: 'Zusammenhänge zum Dokument' });
     await expect(reverse.getByRole('button', { name: /Verbindung zu Dokument A/ })).toBeVisible();
     await row(1).click();
     await expect.poll(() => releases.length).toBeGreaterThan(0);
     await expect(page.locator('.document-flip')).toHaveClass(/document-flip--back/);
-    await expect(reverse.locator('.document-flip__heading p')).toHaveText('Dokument B');
-    await expect(reverse.getByText('Notiz zu Dokument A', { exact: true })).toHaveCount(0);
+    await expect(reverse.locator('.document-flip__heading p')).toHaveText('Dokument B · Absender B · 1 Seite');
+    await expect(reverse.getByRole('button', { name: /Notiz zu Dokument A/ })).toHaveCount(0);
     await row(2).click();
-    await expect(reverse.locator('.document-flip__heading p')).toHaveText('Dokument C');
+    await expect(reverse.locator('.document-flip__heading p')).toHaveText('Dokument C · Absender C · 1 Seite');
     for (const title of ['Verbindung zu Dokument C', 'Notiz zu Dokument C', 'Markierung zu Dokument C']) {
       await expect(reverse.getByRole('button', { name: new RegExp(title) })).toBeVisible();
     }
@@ -237,10 +362,12 @@ test('selecting another document keeps its back and ignores superseded connectio
     await expect(reverse.getByText('Verbindung zu Dokument B', { exact: true })).toHaveCount(0);
     const drawer = page.locator('.preview-layout__drawer');
     await expect(drawer).toHaveAttribute('inert', '');
-    await expect(drawer).toHaveCSS('opacity', '0.45');
-    await expect(page.locator('.details-chevron-btn')).toHaveCount(0);
+    await expect(drawer).not.toBeVisible();
+    await expect(drawer).toHaveCSS('height', '0px');
+    await expect(page.locator('.details-chevron-btn')).toBeHidden();
+    await expect(page.locator('.details-pin-btn')).toBeHidden();
     await expect(page.locator('.document-flip__live .pdf-preview--document-ready')).toBeAttached();
-    await page.getByRole('button', { name: 'Zurück zum Dokument', exact: true }).click();
+    await clickDocumentTurn(page, true);
     await expect(page.locator('.document-flip')).not.toHaveClass(/document-flip--turning|document-flip--back/);
     await expect(row(2)).toHaveClass(/document-row--active/);
     await expect(page.locator('.details-drawer__subtitle')).toHaveText('Dokument C');
@@ -886,13 +1013,24 @@ test('note settings use the standard PaperMind header and grouped live preview',
 test('document edits autosave and remain after reload', async ({ page }, testInfo) => {
   const { patches } = await mockApi(page);
   await login(page);
+  await page.locator(`[data-document-id="${docId}"]`).click();
   const name = page.getByPlaceholder('Dokumentname…');
-  if (!(await name.isVisible())) await page.getByRole('button', { name: 'Details ein- oder ausklappen' }).click();
+  if (!(await name.isVisible())) await page.getByRole('button', { name: 'Dokumentdetails öffnen', exact: true }).click();
   await expect(name).toHaveValue('Prüfbeleg');
   await name.fill('Gespeicherter Beleg');
   await expect.poll(() => patches.some((patch) => patch.display_name === 'Gespeicherter Beleg')).toBe(true);
+  await expect(page.getByRole('tab')).toHaveText(['Überblick', 'Notizen', 'Ähnliche Dokumente']);
+  await page.getByRole('tab', { name: 'Notizen', exact: true }).click();
+  const notesPanel = page.getByRole('tabpanel', { name: 'Notizen', exact: true });
+  await expect(notesPanel.locator('.pm-metadata-label, .doc-notes')).toHaveCount(0);
+  await page.getByRole('textbox', { name: 'Notizen', exact: true }).fill('Eine dauerhaft gespeicherte Dokumentnotiz.');
+  await page.getByRole('textbox', { name: 'Notizen', exact: true }).blur();
+  await expect.poll(() => patches.some(patch => patch.notes === 'Eine dauerhaft gespeicherte Dokumentnotiz.')).toBe(true);
   await page.reload();
   await expect(page.getByText('Gespeicherter Beleg', { exact: true }).first()).toBeVisible();
+  await page.locator(`[data-document-id="${docId}"]`).click();
+  await page.getByRole('tab', { name: 'Notizen', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Notizen', exact: true })).toHaveValue('Eine dauerhaft gespeicherte Dokumentnotiz.');
   await page.screenshot({ path: testInfo.outputPath('workspace.png') });
 });
 

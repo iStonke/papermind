@@ -1,4 +1,5 @@
 import { defaultSpeechOptions, normalizeSpeechOptions } from '../utils/speechSettings.js';
+import { normalizeRelatedPreferences } from '../utils/relatedPreferences.js';
 import { defineSessionStore as defineStore } from './sessionStores.js';
 import {
   ANSWER_PROMPT_TEMPLATE_DEFAULT,
@@ -126,12 +127,12 @@ function normalizeApiBaseUrl(apiBaseUrl) {
 function createDefaultSettings() {
   return {
     ui: {
+      related_documents: normalizeRelatedPreferences(null),
       theme_mode: 'system',
       start_view: 'all',
       search_scope_default: 'current',
       showFilenameSuffix: true,
       previewDrawerGradientEnabled: true,
-      autoHideDetailsDrawer: false,
       drawerRememberState: true,
       tagDrawerRememberState: true,
       sidebar_show_recent: true,
@@ -551,6 +552,7 @@ export const useSettingsStore = defineStore('settings', {
 
       return {
         ui: {
+          related_documents: normalizeRelatedPreferences(payload?.ui?.related_documents),
           theme_mode: THEME_MODE_VALUES.has(rawThemeMode) ? rawThemeMode : defaults.ui.theme_mode,
           start_view: START_VIEW_VALUES.has(rawStartView) ? rawStartView : defaults.ui.start_view,
           search_scope_default: SEARCH_SCOPE_DEFAULT_VALUES.has(rawSearchScopeDefault)
@@ -564,10 +566,6 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.ui?.previewDrawerGradientEnabled === 'boolean'
               ? payload.ui.previewDrawerGradientEnabled
               : defaults.ui.previewDrawerGradientEnabled,
-          autoHideDetailsDrawer:
-            typeof payload?.ui?.autoHideDetailsDrawer === 'boolean'
-              ? payload.ui.autoHideDetailsDrawer
-              : defaults.ui.autoHideDetailsDrawer,
           drawerRememberState:
             typeof payload?.ui?.drawerRememberState === 'boolean'
               ? payload.ui.drawerRememberState

@@ -4021,9 +4021,10 @@
   --pm-detail-field-hover-border: color-mix(in srgb, var(--pm-divider) 55%, var(--pm-text));
   --pm-detail-field-focus-border: rgba(var(--v-theme-primary), 0.6);
   --pm-detail-field-focus-ring: rgba(var(--v-theme-primary), 0.12);
-  --pm-detail-chip-bg: var(--pm-chip-bg);
-  --pm-detail-chip-border: color-mix(in srgb, var(--pm-chip-text) 14%, transparent);
-  --pm-detail-chip-close-color: var(--pm-chip-count);
+  --pm-detail-chip-bg: var(--pm-tag-editor-chip-bg);
+  --pm-detail-chip-border: var(--pm-tag-editor-chip-border);
+  --pm-detail-chip-text: var(--pm-tag-editor-chip-text);
+  --pm-detail-chip-close-color: var(--pm-tag-editor-chip-close);
   --pm-detail-chip-add-border: color-mix(in srgb, var(--pm-muted) 55%, transparent);
   --pm-detail-row-divider: rgba(var(--v-theme-on-surface), 0.07);
   padding: 0 var(--pm-detail-body-x) 12px;
@@ -4273,6 +4274,10 @@
 .details-action-btn--quiet:hover .v-btn__content {
   opacity: 0.95;
 }
+
+.details-pin-btn--active { color: rgb(var(--v-theme-primary)); }
+.details-pin-btn--active .v-btn__content { opacity: 1; }
+.details-pin-btn:not(:hover):not(:focus-visible) > .v-btn__overlay { opacity: 0; }
 
 .details-tags-row {
   display: flex;
@@ -4532,13 +4537,13 @@
   pointer-events: none;
 }
 
-/* Chip = Pille mit dezenter Füllung, dünnem Rand und rundem ×. */
+/* Tag-Pille mit klarer Kontur und rundem × in beiden Themes. */
 .pm-tags-input__chip.v-chip {
   height: 26px !important;
   border-radius: 15px !important;
   background: var(--pm-detail-chip-bg) !important;
   border: 1px solid var(--pm-detail-chip-border) !important;
-  color: rgba(var(--v-theme-on-surface), 0.88) !important;
+  color: var(--pm-detail-chip-text) !important;
   font-size: 12.5px !important;
   padding-inline: 11px 7px !important;
 }
@@ -5288,7 +5293,8 @@
 /* Document dock: the shell moves, the familiar editing controls stay put. */
 .panel-right__preview--details-panel .details-drawer__header {
   cursor: pointer;
-  transition: padding 380ms cubic-bezier(.2, 1.08, .32, 1);
+  /* Padding is part of the drawer's measured target height. Animating it
+     would restart the height transition on every ResizeObserver callback. */
 }
 .panel-right__preview--details-panel .details-drawer__header--collapsed { padding: 12px 0; }
 .panel-right__preview--details-panel .details-drawer__header--expanded { padding: 22px 0 18px; }

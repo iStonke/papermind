@@ -3,6 +3,7 @@
 .pm-settings-layout--with-rail .pm-settings-panel {
   flex: 0 0 598px;
 }
+.document-details-preview--inline { border-top:1px solid var(--pm-divider); padding-top:20px; margin-top:20px; }
 
 /* ── Backup ── */
 /* Status-Karte: fasst Zustand, Verschlüsselung und Aktionen ruhig zusammen. */

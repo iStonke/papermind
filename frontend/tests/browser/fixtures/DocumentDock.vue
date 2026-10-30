@@ -2,11 +2,12 @@
   <div :class="['papermind-app', `v-theme--${theme}`]" :data-theme="theme">
     <div class="dock-demo" :style="{ width: `${width}px`, height: `${height}px` }">
       <DocumentPreviewLayout class="panel-right__preview panel-right__preview--details-panel" show-drawer
-        :drawer-disabled="backLocked" :is-open="open && !backVisible" :content-key="documentKey" :section-key="activeTab" body-id="demo-details">
+        :drawer-disabled="backLocked" :drawer-hidden="backVisible" :is-open="open && !backVisible" :content-key="documentKey" :section-key="activeTab" body-id="demo-details">
         <template #viewer>
-          <DocumentFlipPreview ref="flip" @change="backVisible = $event" @lock-change="backLocked = $event" :document-key="documentKey" :title="title" :page="preview?.currentPage || 1">
+          <DocumentFlipPreview ref="flip" @change="backVisible = $event" @lock-change="backLocked = $event" :document-key="documentKey" :title="title" :page="preview?.currentPage || 1"
+            :correspondent="form.correspondent === 'nordlicht' ? 'Nordlicht Akademie' : form.correspondent" :page-count="preview?.pageCount">
             <PdfPreview ref="preview" :src="previewSource" fit-page enable-reader />
-            <template #back="{ active }"><DocumentConnections :document-id="documentKey" :active="active" :show-suffix="showSuffix"
+            <template #back="{ active, reportLoading }"><DocumentConnections :document-id="documentKey" :active="active" :show-suffix="showSuffix" @loading-change="reportLoading"
               :match-key="String(matchRevision)" :reload-key="notesRevision"
               @open-document="lastRelatedDocument = $event; documentKey = $event"
               @open-note="lastOpenedNote = $event" @new-note="createdNote = true" @open-highlight="lastOpenedHighlight = $event" /></template>
@@ -22,7 +23,7 @@
               </div></div></div>
               <div class="details-command-bar__right" @click.stop>
                 <v-btn icon="mdi-dots-vertical" variant="text" size="small" class="details-action-btn details-action-btn--quiet" aria-label="Weitere Aktionen" />
-                <v-btn v-if="!backLocked" icon="mdi-chevron-up" variant="text" size="small" class="details-action-btn details-action-btn--quiet details-chevron-btn" :class="{ 'details-chevron-btn--expanded': open && !backVisible }" aria-label="Dokumentdetails umschalten" :aria-expanded="open && !backVisible" aria-controls="demo-details" @click="open = !open" />
+                <v-btn icon="mdi-chevron-up" variant="text" size="small" class="details-action-btn details-action-btn--quiet details-chevron-btn" :class="{ 'details-chevron-btn--expanded': open && !backVisible }" aria-label="Dokumentdetails umschalten" :aria-expanded="open && !backVisible" aria-controls="demo-details" @click="open = !open" />
               </div>
             </div></div>
           </div>
@@ -32,21 +33,18 @@
           <div class="details-drawer__body"><div class="details-drawer__inner pm-drawer-body">
             <section v-show="activeTab === 'metadata'" id="demo-details-metadata" role="tabpanel" aria-labelledby="demo-details-tab-metadata" class="details-tab-panel" tabindex="0">
             <DocumentMetadataFields :field-keys="['name', 'date', 'category', 'correspondent', 'tags']" :name="form.name" :date="form.date" :category="form.category" :correspondent="form.correspondent" :note="form.note"
-              :categories="['Seminar', 'Rechnung']" :correspondents="[{ title: 'Nordlicht Akademie', value: 'nordlicht' }]"
+              :categories="['Seminar', 'Rechnung']" :correspondents="[{ title: 'Nordlicht Akademie', value: 'nordlicht' }]" manage
               @update:name="form.name = $event" @update:date="form.date = $event" @update:category="form.category = $event" @update:correspondent="form.correspondent = $event" @update:note="form.note = $event">
-              <template #tags><div style="padding:8px 0"><v-chip size="small">Weiterbildung</v-chip> <v-chip size="small">Gestaltung</v-chip></div></template>
+              <template #tags><TagInlineEditor v-model="form.tags" v-model:search="tagSearch" :items="['Weiterbildung', 'Gestaltung', 'Seminar']"
+                @remove="form.tags = form.tags.filter(name => name !== $event)" /></template>
             </DocumentMetadataFields>
+            </section>
+            <section v-show="activeTab === 'notes'" id="demo-details-notes" role="tabpanel" aria-labelledby="demo-details-tab-notes" class="details-tab-panel" tabindex="0">
+              <DocumentMetadataFields :field-keys="['note']" :note="form.note" standalone-note @update:note="form.note = $event" />
             </section>
             <section v-show="activeTab === 'related'" id="demo-details-related" role="tabpanel" aria-labelledby="demo-details-tab-related" class="details-tab-panel" tabindex="0">
               <RelatedDocumentsSection :document-id="documentKey" :match-key="String(matchRevision)" :show-suffix="showSuffix" :enabled="open && activeTab === 'related'"
                 @open-document="lastRelatedDocument = $event; documentKey = $event" />
-            </section>
-            <section v-show="activeTab === 'notes'" id="demo-details-notes" role="tabpanel" aria-labelledby="demo-details-tab-notes" class="details-tab-panel" tabindex="0">
-              <DocumentMetadataFields :field-keys="['note']" :note="form.note" @update:note="form.note = $event" />
-              <DocumentNotesSection :document-id="documentKey" :reload-key="notesRevision" />
-            </section>
-            <section v-show="activeTab === 'highlights'" id="demo-details-highlights" role="tabpanel" aria-labelledby="demo-details-tab-highlights" class="details-tab-panel" tabindex="0">
-              <DocumentLearnHighlightsSection show-empty :document-id="documentKey" />
             </section>
             <section v-show="activeTab === 'retention'" id="demo-details-retention" role="tabpanel" aria-labelledby="demo-details-tab-retention" class="details-tab-panel" tabindex="0">
               <div class="details-drawer__section-heading">Aufbewahrung</div>
@@ -65,18 +63,17 @@ import { reactive, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import DocumentPreviewLayout from '../../../src/components/DocumentPreviewLayout.vue';
 import DocumentMetadataFields from '../../../src/components/DocumentMetadataFields.vue';
+import TagInlineEditor from '../../../src/components/TagInlineEditor.vue';
 import MetadataSaveIndicator from '../../../src/components/MetadataSaveIndicator.vue';
 import PdfPreview from '../../../src/components/PdfPreview.vue';
 import DocumentDetailsTabs from '../../../src/components/DocumentDetailsTabs.vue';
 import RelatedDocumentsSection from '../../../src/components/RelatedDocumentsSection.vue';
-import DocumentNotesSection from '../../../src/components/notes/DocumentNotesSection.vue';
-import DocumentLearnHighlightsSection from '../../../src/components/notes/DocumentLearnHighlightsSection.vue';
 import RetentionStatusBar from '../../../src/components/RetentionStatusBar.vue';
 const preview = ref(null), flip = ref(null), lastOpenedNote = ref(null), lastOpenedHighlight = ref(null), createdNote = ref(false);
 const previewSource = ref('/__details-test.pdf');
 const showSuffix = ref(false);
 const activeTab = ref('metadata'), notesRevision = ref(0), matchRevision = ref(0), lastRelatedDocument = ref('');
-const tabs = [{ id: 'metadata', label: 'Metadaten' }, { id: 'related', label: 'Ähnliche Dokumente' }, { id: 'notes', label: 'Notizen' }, { id: 'highlights', label: 'Lernmarkierungen' }, { id: 'retention', label: 'Aufbewahrung' }];
+const tabs = [{ id: 'metadata', label: 'Überblick' }, { id: 'notes', label: 'Notizen' }, { id: 'related', label: 'Ähnliche Dokumente' }, { id: 'retention', label: 'Aufbewahrung' }];
 function selectTab(id) { activeTab.value = id; preview.value?.resetZoom(); open.value = true; }
 const backVisible = ref(false), backLocked = ref(false);
 const open = ref(false), saving = ref(false), error = ref(false);
@@ -84,7 +81,8 @@ const documentKey = ref('document-a'), title = ref('Teilnahmebestätigung · Ges
 const theme = ref('dark'), width = ref(850), height = ref(720);
 const activeTheme = useTheme();
 watch(theme, value => { activeTheme.global.name.value = value; });
-const form = reactive({ name: 'Teilnahmebestätigung · Gestaltungsseminar', date: '28.10.2026', category: 'Seminar', correspondent: 'nordlicht', note: 'Unterlagen für die nächste Weiterbildung aufbewahren.' });
+const tagSearch = ref('');
+const form = reactive({ name: 'Teilnahmebestätigung · Gestaltungsseminar', date: '28.10.2026', category: 'Seminar', correspondent: 'nordlicht', tags: ['Weiterbildung', 'Gestaltung'], note: 'Unterlagen für die nächste Weiterbildung aufbewahren.' });
 watch(open, value => { if (value) preview.value?.resetZoom(); });
 defineExpose({ flip, previewSource, lastOpenedNote, lastOpenedHighlight, createdNote, showSuffix, activeTab, notesRevision, matchRevision, lastRelatedDocument, preview, open, saving, error, documentKey, title, form, theme, width, height });
 </script>

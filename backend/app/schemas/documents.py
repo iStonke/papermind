@@ -329,15 +329,25 @@ class DocumentMetadataSuggestion(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class RelatedDocumentMode(str, Enum):
+    recommended = "recommended"
+    correspondent = "correspondent"
+    tags = "tags"
+
+
 class RelatedDocumentRead(BaseModel):
     id: uuid.UUID
     title: str
     document_date: date | None = None
     same_correspondent: bool
     same_type: bool
+    same_series: bool = False
+    similar_title: bool = False
     shared_tag_count: int = Field(ge=0)
     shared_tags: list[str] = Field(default_factory=list)
 
 
 class RelatedDocumentListResponse(BaseModel):
     items: list[RelatedDocumentRead] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0)
+    has_more: bool = False
