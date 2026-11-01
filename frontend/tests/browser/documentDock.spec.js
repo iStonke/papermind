@@ -78,15 +78,28 @@ test('collapsed details show the PDF behind a translucent surface and expanded d
   await pages.evaluate(el => { el.scrollTop = el.scrollHeight; });
   await expect.poll(() => page.locator('.pdf-preview__page').last().evaluate(el => el.getBoundingClientRect().bottom - document.querySelector('.preview-layout__drawer').getBoundingClientRect().top)).toBeLessThan(-10);
 });
-test('opening and closing the drawer each run one transform motion without height transitions', async ({ page }) => {
+for (const cssDuration of ['420ms', '.42s']) {
+test(`opening and closing use the full ${cssDuration} duration for drawer and PDF without height transitions`, async ({ page }) => {
   await mountDock(page);
   const drawer = page.locator('.preview-layout__drawer');
   await expect.poll(() => drawer.evaluate(el => el.getAnimations({ subtree: true }).filter(a => a.playState === 'running').length)).toBe(0);
+  await page.locator('.preview-layout').evaluate((el, duration) => {
+    el.style.setProperty('--preview-drawer-motion-duration', duration);
+    window.pdfMotionDurations = [];
+    const pages = el.querySelector('.pdf-preview__pages');
+    const animate = pages.animate.bind(pages);
+    pages.animate = (keyframes, options) => { window.pdfMotionDurations.push(options.duration); return animate(keyframes, options); };
+  }, cssDuration);
   await drawer.evaluate(el => {
     window.drawerMotions = [];
+    window.drawerMotionDurations = [];
     window.drawerHeightTransitions = 0;
     const animate = el.animate.bind(el);
-    el.animate = (keyframes, options) => { window.drawerMotions.push(keyframes.map(frame => frame.transform)); return animate(keyframes, options); };
+    el.animate = (keyframes, options) => {
+      window.drawerMotions.push(keyframes.map(frame => frame.transform));
+      window.drawerMotionDurations.push(options.duration);
+      return animate(keyframes, options);
+    };
     el.addEventListener('transitionrun', event => {
       if (event.target === el && event.propertyName === 'height') window.drawerHeightTransitions++;
     });
@@ -104,9 +117,14 @@ test('opening and closing the drawer each run one transform motion without heigh
   expect(motions).toHaveLength(2);
   expect(motions.flat().every(transform => /^translateY\(/.test(transform))).toBe(true);
   expect(await page.evaluate(() => window.drawerHeightTransitions)).toBe(0);
+  expect(await page.evaluate(() => window.drawerMotionDurations)).toEqual([420, 420]);
+  const pdfDurations = await page.evaluate(() => window.pdfMotionDurations);
+  expect(pdfDurations.length).toBeGreaterThanOrEqual(2);
+  expect(pdfDurations.every(duration => duration > 300 && duration <= 420)).toBe(true);
   // The page follows the drawer by transform and keeps no residue afterwards.
   await expect(page.locator('.pdf-preview__pages')).toHaveCSS('transform', 'none');
 });
+}
 test('rapid reversals settle, resizing keeps the header accessible and scrolling cue follows content', async ({ page }) => {
   await mountDock(page);
   await page.evaluate(() => { window.dock.open = true; });

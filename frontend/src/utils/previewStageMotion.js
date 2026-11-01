@@ -7,6 +7,13 @@ export const PREVIEW_STAGE = Symbol('pm-preview-stage');
 
 const FALLBACK_EASING = 'cubic-bezier(.22, 1, .36, 1)';
 
+// CSS minification can turn 420ms into .42s; Web Animations always expects ms.
+export function cssTimeToMilliseconds(value, fallback) {
+  const match = /^([\d.]+)(ms|s)$/.exec(value.trim());
+  const duration = match ? Number(match[1]) * (match[2] === 's' ? 1000 : 1) : NaN;
+  return Number.isFinite(duration) ? duration : fallback;
+}
+
 // Evenly spaced stops of a CSS linear() easing, or null for anything else.
 function linearEasingStops(easing) {
   const match = /^linear\((.*)\)$/.exec(easing.trim());

@@ -54,7 +54,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, useId, watch } from 'vue';
-import { PREVIEW_STAGE, animateTravel, currentTranslateY } from '../utils/previewStageMotion.js';
+import { PREVIEW_STAGE, animateTravel, cssTimeToMilliseconds, currentTranslateY } from '../utils/previewStageMotion.js';
 
 const props = defineProps({
   showDrawer: { type: Boolean, default: false },
@@ -207,7 +207,7 @@ function motionTiming() {
   if (timing) return timing;
   const style = getComputedStyle(rootEl.value);
   timing = {
-    duration: parseFloat(style.getPropertyValue('--preview-drawer-motion-duration')) || 420,
+    duration: cssTimeToMilliseconds(style.getPropertyValue('--preview-drawer-motion-duration'), 420),
     easing: style.getPropertyValue('--preview-drawer-travel-easing').trim() || 'ease-out'
   };
   return timing;
