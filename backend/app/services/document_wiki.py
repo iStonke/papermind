@@ -16,6 +16,8 @@ from typing import Iterable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.services.document_knowledge import knowledge_value
+
 from app.models.document import Document
 from app.models.document_wiki_entry import DocumentWikiEntry
 from app.services.wiki import WikiService
@@ -52,11 +54,11 @@ def render_document_wiki_entry(document: Document) -> str:
         "## Fakten aus Dokument-Metadaten",
     ]
     facts = (
-        ("Dokumenttyp", document.document_type or document.ai_document_type),
-        ("Datum", document.document_date or document.ai_document_date),
+        ("Dokumenttyp", knowledge_value(document, "document_type")),
+        ("Datum", knowledge_value(document, "document_date")),
         ("Absender", document.ai_sender),
-        ("Empfänger", document.ai_recipient),
-        ("Betrag", _format_amount(document.ai_amount, document.ai_currency)),
+        ("Empfänger", knowledge_value(document, "recipient")),
+        ("Betrag", _format_amount(knowledge_value(document, "amount"), knowledge_value(document, "currency"))),
     )
     for label, value in facts:
         compact = _compact(value)

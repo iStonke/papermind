@@ -9,6 +9,7 @@ from app.core.errors import ConflictError, ForbiddenError, NotFoundError
 from app.models.document import Document
 from app.models.document_retention import DocumentRetention
 from app.schemas.retention import (
+    RETENTION_PERIOD_NONE,
     RETENTION_PERIOD_UNLIMITED,
     DocumentRetentionRead,
     DocumentRetentionUpdateRequest,
@@ -128,7 +129,7 @@ def _match_retention_rule(rules: list | None, document_type: str | None) -> Olla
 
 
 def _compute_retain_until(document_date: date | None, period_years: int | None) -> date | None:
-    if document_date is None or period_years is None or period_years == RETENTION_PERIOD_UNLIMITED:
+    if document_date is None or period_years is None or period_years in (RETENTION_PERIOD_NONE, RETENTION_PERIOD_UNLIMITED):
         return None
     try:
         return document_date.replace(year=document_date.year + period_years)

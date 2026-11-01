@@ -111,6 +111,9 @@ class Document(Base):
     document_date_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     document_date_candidates: Mapped[dict[str, Any] | list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recipient: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     document_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     correspondent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

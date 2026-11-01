@@ -1,6 +1,7 @@
 <template>
-  <div class="retention-zone" :class="{ 'retention-zone--open': isEditing || embedded }">
+  <div class="retention-zone" :class="{ 'retention-zone--open': isEditing || embedded, 'retention-zone--embedded': embedded }">
     <RetentionChip
+      v-if="!embedded"
       :embedded="embedded"
       :state="state"
       :badge="badge"
@@ -22,6 +23,9 @@
       :allow-suggest="allowSuggest"
       :menu-props="menuProps"
       :period-items="retentionPeriodItems"
+      :compact="embedded"
+      :dirty="isDirty"
+      @accept="$emit('accept')"
       @save="onSave"
       @suggest="$emit('suggest')"
       @cancel="cancelEdit"
@@ -58,8 +62,10 @@ const RETENTION_PAPER_PHRASE = Object.freeze({
   not_applicable: 'Kein Original nötig'
 });
 const RETENTION_PERIOD_UNLIMITED = -1;
-const retentionPeriodItems = Object.freeze([
+const RETENTION_PERIOD_NONE = 0;
+const RETENTION_PERIOD_ITEMS = Object.freeze([
   { title: 'Unklar', value: null },
+  { title: 'Keine Aufbewahrungspflicht', value: RETENTION_PERIOD_NONE },
   { title: '3 Jahre', value: 3 },
   { title: '6 Jahre', value: 6 },
   { title: '10 Jahre', value: 10 },
@@ -67,11 +73,24 @@ const retentionPeriodItems = Object.freeze([
   { title: 'Unbegrenzt', value: RETENTION_PERIOD_UNLIMITED }
 ]);
 
+const retentionPeriodItems = computed(() => RETENTION_PERIOD_ITEMS.map(item => {
+  const endDate = props.embedded && item.value > 0 ? formatExpiry(item.value) : '';
+  return endDate ? { ...item, title: `${item.title} · ${endDate}` } : item;
+}));
+
 const isEditing = ref(false);
 const draft = reactive({
   period_years: null,
   paper_original: 'unclear',
   reason: ''
+});
+
+const isDirty = computed(() => {
+  const rawPeriod = props.modelValue?.period_years;
+  const savedPeriod = rawPeriod == null ? null : Number(rawPeriod);
+  return draft.period_years !== savedPeriod
+    || draft.paper_original !== (props.modelValue?.paper_original || 'unclear')
+    || draft.reason !== (props.modelValue?.reason || '');
 });
 
 function resetDraft(data = props.modelValue) {
@@ -103,6 +122,7 @@ const state = computed(() => {
 });
 
 function formatPeriod(period) {
+  if (period === RETENTION_PERIOD_NONE) return 'Keine Aufbewahrungspflicht';
   if (period === RETENTION_PERIOD_UNLIMITED) return 'Unbegrenzt';
   const years = Number(period);
   if (Number.isFinite(years) && years > 0) return `${years} Jahre`;
@@ -121,12 +141,15 @@ const badge = computed(() => {
     return { icon: 'mdi-shield-outline', title: 'Nicht erfasst', subtitle: 'Aufbewahrungspflicht ergänzen' };
   }
   const title = formatPeriod(data?.period_years);
-  const phrase = RETENTION_PAPER_PHRASE[data?.paper_original] || RETENTION_PAPER_PHRASE.unclear;
+  const phrase = data?.period_years === RETENTION_PERIOD_NONE && data?.paper_original === 'keep'
+    ? 'Original behalten' : RETENTION_PAPER_PHRASE[data?.paper_original] || RETENTION_PAPER_PHRASE.unclear;
   if (state.value === 'ai') {
     return { icon: 'mdi-creation', title, subtitle: `${phrase} · zur Prüfung` };
   }
   let expiry;
-  if (data?.retain_until) {
+  if (data?.period_years === RETENTION_PERIOD_NONE) {
+    expiry = 'keine Frist';
+  } else if (data?.retain_until) {
     expiry = `bis ${isoToDisplay(data.retain_until) || data.retain_until}`;
   } else if (data?.period_years === RETENTION_PERIOD_UNLIMITED) {
     expiry = 'kein Ablauf';
@@ -137,8 +160,8 @@ const badge = computed(() => {
 });
 
 // Ablaufdatum leitet sich (wie serverseitig) aus Dokumentdatum + gewählter Frist ab.
-const expiryLabel = computed(() => {
-  const period = draft.period_years;
+function formatExpiry(period) {
+  if (period === RETENTION_PERIOD_NONE) return '';
   if (period === RETENTION_PERIOD_UNLIMITED) return 'Kein Ablauf';
   const years = Number(period);
   if (!Number.isFinite(years) || years <= 0) return '';
@@ -150,13 +173,15 @@ const expiryLabel = computed(() => {
   const dd = String(target.getDate()).padStart(2, '0');
   const mm = String(target.getMonth() + 1).padStart(2, '0');
   return `${dd}.${mm}.${target.getFullYear()}`;
-});
+}
+const expiryLabel = computed(() => formatExpiry(draft.period_years));
 
 function toggleEdit() {
   isEditing.value = !isEditing.value;
 }
 
 function cancelEdit() {
+  resetDraft();
   isEditing.value = false;
 }
 
@@ -443,13 +468,6 @@ function onSave() {
   margin-bottom: 8px;
 }
 
-.retention-form__disclaimer {
-  color: rgba(var(--v-theme-on-surface), 0.48);
-  font-size: 0.66rem;
-  line-height: 1.35;
-  margin-bottom: 10px;
-}
-
 .retention-form__actions {
   display: flex;
   align-items: center;
@@ -460,6 +478,7 @@ function onSave() {
 .retention-form__ai {
   margin-right: auto;
 }
+.retention-form__ai[aria-busy="true"] { opacity:.72; }
 
 /* Vorlage nutzt Satz- statt Großschreibung; Vuetify-Defaults zurücknehmen. */
 .retention-form__actions .v-btn {
@@ -473,5 +492,108 @@ function onSave() {
 
 .retention-form__save {
   border-radius: 8px;
+}
+
+/* The drawer uses the same flat rows and field tokens as the overview tab. */
+.retention-zone.retention-zone--embedded {
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+.retention-zone--embedded .retention-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  column-gap: 24px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.retention-zone--embedded .retention-form__grid { display: contents; }
+.retention-zone--embedded .retention-form__field {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.retention-zone--embedded .retention-form__field label {
+  margin: 0;
+  padding-top: 12px;
+  font-size: 12px;
+  color: var(--pm-muted);
+  hyphens: auto;
+  overflow-wrap: anywhere;
+}
+.retention-zone--embedded .retention-form .v-input { min-width: 0; }
+.retention-zone--embedded .retention-form .v-field,
+.retention-zone--embedded .retention-form__static {
+  border: 1px solid var(--pm-metadata-field-border) !important;
+  border-radius: 10px !important;
+  background: var(--pm-metadata-field-bg) !important;
+  color: var(--pm-text);
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 180ms ease;
+}
+.retention-zone--embedded .retention-form .v-field:hover {
+  border-color: var(--pm-metadata-field-hover-border) !important;
+  background: var(--pm-metadata-field-hover-bg) !important;
+}
+.retention-zone--embedded .retention-form .v-field--focused {
+  border-color: rgb(var(--v-theme-primary)) !important;
+  background: var(--pm-metadata-field-hover-bg) !important;
+  box-shadow: 0 0 0 3px var(--pm-metadata-field-focus-ring);
+}
+.retention-zone--embedded .retention-form .v-field__input {
+  min-height: 36px;
+  padding: 7px 9px;
+  font-size: 14px;
+}
+.retention-zone--embedded .retention-form .v-field__append-inner { padding-top: 7px; }
+.retention-zone--embedded .retention-form .v-field__append-inner .v-icon { font-size: 18px; color: var(--pm-muted); opacity: .76; }
+.retention-zone--embedded .retention-form__static { min-height: 36px; padding: 0 9px; font-size: 14px; }
+.retention-zone--embedded .retention-toggle-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.retention-zone--embedded .retention-toggle-row__text { display: contents; }
+.retention-zone--embedded .retention-toggle-row__title { font-size: 12px; font-weight: 400; color: var(--pm-muted); }
+.retention-toggle-row__control { display:flex; align-items:center; gap:10px; }
+.retention-toggle-row__value { font-size:12px; color:var(--pm-text); }
+.retention-zone--embedded .retention-form__reason { grid-column:1 / -1; margin:0; }
+.retention-zone--embedded .retention-form__reason .v-textarea .v-field { min-height:0 !important; }
+.retention-zone--embedded .retention-form__reason .v-textarea .v-field__input:not(.v-textarea__sizer) { min-height:var(--v-textarea-control-height) !important; }
+.retention-zone--embedded .retention-form__reason .v-textarea .v-textarea__sizer { min-height:0 !important; }
+.retention-zone--embedded .retention-form__reason .v-textarea .v-field {
+  --v-field-padding-top:8px;
+  --v-input-padding-top:0px;
+  --v-field-padding-bottom:8px;
+}
+.retention-zone--embedded .retention-form__error { grid-column:1 / -1; margin: -6px 0 0; padding-inline-start: 108px; }
+.retention-zone--embedded .retention-form__actions { grid-column:1 / -1; margin-top:-6px; padding-inline-start: 108px; flex-wrap: wrap; }
+.pm-no-animations .retention-zone--embedded .retention-form .v-field { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .retention-zone--embedded .retention-form .v-field { transition: none; }
+}
+@container (max-width: 480px) {
+  .retention-zone--embedded .retention-form { grid-template-columns: minmax(0, 1fr); }
+  .retention-zone--embedded .retention-toggle-row { padding-inline-start:108px; }
+}
+@container (max-width: 420px) {
+  .retention-zone--embedded .retention-form__field { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .retention-zone--embedded .retention-form__field label { padding-top: 0; }
+  .retention-zone--embedded .retention-toggle-row { grid-template-columns: minmax(0, 1fr); gap: 4px; padding-inline-start:0; }
+  .retention-zone--embedded .retention-form__error,
+  .retention-zone--embedded .retention-form__actions { padding-inline-start: 0; }
 }
 </style>

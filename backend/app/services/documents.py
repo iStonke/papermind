@@ -51,6 +51,7 @@ from app.schemas.documents import (
     SortOrder,
 )
 from app.services.ai_classification import apply_ollama_classification
+from app.services.document_knowledge import knowledge_value
 from app.services.document_types import (
     document_type_hint_map,
     document_type_names,
@@ -693,9 +694,9 @@ class DocumentService:
         if not parts:
             return None
         title = " – ".join(parts)
-        if document.ai_amount is not None:
-            amount = f"{float(document.ai_amount):.2f}".replace(".", ",")
-            currency = " ".join(str(document.ai_currency or "").split()).strip()
+        if knowledge_value(document, "amount") is not None:
+            amount = f"{float(knowledge_value(document, 'amount')):.2f}".replace(".", ",")
+            currency = " ".join(str(knowledge_value(document, "currency") or "").split()).strip()
             suffix = f"{amount}€" if not currency or currency.upper() in {"EUR", "€"} else f"{amount} {currency}"
             title = f"{title} – {suffix}"
         return title[:200]
@@ -791,12 +792,13 @@ class DocumentService:
                     "Kein OCR-Text für automatische KI-Metadaten verfügbar.",
                 )
 
-        correspondent = self._suggest_correspondent_from_classification(document)
+        manual = (getattr(document, "flags", None) or {}).get("manual_metadata_fields") or []
+        correspondent = None if "correspondent_id" in manual else self._suggest_correspondent_from_classification(document)
         return DocumentMetadataSuggestion(
             display_name=self._build_ai_title(document),
-            document_date=document.ai_document_date,
-            document_type=self._suggest_document_type_from_classification(document),
-            category=self._suggest_document_type_from_classification(document),
+            document_date=None if "document_date" in manual else document.ai_document_date,
+            document_type=None if "document_type" in manual else self._suggest_document_type_from_classification(document),
+            category=None if "document_type" in manual else self._suggest_document_type_from_classification(document),
             correspondent_id=uuid.UUID(str(correspondent.correspondent_id)) if correspondent else None,
             correspondent_name=correspondent.name if correspondent else None,
             notes=" ".join(str(document.ai_summary or "").split()).strip() or None,
@@ -1469,6 +1471,14 @@ class DocumentService:
         document = self.get_document_or_404(document_id)
         data = payload.model_dump(exclude_unset=True)
 
+        # Amount and currency form one value. Freeze its other half as well so
+        # a later classification cannot reinterpret a corrected amount in USD.
+        if {"amount", "currency"}.intersection(data):
+            data.setdefault("amount", knowledge_value(document, "amount"))
+            currency = knowledge_value(document, "currency")
+            currency = str(currency or "").strip().upper()
+            data.setdefault("currency", currency if re.fullmatch(r"[A-Z]{3}", currency) else None)
+
         if "document_date" in data:
             document.document_date = data["document_date"]
             document.document_date_source = "manual"
@@ -1505,6 +1515,18 @@ class DocumentService:
             document.display_name = (
                 None if data["display_name"] is None else self._normalize_display_name(data["display_name"])
             )
+
+        # Keep corrections apart from classifier output, including deliberate
+        # clearing. A later OCR/AI run must not restore a rejected suggestion.
+        correction_fields = {"document_type", "document_date", "correspondent_id", "recipient", "amount", "currency"}
+        changed = correction_fields.intersection(data)
+        for field in ("recipient", "amount", "currency"):
+            if field in data:
+                setattr(document, field, data[field])
+        if changed:
+            flags = dict(getattr(document, "flags", None) or {})
+            flags["manual_metadata_fields"] = sorted(set(flags.get("manual_metadata_fields") or []) | changed)
+            document.flags = flags
 
         self.db.commit()
         updated = self.get_document_or_404(document_id)

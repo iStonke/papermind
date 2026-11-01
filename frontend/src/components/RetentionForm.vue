@@ -2,84 +2,111 @@
   <div class="retention-form" @click.stop>
     <div class="retention-form__grid">
       <div class="retention-form__field">
-        <label>Aufbewahrungsdauer</label>
-        <v-select
-          :model-value="periodYears"
-          :items="periodItems"
-          density="compact"
-          variant="outlined"
-          hide-details
-          class="retention-form__input"
-          :menu-props="menuProps"
-          @update:model-value="$emit('update:periodYears', $event)"
-        />
+        <label :for="`${fieldId}-period`">{{ compact ? 'Dauer' : 'Aufbewahrungsdauer' }}</label>
+        <div>
+          <v-select
+            :id="`${fieldId}-period`"
+            :aria-label="compact ? 'Aufbewahrungsdauer' : undefined"
+            :model-value="periodYears"
+            :items="periodItems"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="retention-form__input"
+            :menu-props="menuProps"
+            @update:model-value="$emit('update:periodYears', $event)"
+          />
+        </div>
       </div>
-      <div class="retention-form__field">
-        <label>Ablaufdatum</label>
-        <div class="retention-form__static">{{ expiryLabel || '—' }}</div>
+      <div v-if="!compact" class="retention-form__field">
+        <label :for="`${fieldId}-expiry`">Ablaufdatum</label>
+        <output :id="`${fieldId}-expiry`" class="retention-form__static">{{ expiryLabel || '—' }}</output>
       </div>
     </div>
 
     <div class="retention-toggle-row">
-      <div class="retention-toggle-row__text">
+      <div v-if="!compact" class="retention-toggle-row__text">
         <div class="retention-toggle-row__title">Original behalten</div>
         <div class="retention-toggle-row__hint">Physisches Original muss aufbewahrt werden</div>
       </div>
-      <button
-        type="button"
-        class="retention-toggle"
-        :class="{ 'retention-toggle--on': keepOriginal }"
-        role="switch"
-        :aria-checked="String(keepOriginal)"
-        aria-label="Original behalten"
-        @click="keepOriginal = !keepOriginal"
-      >
-        <span class="retention-toggle__knob" />
-      </button>
+      <div class="retention-toggle-row__control">
+        <button
+          type="button"
+          class="retention-toggle"
+          :class="{ 'retention-toggle--on': keepOriginal }"
+          role="switch"
+          :aria-checked="String(keepOriginal)"
+          aria-label="Original behalten"
+          @click="keepOriginal = !keepOriginal"
+        >
+          <span class="retention-toggle__knob" />
+        </button>
+        <span v-if="compact" class="retention-toggle-row__value">Original behalten</span>
+      </div>
     </div>
 
-    <div class="retention-form__field">
-      <label>Begründung</label>
-      <v-textarea
-        :model-value="reason"
-        :rows="2"
-        :max-rows="4"
-        auto-grow
-        density="compact"
-        variant="outlined"
-        hide-details
-        class="retention-form__input"
-        placeholder="Kurzer Grund, z. B. Rechtsgrundlage…"
-        @update:model-value="$emit('update:reason', $event)"
-      />
+    <div class="retention-form__reason">
+      <div class="retention-form__field">
+        <label :for="`${fieldId}-reason`">Begründung</label>
+        <v-textarea
+          :id="`${fieldId}-reason`"
+          :aria-label="compact ? 'Begründung' : undefined"
+          :model-value="reason"
+          :rows="compact ? 1 : 2"
+          :max-rows="compact ? undefined : 4"
+          auto-grow
+          density="compact"
+          variant="outlined"
+          hide-details
+          class="retention-form__input"
+          placeholder="Kurzer Grund, z. B. Rechtsgrundlage…"
+          @update:model-value="$emit('update:reason', $event)"
+        />
+      </div>
     </div>
 
-    <div v-if="errorMessage" class="retention-form__error">{{ errorMessage }}</div>
-    <div class="retention-form__disclaimer">KI-Hinweis, keine Rechtsberatung. Vor Vernichtung prüfen.</div>
+    <div v-if="errorMessage" class="retention-form__error" role="alert">{{ errorMessage }}</div>
 
-    <div v-if="showActions" class="retention-form__actions">
+    <div v-if="showActions && (!compact || state === 'ai' || allowSuggest || dirty || saving)" class="retention-form__actions">
       <v-btn
         v-if="allowSuggest && state !== 'ai'"
         size="small"
         variant="text"
         class="retention-form__ai"
-        :loading="suggesting"
-        :disabled="suggesting"
+        :aria-busy="suggesting"
+        :disabled="suggesting || saving"
         @click="$emit('suggest')"
       >
-        <v-icon size="14" start>mdi-auto-fix</v-icon>
-        KI-Bewertung
+        <template #prepend>
+          <v-progress-circular v-if="suggesting" indeterminate size="14" width="2" aria-hidden="true" />
+          <v-icon v-else size="14" aria-hidden="true">mdi-auto-fix</v-icon>
+        </template>
+        {{ compact ? 'Mit KI prüfen' : 'KI-Bewertung' }}
       </v-btn>
       <v-btn
+        v-if="!compact || dirty || (saving && !showAccept)"
         size="small"
         variant="text"
         class="retention-form__cancel"
         :disabled="saving"
         @click="$emit('cancel')"
       >
-        Abbrechen
+        {{ compact ? 'Verwerfen' : 'Abbrechen' }}
       </v-btn>
       <v-btn
+        v-if="showAccept"
+        size="small"
+        color="primary"
+        variant="flat"
+        class="retention-form__save retention-form__accept"
+        :loading="saving"
+        :disabled="saving"
+        @click="$emit('accept')"
+      >
+        Übernehmen
+      </v-btn>
+      <v-btn
+        v-else-if="!compact || dirty || saving"
         size="small"
         color="primary"
         variant="flat"
@@ -95,9 +122,13 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, useId } from 'vue';
+
+const fieldId = `retention-${useId()}`;
 
 const props = defineProps({
+  compact: { type: Boolean, default: false },
+  dirty: { type: Boolean, default: false },
   periodYears: { type: Number, default: null },
   paperOriginal: { type: String, default: 'unclear' },
   reason: { type: String, default: '' },
@@ -113,6 +144,7 @@ const props = defineProps({
     type: Array,
     default: () => ([
       { title: 'Unklar', value: null },
+      { title: 'Keine Aufbewahrungspflicht', value: 0 },
       { title: '3 Jahre', value: 3 },
       { title: '6 Jahre', value: 6 },
       { title: '10 Jahre', value: 10 },
@@ -128,10 +160,13 @@ const emit = defineEmits([
   'update:periodYears',
   'update:paperOriginal',
   'update:reason',
+  'accept',
   'save',
   'suggest',
   'cancel'
 ]);
+
+const showAccept = computed(() => props.compact && props.state === 'ai' && !props.dirty);
 
 // Toggle „Original behalten": keep ↔ scan_sufficient auf paper_original.
 const keepOriginal = computed({

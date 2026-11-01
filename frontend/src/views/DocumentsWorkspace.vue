@@ -1436,15 +1436,20 @@
                           >
                             {{ formatDocumentTitle(selectedDocumentDetail) }}
                           </div>
-                          <div v-if="headerMetaParts.length || headerOcrStatus || hasEmptyMetadataField || isRunningAiAnalysis" class="details-drawer__meta-line">
-                            <template v-for="(part, index) in headerMetaParts" :key="`meta-${index}`">
-                              <span class="details-drawer__meta-part">{{ part }}</span>
-                              <span
-                                v-if="index < headerMetaParts.length - 1 || headerOcrStatus"
-                                class="details-drawer__meta-dot"
-                                aria-hidden="true"
-                              />
+                          <div v-if="selectedDocumentDetail" class="details-drawer__meta-line">
+                            <template v-if="headerPageCountLabel">
+                              <span class="details-drawer__meta-part">{{ headerPageCountLabel }}</span>
+                              <span class="details-drawer__meta-dot" aria-hidden="true" />
                             </template>
+                            <DocumentDateDetails v-if="headerCreatedDateLabel" :document="selectedDocumentDetail" />
+                            <span v-if="headerCreatedDateLabel" class="details-drawer__meta-dot" aria-hidden="true" />
+                            <DocumentKnowledgeDetails v-if="selectedDocumentDetail" :document="selectedDocumentDetail"
+                              :busy="isRunningAiAnalysis && aiAnalysisDocumentId === selectedDocumentDetail.id" :missing-fields="missingMetadataFields"
+                              :completion-disabled="isRunningAiAnalysis" :completion-error="aiCompletionError?.documentId === selectedDocumentDetail.id ? aiCompletionError.message : ''"
+                              :save-changes="saveKnowledgeChanges" :document-types="categoryDrawerItems" :correspondents="correspondentDrawerItems"
+                              :editing-disabled="isSavingMetadata || isMetadataDirty || isSavingCategory || isSavingCorrespondent || isSavingKnowledge"
+                              @complete="completeKnowledgeFields" />
+                            <span v-if="headerOcrStatus" class="details-drawer__meta-dot" aria-hidden="true" />
                             <button v-if="headerOcrStatus?.tone === 'pending'" type="button" class="details-ai-chip"
                               :disabled="isQueueingHeaderOcr" :aria-busy="isQueueingHeaderOcr"
                               :aria-label="isQueueingHeaderOcr ? 'OCR wird gestartet …' : 'OCR durchführen'"
@@ -1452,46 +1457,8 @@
                               <v-progress-circular v-if="isQueueingHeaderOcr" indeterminate size="11" width="2" aria-hidden="true" />
                               {{ isQueueingHeaderOcr ? 'OCR wird gestartet …' : headerOcrStatus.text }}
                             </button>
-                            <v-tooltip
-                              v-else-if="headerOcrStatus?.tone === 'failed'"
-                              text="OCR erneut durchführen"
-                              location="bottom"
-                            >
-                              <template #activator="{ props: retryTooltipProps }">
-                                <button
-                                  v-bind="retryTooltipProps"
-                                  type="button"
-                                  class="details-ocr-status details-ocr-status--failed details-ocr-status--action"
-                                  :disabled="isQueueingHeaderOcr"
-                                  aria-label="OCR erneut durchführen"
-                                  @click.stop="queueOcrFromHeader"
-                                >
-                                  <v-icon size="13">{{ headerOcrStatus.icon }}</v-icon>
-                                  {{ headerOcrStatus.text }}
-                                </button>
-                              </template>
-                            </v-tooltip>
-                            <span
-                              v-else-if="headerOcrStatus"
-                              class="details-ocr-status"
-                              :class="`details-ocr-status--${headerOcrStatus.tone}`"
-                            >
-                              <v-progress-circular
-                                v-if="headerOcrStatus.tone === 'progress'"
-                                indeterminate
-                                size="11"
-                                width="2"
-                              />
-                              <v-icon v-else size="13">{{ headerOcrStatus.icon }}</v-icon>
-                              {{ headerOcrStatus.text }}
-                            </span>
-                            <button v-if="hasEmptyMetadataField || isRunningAiAnalysis" type="button" class="details-ai-chip"
-                              :disabled="isRunningAiAnalysis" :aria-busy="isRunningAiAnalysis"
-                              :aria-label="isRunningAiAnalysis ? 'Daten werden ergänzt …' : 'Fehlende Daten mit KI vervollständigen'"
-                              title="Fehlende Angaben mit KI ergänzen" @click.stop="runAiAnalysis">
-                              <v-progress-circular v-if="isRunningAiAnalysis" indeterminate size="11" width="2" aria-hidden="true" />
-                              {{ isRunningAiAnalysis ? 'Daten werden ergänzt …' : 'Daten vervollständigen' }}
-                            </button>
+                            <DocumentOcrDetails v-else-if="headerOcrStatus" :document="selectedDocumentDetail"
+                              :status="headerOcrStatus" :busy="isOcrInProgress" @retry="queueOcrFromHeader" />
                           </div>
                         </div>
                       </div>
@@ -1567,6 +1534,7 @@
               <div v-if="selectedDocumentDetail" class="details-drawer__body">
                 <div
                   class="details-drawer__inner pm-drawer-body"
+                  :class="{ 'pm-drawer-body--retention': activeDetailsTab === 'retention' }"
                   @focusin="handleDetailsEditorFocusIn"
                   @focusout="handleDetailsEditorFocusOut"
                 >
@@ -1616,7 +1584,6 @@
                   <section v-if="isRetentionFeatureEnabled" v-show="activeDetailsTab === 'retention'"
                     :id="`${detailsBodyId}-retention`" role="tabpanel" :aria-labelledby="`${detailsBodyId}-tab-retention`"
                     tabindex="0" class="details-tab-panel">
-                    <div class="details-drawer__section-heading">Aufbewahrung</div>
                     <RetentionStatusBar
                       embedded
                       v-if="isRetentionFeatureEnabled"
@@ -1690,6 +1657,11 @@ import KnowledgeStage from '../components/KnowledgeStage.vue';
 import DocumentPreviewLayout from '../components/DocumentPreviewLayout.vue';
 import MetadataSaveIndicator from '../components/MetadataSaveIndicator.vue';
 import DocumentDetailsTabs from '../components/DocumentDetailsTabs.vue';
+import DocumentOcrDetails from '../components/DocumentOcrDetails.vue';
+import DocumentDateDetails from '../components/DocumentDateDetails.vue';
+import DocumentKnowledgeDetails from '../components/DocumentKnowledgeDetails.vue';
+import { resolveOcrQuality } from '../utils/ocrDetails.js';
+import { missingDocumentFields } from '../utils/documentKnowledge.js';
 import RelatedDocumentsSection from '../components/RelatedDocumentsSection.vue';
 import PreviewSwap from '../components/PreviewSwap.vue';
 import DocumentPreviewIllustration from '../components/DocumentPreviewIllustration.vue';
@@ -3546,6 +3518,9 @@ const isSavingMetadata = ref(false);
 const isSavingTags = ref(false);
 const isResolvingTagNames = ref(false);
 const isRunningAiAnalysis = ref(false);
+const aiAnalysisDocumentId = ref(null);
+const aiCompletionError = ref(null);
+watch(selectedDocumentId, () => { aiCompletionError.value = null; });
 const isQueueingHeaderOcr = ref(false);
 const retentionData = ref(null);
 const isLoadingRetention = ref(false);
@@ -3643,16 +3618,6 @@ const headerCreatedDateLabel = computed(() => {
   const formattedDateTime = formatDateTime(raw);
   return formattedDateTime === '-' ? '' : formattedDateTime;
 });
-const headerMetaParts = computed(() => {
-  const parts = [];
-  if (headerPageCountLabel.value) {
-    parts.push(headerPageCountLabel.value);
-  }
-  if (headerCreatedDateLabel.value) {
-    parts.push(headerCreatedDateLabel.value);
-  }
-  return parts;
-});
 const hasCompletedOcr = computed(() => {
   const detail = selectedDocumentDetail.value;
   if (!detail) {
@@ -3681,7 +3646,7 @@ const headerOcrPresentation = computed(() => resolveOcrHeaderPresentation({
   ocrStatus: ocrStatusValue.value,
   inProgress: isOcrInProgress.value,
   hasCompletedOcr: showGreenOcrChip.value,
-  qualityStatus: selectedDocumentDetail.value?.ocr_quality_status
+  qualityStatus: resolveOcrQuality(selectedDocumentDetail.value || {}).quality
 }));
 const showHeaderOcrActionButton = computed(() => headerOcrPresentation.value.showMenuAction);
 // A first OCR run is offered as a dashed chip beside metadata completion;
@@ -4520,21 +4485,15 @@ const isTagSelectionDirty = computed(() => {
   return !isSameTagSelection(metadataTagIds.value, detailTagIds);
 });
 
-// Steuert die Sichtbarkeit des KI-Befüllen-Buttons: nur anzeigen, wenn mindestens
-// eines der strukturierten Felder (Name, Datum, Dokumenttyp, Korrespondent, Tags)
-// leer ist. Die Freitext-Notiz bleibt bewusst außen vor – sie ist oft absichtlich
-// leer und soll den Button nicht dauerhaft sichtbar halten.
-const hasEmptyMetadataField = computed(() => {
-  if (!selectedDocumentDetail.value) {
-    return false;
-  }
-  const nameEmpty = !normalizeDocumentName(metadataDocName.value);
-  const dateEmpty = !String(metadataDocDate.value || '').trim();
-  const categoryEmpty = !String(metadataDocCategory.value || '').trim();
-  const correspondentEmpty = !metadataCorrespondentId.value;
-  const tagsEmpty = metadataTagNames.value.length === 0;
-  return nameEmpty || dateEmpty || categoryEmpty || correspondentEmpty || tagsEmpty;
-});
+// The knowledge popover uses the live draft to show open fields and offer AI
+// completion. Optional notes do not count toward document completeness.
+const missingMetadataFields = computed(() => !selectedDocumentDetail.value ? [] : missingDocumentFields({
+  display_name: normalizeDocumentName(metadataDocName.value),
+  document_date: metadataDocDate.value,
+  document_type: metadataDocCategory.value,
+  correspondent_id: metadataCorrespondentId.value,
+  tags: metadataTagNames.value
+}));
 
 let mediaQuery = null;
 const tagReplaceDebounceTimers = new Map();
@@ -6584,13 +6543,48 @@ async function replaceDocumentTags(documentId, tagIds, draftRevision) {
 // Globale KI-Analyse: analysiert das Dokument und befüllt ausschließlich leere
 // Felder (Name, Datum, Kategorie, Notizen, Tags). Vorhandene Eingaben bleiben
 // unangetastet. Das Speichern läuft über die bestehenden Autosave-Pfade.
+function completeKnowledgeFields(documentId) {
+  if (selectedDocumentId.value === documentId && selectedDocumentDetail.value?.id === documentId) void runAiAnalysis();
+}
+
+const isSavingKnowledge = ref(false);
+async function saveKnowledgeChanges(documentId, patch) {
+  if (selectedDocumentId.value !== documentId || isRunningAiAnalysis.value || isSavingKnowledge.value) {
+    throw new Error('Bitte öffne die Angaben des ausgewählten Dokuments erneut.');
+  }
+  isSavingKnowledge.value = true;
+  try {
+    const detail = await docStore.patchDocument(documentId, patch);
+    if (selectedDocumentId.value !== documentId) return;
+    // Only reflect the edited fields; leave independent text/tag drafts intact.
+    shouldSkipMetadataAutosave = true;
+    if ('document_date' in patch) {
+      metadataDocDate.value = formatDocumentDateInputFromIso(detail.document_date);
+      metadataDocDateHasError.value = false;
+      if (isRetentionFeatureEnabled.value) void loadRetention(documentId, { force: true });
+    }
+    if ('document_type' in patch) metadataDocCategory.value = detail.document_type || null;
+    if ('correspondent_id' in patch) {
+      metadataCorrespondentId.value = detail.correspondent_id || null;
+      metadataCorrespondentDraft.value = metadataCorrespondentId.value;
+    }
+    window.setTimeout(() => { shouldSkipMetadataAutosave = false; }, 0);
+    scheduleSidebarCountsRefresh();
+    if (activeSavedSearchId.value || isCategoryView.value || documentListQuery.q || documentListQuery.documentType || documentListQuery.correspondentId) {
+      void fetchDocuments(documentId, { autoSelectFirst: false, allowPreferredOutsideList: true }).catch(error => logDevError(error, 'knowledge-list-refresh'));
+    }
+  } finally { isSavingKnowledge.value = false; }
+}
+
 async function runAiAnalysis() {
-  if (!selectedDocumentDetail.value || isRunningAiAnalysis.value) {
+  if (!selectedDocumentDetail.value || isRunningAiAnalysis.value || isSavingKnowledge.value) {
     return;
   }
 
   const documentId = selectedDocumentDetail.value.id;
   isRunningAiAnalysis.value = true;
+  aiAnalysisDocumentId.value = documentId;
+  aiCompletionError.value = null;
   metadataTagErrorMessage.value = '';
 
   try {
@@ -6612,6 +6606,7 @@ async function runAiAnalysis() {
       notify({ type: 'warning', title: 'KI', message: 'Keine Analyseergebnisse erhalten.' });
       return;
     }
+    if (selectedDocumentId.value !== documentId) return;
 
     let filledCount = 0;
 
@@ -6623,7 +6618,8 @@ async function runAiAnalysis() {
       metadataDocName.value = suggestedName;
       filledCount += 1;
     }
-    if (suggestion.document_date && !String(metadataDocDate.value || '').trim()) {
+    const manualFields = selectedDocumentDetail.value.flags?.manual_metadata_fields || [];
+    if (suggestion.document_date && !manualFields.includes('document_date') && !String(metadataDocDate.value || '').trim()) {
       metadataDocDate.value = formatDocumentDateInputFromIso(suggestion.document_date);
       filledCount += 1;
     }
@@ -6635,24 +6631,28 @@ async function runAiAnalysis() {
     if (isMetadataDirty.value) {
       await saveMetadata({ skipDocumentReload: true, silentSuccess: true });
     }
+    if (selectedDocumentId.value !== documentId) return;
 
     // Schritt 2: Kategorie nur befüllen, wenn keine gesetzt ist.
     const suggestedCategory = String(suggestion.document_type || suggestion.category || '').trim();
-    if (suggestedCategory && !String(metadataDocCategory.value || '').trim()) {
+    if (suggestedCategory && !manualFields.includes('document_type') && !String(metadataDocCategory.value || '').trim()) {
       await onMetadataCategoryChange(suggestedCategory);
       filledCount += 1;
     }
 
     // Schritt 3: Korrespondent nur befüllen, wenn keiner gesetzt ist.
+    if (selectedDocumentId.value !== documentId) return;
     const suggestedCorrespondentId = String(suggestion.correspondent_id || '').trim();
-    if (suggestedCorrespondentId && !metadataCorrespondentId.value) {
+    if (suggestedCorrespondentId && !manualFields.includes('correspondent_id') && !metadataCorrespondentId.value) {
       await correspondentStore.ensureLoaded();
+      if (selectedDocumentId.value !== documentId) return;
       metadataCorrespondentDraft.value = suggestedCorrespondentId;
       await commitMetadataCorrespondent();
       filledCount += 1;
     }
 
     // Schritt 4: Tags nur befüllen, wenn noch keine vorhanden sind.
+    if (selectedDocumentId.value !== documentId) return;
     const suggestedTags = Array.isArray(suggestion.tags) ? suggestion.tags.filter(Boolean) : [];
     if (suggestedTags.length && metadataTagNames.value.length === 0) {
       await syncMetadataTagsFromNames(suggestedTags);
@@ -6668,8 +6668,16 @@ async function runAiAnalysis() {
     }
   } catch (error) {
     metadataTagErrorMessage.value = notifyError(error, 'KI-Analyse konnte nicht ausgeführt werden.');
+    aiCompletionError.value = { documentId, message: metadataTagErrorMessage.value };
   } finally {
+    // Refresh persisted AI results even when every editable field was already
+    // filled. The existing detail loader preserves local edits and selection.
+    if (selectedDocumentId.value === documentId) {
+      try { await fetchDocumentDetail(documentId); }
+      catch (error) { logDevError(error, 'knowledge-refresh'); }
+    }
     isRunningAiAnalysis.value = false;
+    aiAnalysisDocumentId.value = null;
   }
 }
 
@@ -6712,8 +6720,6 @@ async function queueOcrFromHeader() {
           text_source: detail.text_source,
           updated_at: detail.updated_at
         };
-      } else {
-        selectedDocumentDetail.value = detail;
       }
 
       documents.value = documents.value.map((document) => (

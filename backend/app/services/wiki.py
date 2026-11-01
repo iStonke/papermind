@@ -17,6 +17,8 @@ from typing import Any, Iterable
 from sqlalchemy import and_, case, func, literal, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
+from app.services.document_knowledge import knowledge_value
+
 from app.core.errors import BadRequestError, ConflictError, NotFoundError
 from app.models.chat import ChatMessage
 from app.models.correspondent import Correspondent
@@ -282,7 +284,7 @@ class WikiService:
         subject = title
         candidates: list[WikiClaimCandidate] = []
 
-        document_type = compact_text(document.document_type or document.ai_document_type)
+        document_type = compact_text(knowledge_value(document, "document_type"))
         if document_type:
             candidates.append(
                 WikiClaimCandidate(
@@ -297,7 +299,7 @@ class WikiService:
                 )
             )
 
-        document_date = document.document_date or document.ai_document_date
+        document_date = knowledge_value(document, "document_date")
         if document_date:
             candidates.append(
                 WikiClaimCandidate(
@@ -328,7 +330,7 @@ class WikiService:
                 )
             )
 
-        recipient = compact_text(document.ai_recipient)
+        recipient = compact_text(knowledge_value(document, "recipient"))
         if recipient:
             candidates.append(
                 WikiClaimCandidate(
@@ -343,8 +345,8 @@ class WikiService:
                 )
             )
 
-        if document.ai_amount is not None:
-            amount = _format_amount(document.ai_amount, document.ai_currency)
+        if knowledge_value(document, "amount") is not None:
+            amount = _format_amount(knowledge_value(document, "amount"), knowledge_value(document, "currency"))
             candidates.append(
                 WikiClaimCandidate(
                     stable_key="amount",
@@ -358,7 +360,7 @@ class WikiService:
                     evidence=self._find_candidate_evidence(
                         document,
                         chunks,
-                        _amount_variants(document.ai_amount, document.ai_currency),
+                        _amount_variants(knowledge_value(document, "amount"), knowledge_value(document, "currency")),
                     ),
                 )
             )
@@ -737,7 +739,7 @@ class WikiService:
                 self._refresh_aggregate_page(entity, reason=f"Quelle {_title(document)} aktualisiert")
                 touched.append(entity.id)
 
-        document_type = compact_text(document.document_type or document.ai_document_type)
+        document_type = compact_text(knowledge_value(document, "document_type"))
         if document_type:
             topic = self._ensure_page(
                 slug=f"dokumenttyp-{_slugify(document_type)}",

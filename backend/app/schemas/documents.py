@@ -1,5 +1,6 @@
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any
 
@@ -131,6 +132,10 @@ class PageReorderRequest(BaseModel):
 
 
 class DocumentUpdateRequest(BaseModel):
+    recipient: str | None = Field(default=None, max_length=255)
+    amount: Decimal | None = Field(default=None, max_digits=12, decimal_places=2, allow_inf_nan=False)
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+
     document_date: date | None = Field(default=None, validation_alias=AliasChoices("document_date", "doc_date"))
     notes: str | None = Field(default=None, max_length=10000)
     document_type: str | None = Field(
@@ -141,6 +146,11 @@ class DocumentUpdateRequest(BaseModel):
     correspondent_id: uuid.UUID | None = Field(default=None)
     status: DocumentStatus | None = None
     display_name: str | None = Field(default=None, max_length=200)
+
+    @field_validator("recipient", "currency", mode="before")
+    @classmethod
+    def normalize_knowledge_text(cls, value: str | None) -> str | None:
+        return (value.strip() or None) if isinstance(value, str) else value
 
     @field_validator("document_type")
     @classmethod
@@ -264,6 +274,9 @@ class DocumentDetail(ORMModel):
     ai_document_date: date | None = None
     ai_sender: str | None = None
     ai_recipient: str | None = None
+    recipient: str | None = None
+    amount: float | None = None
+    currency: str | None = None
     ai_amount: float | None = None
     ai_currency: str | None = None
     ai_summary: str | None = None

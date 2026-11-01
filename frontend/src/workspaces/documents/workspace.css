@@ -4364,7 +4364,7 @@
   opacity: 1;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4372,8 +4372,17 @@
 
 .details-drawer__meta-part {
   min-width: 0;
+  padding-inline: 8px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.details-drawer__meta-part:first-child {
+  padding-inline-start: 0;
+}
+
+.details-drawer__meta-line > .document-date-anchor:first-child {
+  margin-inline-start: -8px;
 }
 
 .details-drawer__meta-dot {
@@ -4395,7 +4404,7 @@
 }
 
 .details-ocr-status--done {
-  color: rgb(var(--v-theme-success));
+  color: var(--pm-muted);
 }
 
 .details-ocr-status--warning {
@@ -4945,15 +4954,6 @@
   border-radius: 8px !important;
 }
 
-.pm-drawer-body .retention-form .v-field {
-  background: var(--pm-detail-field-bg) !important;
-  border-color: var(--pm-detail-field-border) !important;
-}
-
-.pm-drawer-body .retention-form .v-field--focused {
-  border-color: var(--pm-detail-field-focus-border) !important;
-}
-
 /* Plain-Variante dämpft den Inhalt sonst auf ~0.62 Opazität */
 .pm-drawer-body .v-field--variant-plain {
   opacity: 1 !important;
@@ -5349,9 +5349,10 @@
 .details-tab-panel { min-width: 0; }
 .panel-right__preview--details-panel .details-tab-panel > .doc-notes,
 .panel-right__preview--details-panel .details-tab-panel > .doc-learn { margin-top: 16px; }
-.panel-right__preview--details-panel .details-tab-panel > .retention-zone { margin-top: 0; }
+.panel-right__preview--details-panel .details-tab-panel > .retention-zone { margin: 0; }
+.panel-right__preview--details-panel .pm-drawer-body--retention { padding-bottom: 12px; }
 
-.panel-right__preview--details-panel .details-tab-panel:is([aria-labelledby$="-tab-metadata"], [aria-labelledby$="-tab-notes"]) { padding-top: 16px; }
+.panel-right__preview--details-panel .details-tab-panel:is([aria-labelledby$="-tab-metadata"], [aria-labelledby$="-tab-notes"], [aria-labelledby$="-tab-retention"]) { padding-top: 16px; }
 
 /* Contextual completion chip beside the OCR status. */
 .panel-right__preview--details-panel .details-drawer__meta-line {

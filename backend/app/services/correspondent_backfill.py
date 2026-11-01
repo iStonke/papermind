@@ -144,6 +144,8 @@ class CorrespondentBackfillService:
         skipped_low_score = 0
 
         for document in documents:
+            if "correspondent_id" in ((getattr(document, "flags", None) or {}).get("manual_metadata_fields") or []):
+                continue
             ocr_text = self._text_for_matching(document, max_chars=text_chars)
             match = self.matcher.resolve(
                 sender=document.ai_sender,

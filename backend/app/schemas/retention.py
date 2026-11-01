@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.common import ORMModel
 
@@ -21,7 +21,8 @@ class RetentionPaperOriginal(str, Enum):
     not_applicable = "not_applicable"
 
 
-# period_years: None = unklar, -1 = unbegrenzt, sonst Jahre ab Dokumentdatum.
+# period_years: None = unklar, 0 = keine Aufbewahrung, -1 = unbegrenzt.
+RETENTION_PERIOD_NONE = 0
 RETENTION_PERIOD_UNLIMITED = -1
 
 
@@ -34,6 +35,13 @@ class DocumentRetentionRead(ORMModel):
     reason: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def no_deadline_without_retention(self):
+        # Older classifications may have stored the document date for zero years.
+        if self.period_years == RETENTION_PERIOD_NONE:
+            self.retain_until = None
+        return self
 
 
 class DocumentRetentionUpdateRequest(BaseModel):

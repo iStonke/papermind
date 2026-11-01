@@ -394,6 +394,7 @@ class DashboardService:
                 .join(DocumentRetention, DocumentRetention.document_id == Document.id)
                 .where(
                     active,
+                    DocumentRetention.period_years > 0,
                     DocumentRetention.retain_until.is_not(None),
                     DocumentRetention.retain_until >= today,
                     DocumentRetention.retain_until <= due_end,

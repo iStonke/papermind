@@ -119,7 +119,7 @@ def build_ollama_retention_payload(
     normalized_text = " ".join(str(payload.ocr_text or "").split()).strip()
     schema = {
         "paper_original": "eines von: keep, scan_sufficient, not_applicable, unclear",
-        "period_years": "Ganzzahl (Jahre ab Dokumentdatum), -1 fuer unbegrenzt, oder null falls unklar",
+        "period_years": "Ganzzahl (Jahre ab Dokumentdatum), 0 falls keine Aufbewahrung nötig, -1 fuer unbegrenzt, oder null falls unklar",
         "reason": "1 knapper deutscher Satz, moeglichst mit Rechtsgrundlage",
     }
     usage_label = "privat (kein Gewerbe)" if payload.usage_mode == "private" else "geschäftlich / gewerblich"
@@ -136,6 +136,8 @@ def build_ollama_retention_payload(
         period = payload.rule.period_years
         if period is None:
             period_text = "unklar"
+        elif period == 0:
+            period_text = "keine Aufbewahrung nötig"
         elif period == -1:
             period_text = "unbegrenzt"
         else:

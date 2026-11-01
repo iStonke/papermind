@@ -13,6 +13,7 @@ async function mockApi(page, { rememberDetails = true, initialDrawerExpanded = t
   let loggedIn = false;
   const patches = [];
   const imports = [];
+  const correspondents = [];
   const settings = {
     ui: {
       start_view: 'all', drawerRememberState: rememberDetails,
@@ -55,8 +56,12 @@ async function mockApi(page, { rememberDetails = true, initialDrawerExpanded = t
     if (path === '/api/documents') return json({ items: [document], total: 1, limit: 100, offset: 0 });
     if (path === `/api/documents/${docId}`) {
       if (request.method() === 'PATCH') {
-        patches.push(request.postDataJSON());
-        Object.assign(document, request.postDataJSON());
+        const patch = request.postDataJSON();
+        patches.push(patch);
+        Object.assign(document, patch);
+        if ('correspondent_id' in patch) document.correspondent_name = correspondents.find(item => item.id === patch.correspondent_id)?.name || null;
+        const corrected = Object.keys(patch).filter(field => ['document_type', 'document_date', 'correspondent_id', 'recipient', 'amount', 'currency'].includes(field));
+        if (corrected.length) document.flags = { ...document.flags, manual_metadata_fields: [...new Set([...(document.flags?.manual_metadata_fields || []), ...corrected])] };
       }
       return json(document);
     }
@@ -71,7 +76,8 @@ async function mockApi(page, { rememberDetails = true, initialDrawerExpanded = t
     if (path === '/api/import/inbox/events') return route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': connected\n\n' });
     if (path === '/api/import/inbox') return json({ items: [], pending_count: 0, scanner_jobs: [] });
     if (path === '/api/sidebar/counts') return json({ total_count: 1, all_count: 1 });
-    if (path.startsWith('/api/notes') || ['/api/tags', '/api/document-types', '/api/correspondents', '/api/saved-searches', '/api/smart-folders', '/api/scanners'].includes(path)) return json([]);
+    if (path === '/api/correspondents') return json({ items: correspondents });
+    if (path.startsWith('/api/notes') || ['/api/tags', '/api/document-types', '/api/saved-searches', '/api/smart-folders', '/api/scanners'].includes(path)) return json([]);
     if (path.includes('/annotations')) return json([]);
     if (path === '/api/documents/statuses') return json({ items: [] });
     return json({});
@@ -81,7 +87,7 @@ async function mockApi(page, { rememberDetails = true, initialDrawerExpanded = t
       localStorage.setItem('pm.drawerExpanded', expanded ? '1' : '0');
     }
   }, initialDrawerExpanded);
-  return { patches, imports, document, settings };
+  return { patches, imports, document, settings, correspondents };
 }
 
 async function login(page) {
@@ -92,6 +98,265 @@ async function login(page) {
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('button', { name: 'Einstellungen', exact: true }).first()).toBeVisible();
 }
+
+test('Wissen displays stored AI results beside OCR without changing fields or starting analysis', async ({ page }) => {
+  const { document, patches } = await mockApi(page);
+  Object.assign(document, { ocr_status: 'done', text_source: 'ocr', ai_status: 'done', ai_summary: 'Kurzfassung des Prüfbelegs.',
+    page_count: 1,
+    ai_document_type: 'Rechnung', ai_document_date: '2026-10-30', ai_sender: 'KMTV', ai_amount: 0, ai_currency: 'EUR', ai_processed_at: '2026-10-30T10:00:00Z' });
+  let analyses = 0;
+  await page.route(`**/api/documents/${docId}/ai-metadata`, route => { analyses++; return route.fulfill({ json: {} }); });
+  await login(page);
+  await page.locator(`[data-document-id="${docId}"]`).click();
+  const chip = page.getByRole('button', { name: 'Wissen zum Dokument anzeigen', exact: true });
+  await chip.click();
+  const dialog = page.getByRole('dialog', { name: 'Wissen', exact: true });
+  await expect(dialog).toContainText('Kurzfassung des Prüfbelegs.');
+  await expect(dialog).toContainText('KMTV');
+  await expect(dialog).toContainText('0,00');
+  await expect(dialog.getByRole('heading', { name: 'Offene Angaben', exact: true })).toBeVisible();
+  await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--expanded/);
+  expect(await chip.evaluate(el => {
+    const dot = el.closest('.document-knowledge-anchor').nextElementSibling;
+    return dot?.classList.contains('details-drawer__meta-dot') && dot.nextElementSibling?.classList.contains('ocr-details-anchor');
+  })).toBe(true);
+  expect(analyses).toBe(0);
+  expect(patches).toHaveLength(0);
+  await dialog.getByRole('button', { name: 'Wissen schließen', exact: true }).click();
+  await page.getByRole('button', { name: 'OCR-Details anzeigen', exact: true }).hover();
+  await page.locator('.details-drawer__meta-line').screenshot({ path: '/tmp/papermind-status-chip-spacing.png', animations: 'disabled' });
+});
+
+test('header date opens date details without toggling the drawer or changing document metadata', async ({ page }) => {
+  const { document, patches } = await mockApi(page);
+  Object.assign(document, { page_count: 1, document_date: '2018-10-16', created_at: '2026-08-24T13:05:00Z', updated_at: '2026-11-01T13:00:00Z' });
+  await login(page);
+  await page.locator(`[data-document-id="${docId}"]`).click();
+  const trigger = page.getByRole('button', { name: 'Datumsangaben anzeigen', exact: true });
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: 'Datumsangaben', exact: true });
+  await expect(dialog).toContainText('16.10.2018');
+  await expect(dialog.locator('dt')).toHaveText(['Hinzugefügt am', 'Dokumentdatum', 'Zuletzt geändert']);
+  await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--expanded/);
+  expect(patches).toHaveLength(0);
+  await dialog.getByRole('button', { name: 'Datumsangaben schließen', exact: true }).click();
+  await expect(trigger).toBeFocused();
+});
+
+test('Wissen updates from a completed metadata request even when no fields were filled', async ({ page }) => {
+  const { document } = await mockApi(page);
+  Object.assign(document, { ai_status: 'pending', ocr_status: 'done', text_source: 'ocr' });
+  let release, started = false;
+  const pending = new Promise(resolve => { release = resolve; });
+  await page.route(`**/api/documents/${docId}/ai-metadata`, async route => {
+    started = true; await pending;
+    Object.assign(document, { ai_status: 'done', ai_summary: 'Neu erkannte Kurzfassung.', ai_sender: 'Nordlicht Akademie', ai_processed_at: '2026-10-30T10:00:00Z' });
+    return route.fulfill({ json: {} });
+  });
+  try {
+    await login(page);
+    await page.locator(`[data-document-id="${docId}"]`).click();
+    await page.getByRole('button', { name: 'Wissen zum Dokument anzeigen', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Wissen', exact: true });
+    await dialog.getByRole('button', { name: /mit KI ergänzen$/ }).click();
+    await expect.poll(() => started).toBe(true);
+    await expect(dialog).toContainText('Wird ausgewertet');
+    release();
+    await expect(dialog).toContainText('Neu erkannte Kurzfassung.');
+    await expect(dialog).toContainText('Nordlicht Akademie');
+    await expect(dialog).toContainText('Abgeschlossen');
+    await expect(dialog.getByRole('button', { name: /mit KI ergänzen$/ })).toBeEnabled();
+  } finally { release(); }
+});
+
+test('knowledge completion uses the AI endpoint, preserves filled fields and updates the open popover to five of five', async ({ page }) => {
+  const { document, patches } = await mockApi(page);
+  Object.assign(document, { ocr_status: 'done', text_source: 'ocr', ai_status: 'done', ai_summary: 'Vorhandene Kurzfassung.',
+    document_type: 'Rechnung', correspondent_id: '30000000-0000-4000-8000-000000000001',
+    tags: [{ id: '40000000-0000-4000-8000-000000000001', name: 'Bestand' }], notes: 'Manuelle Notiz' });
+  let release, requests = 0;
+  const pending = new Promise(resolve => { release = resolve; });
+  await page.route(`**/api/documents/${docId}/ai-metadata`, async route => {
+    expect(route.request().method()).toBe('POST');
+    requests++; await pending;
+    return route.fulfill({ json: { display_name: 'Anderer Titel', document_date: '2026-10-30', document_type: 'Vertrag',
+      correspondent_id: '30000000-0000-4000-8000-000000000002', tags: ['Neue Tags'], notes: 'Andere Notiz' } });
+  });
+  try {
+    await login(page);
+    await page.locator(`[data-document-id="${docId}"]`).click();
+    await expect(page.locator('.details-drawer__meta-line')).not.toContainText('Daten vervollständigen');
+    const chip = page.getByRole('button', { name: 'Wissen zum Dokument anzeigen', exact: true });
+    await expect(chip).toContainText('1 offen');
+    await chip.click();
+    const dialog = page.getByRole('dialog', { name: 'Wissen', exact: true });
+    const meter = dialog.getByRole('meter', { name: 'Vollständigkeit der Dokumentangaben' });
+    await expect(meter).toHaveAttribute('aria-valuenow', '4');
+    await dialog.getByRole('button', { name: /mit KI ergänzen$/ }).click();
+    await expect.poll(() => requests).toBe(1);
+    const busy = dialog.getByRole('button', { name: 'Angaben werden ergänzt …', exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(busy).toBeDisabled();
+    await busy.dispatchEvent('click');
+    expect(requests).toBe(1);
+    release();
+    await expect(meter).toHaveAttribute('aria-valuenow', '5');
+    await expect(dialog.getByRole('button', { name: /Angaben.*ergänz/ })).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+    await expect(chip).not.toContainText('offen');
+    await expect(meter).toBeFocused();
+    expect(document.document_date).toBe('2026-10-30');
+    expect(document.display_name).toBe('Prüfbeleg');
+    expect(document.document_type).toBe('Rechnung');
+    expect(document.correspondent_id).toBe('30000000-0000-4000-8000-000000000001');
+    expect(document.tags.map(tag => tag.name)).toEqual(['Bestand']);
+    expect(document.notes).toBe('Manuelle Notiz');
+    expect(patches.length).toBeGreaterThan(0);
+  } finally { release(); }
+});
+
+test('a failed knowledge completion stays open and can retry the same AI action', async ({ page }) => {
+  await mockApi(page);
+  let requests = 0;
+  await page.route(`**/api/documents/${docId}/ai-metadata`, route => {
+    requests++;
+    return requests === 1
+      ? route.fulfill({ status: 500, json: { error: { message: 'KI momentan nicht erreichbar.' } } })
+      : route.fulfill({ json: {} });
+  });
+  await login(page);
+  await page.locator(`[data-document-id="${docId}"]`).click();
+  await page.getByRole('button', { name: 'Wissen zum Dokument anzeigen', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Wissen', exact: true });
+  await dialog.getByRole('button', { name: /mit KI ergänzen$/ }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('KI momentan nicht erreichbar.');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /mit KI ergänzen$/ })).toBeEnabled();
+  await dialog.getByRole('button', { name: /mit KI ergänzen$/ }).click();
+  await expect.poll(() => requests).toBe(2);
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: /mit KI ergänzen$/ })).toBeEnabled();
+});
+
+test('a late knowledge result does not fill or mark a different selected document as running', async ({ page }) => {
+  const { document, patches } = await mockApi(page);
+  Object.assign(document, { ai_status: 'pending' });
+  const second = { ...document, id: '10000000-0000-4000-8000-000000000002', display_name: 'Zweites Dokument', original_filename: 'Zweites Dokument.pdf' };
+  await page.route('**/api/documents?**', route => route.fulfill({ json: { items: [document, second], total: 2 } }));
+  await page.route(`**/api/documents/${second.id}`, route => route.fulfill({ json: second }));
+  let release, started = false;
+  const pending = new Promise(resolve => { release = resolve; });
+  await page.route(`**/api/documents/${docId}/ai-metadata`, async route => {
+    started = true; await pending;
+    return route.fulfill({ json: { display_name: 'Nur Dokument A', document_date: '2026-10-30', notes: 'Nur für A', tags: [] } });
+  });
+  try {
+    await login(page);
+    await page.locator(`[data-document-id="${docId}"]`).click();
+    await page.getByRole('button', { name: 'Wissen zum Dokument anzeigen', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Wissen', exact: true }).getByRole('button', { name: /mit KI ergänzen$/ }).click();
+    await expect.poll(() => started).toBe(true);
+    await page.locator(`[data-document-id="${second.id}"]`).click();
+    await page.getByRole('button', { name: 'Wissen zum Dokument anzeigen', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Wissen', exact: true });
+    await expect(dialog).toContainText('Noch nicht ausgewertet');
+    release();
+    await expect(dialog.getByRole('button', { name: /mit KI ergänzen$/ })).toBeEnabled();
+    await expect(page.locator('.details-drawer__subtitle')).toHaveText('Zweites Dokument');
+    await expect(dialog).not.toContainText('Nur Dokument A');
+    expect(patches).toHaveLength(0);
+  } finally { release(); }
+});
+
+test('OCR status opens details without toggling the drawer and can start a new recognition', async ({ page }) => {
+  const { document } = await mockApi(page);
+  Object.assign(document, { ocr_status: 'done', text_source: 'ocr', ocr_quality_status: 'warning', ocr_confidence_score: 72.4,
+    ocr_processing_seconds: 14, ocr_quality_message: 'Einige Zeichen sind unsicher.', text_content: 'Text des Prüfbelegs.' });
+  let requests = 0;
+  await page.route(`**/api/documents/${docId}/ocr`, route => {
+    requests++;
+    Object.assign(document, { status: 'processing', ocr_status: 'queued', ocr_quality_status: null, ocr_confidence_score: null,
+      jobs: [{ type: 'OCR', status: 'queued', created_at: '2026-10-30T10:00:00Z' }] });
+    return route.fulfill({ json: document });
+  });
+  await login(page);
+  await page.locator(`[data-document-id="${docId}"]`).click();
+  await page.getByRole('button', { name: 'OCR-Details anzeigen', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Texterkennung', exact: true });
+  await expect(dialog.getByRole('meter')).toHaveAttribute('aria-valuenow', '72.4');
+  await expect(dialog).toContainText('Einige Zeichen sind unsicher.');
+  await expect(page.locator('.preview-layout__drawer')).toHaveClass(/pm-drawer--expanded/);
+  await dialog.getByRole('button', { name: 'Erneut erkennen', exact: true }).click();
+  await expect.poll(() => requests).toBe(1);
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'OCR-Details anzeigen', exact: true })).toContainText('OCR läuft');
+  await page.getByRole('button', { name: 'OCR-Details anzeigen', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Erneut erkennen', exact: true })).toBeDisabled();
+  await expect(dialog.getByRole('meter')).toHaveCount(0);
+});
+
+test('stored OCR assessments appear in the header and popover without starting recognition', async ({ page }) => {
+  const { document } = await mockApi(page);
+  Object.assign(document, { ocr_status: 'done', text_source: 'ocr', ocr_quality_status: null, ocr_confidence_score: null,
+    flags: { ocr: { quality: { status: 'warning', confidence_score: 69.4, message: 'Gespeicherte Qualitätsbewertung.' } } } });
+  let requests = 0;
+  await page.route(`**/api/documents/${docId}/ocr`, route => { requests++; return route.fulfill({ json: document }); });
+  await login(page);
+  await page.locator(`[data-document-id="${docId}"]`).click();
+  const chip = page.getByRole('button', { name: 'OCR-Details anzeigen', exact: true });
+  await expect(chip).toContainText('OCR unsicher');
+  await chip.click();
+  const dialog = page.getByRole('dialog', { name: 'Texterkennung', exact: true });
+  await expect(dialog.getByRole('meter')).toHaveAttribute('aria-valuenow', '69.4');
+  await expect(dialog).toContainText('Gespeicherte Qualitätsbewertung.');
+  expect(requests).toBe(0);
+});
+
+test('a late OCR restart response cannot replace another selected document', async ({ page }) => {
+  const { document } = await mockApi(page);
+  Object.assign(document, { ocr_status: 'done', text_source: 'ocr' });
+  const second = { ...document, id: '10000000-0000-4000-8000-000000000002', display_name: 'Zweites Dokument', original_filename: 'Zweites Dokument.pdf' };
+  await page.route('**/api/documents?**', route => route.fulfill({ json: { items: [document, second], total: 2 } }));
+  await page.route(`**/api/documents/${second.id}`, route => route.fulfill({ json: second }));
+  let release, started = false;
+  const pending = new Promise(resolve => { release = resolve; });
+  await page.route(`**/api/documents/${docId}/ocr`, async route => {
+    started = true;
+    await pending;
+    return route.fulfill({ json: { ...document, ocr_status: 'queued', status: 'processing' } });
+  });
+  try {
+    await login(page);
+    await page.locator(`[data-document-id="${docId}"]`).click();
+    await page.getByRole('button', { name: 'OCR-Details anzeigen', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Texterkennung', exact: true }).getByRole('button', { name: 'Erneut erkennen und bewerten', exact: true }).click();
+    await expect.poll(() => started).toBe(true);
+    await page.locator(`[data-document-id="${second.id}"]`).click();
+    await expect(page.locator('.details-drawer__subtitle')).toHaveText('Zweites Dokument');
+    const response = page.waitForResponse(response => response.url().endsWith(`/${docId}/ocr`));
+    release();
+    await response;
+    await page.getByRole('button', { name: 'OCR-Details anzeigen', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Texterkennung', exact: true }).getByRole('button', { name: 'Erneut erkennen und bewerten', exact: true })).toBeEnabled();
+    await expect(page.locator('.details-drawer__subtitle')).toHaveText('Zweites Dokument');
+    await expect(page.locator(`[data-document-id="${second.id}"]`)).toHaveClass(/document-row--active/);
+  } finally { release(); }
+});
+
+test('a failed OCR restart preserves the existing result and offers another attempt', async ({ page }) => {
+  const { document } = await mockApi(page);
+  Object.assign(document, { ocr_status: 'done', text_source: 'ocr', ocr_quality_status: 'good', ocr_confidence_score: 95 });
+  await page.route(`**/api/documents/${docId}/ocr`, route => route.fulfill({ status: 500, json: { error: { message: 'Texterkennung momentan nicht erreichbar.' } } }));
+  await login(page);
+  await page.locator(`[data-document-id="${docId}"]`).click();
+  await page.getByRole('button', { name: 'OCR-Details anzeigen', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Texterkennung', exact: true });
+  await dialog.getByRole('button', { name: 'Erneut erkennen', exact: true }).click();
+  await expect(page.getByText('Texterkennung momentan nicht erreichbar.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'OCR-Details anzeigen', exact: true }).click();
+  await expect(dialog.getByRole('meter')).toHaveAttribute('aria-valuenow', '95');
+  await expect(dialog.getByRole('button', { name: 'Erneut erkennen', exact: true })).toBeEnabled();
+});
 
 for (const rememberDetails of [true, false]) {
   test(`document details preserve manual state across documents and areas only when remembering is ${rememberDetails}`, async ({ page }) => {
@@ -1455,4 +1720,223 @@ for(const width of [430,320]) test(`available pages stay reachable on the import
   await available.scrollIntoViewIfNeeded();await expect(available).toBeVisible();
   const rect=await available.boundingBox();expect(rect.x).toBeGreaterThanOrEqual(0);expect(rect.x+rect.width).toBeLessThanOrEqual(width);expect(rect.height).toBeGreaterThanOrEqual(44);
   await available.click();await expect(page.locator('.isd-page-card')).toHaveCount(4);
+});
+
+test('Wissen corrections persist and update the overview without changing untouched fields', async ({ page }) => {
+  const { document, patches, correspondents } = await mockApi(page);
+  const senderId = '30000000-0000-4000-8000-000000000001';
+  correspondents.push({ id: senderId, name: 'KMTV' });
+  Object.assign(document, { ocr_status: 'done', ai_status: 'done', document_type: 'Rechnung', document_date: '2026-01-01',
+    ai_document_type: 'Rechnung', ai_document_date: '2026-01-01', ai_recipient: 'Alt', ai_amount: 12.5, ai_currency: 'EUR', notes: 'Manuelle Notiz' });
+  await login(page);
+  await page.locator(`[data-document-id="${docId}"]`).click();
+  await page.getByRole('button', { name: 'Wissen zum Dokument anzeigen', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Wissen', exact: true });
+  await dialog.getByRole('button', { name: 'Angaben bearbeiten', exact: true }).click();
+  await dialog.getByLabel('Dokumenttyp', { exact: true }).fill('Beitragsrechnung');
+  await dialog.getByLabel('Dokumentdatum', { exact: true }).fill('2026-02-12');
+  await dialog.getByLabel('Korrespondent', { exact: true }).selectOption(senderId);
+  await dialog.getByLabel('Empfänger', { exact: true }).fill('Korrigiert');
+  await dialog.getByLabel('Betrag', { exact: true }).fill('225,00');
+  await dialog.getByRole('button', { name: 'Speichern', exact: true }).click();
+  await expect(dialog.locator('.document-knowledge__compact-primary')).toContainText('225,00');
+  await expect(dialog.locator('.document-knowledge__compact-primary')).toContainText('12.02.2026');
+  expect(patches).toEqual([{ document_type: 'Beitragsrechnung', document_date: '2026-02-12', correspondent_id: senderId, recipient: 'Korrigiert', amount: 225 }]);
+  expect(document.ai_amount).toBe(12.5);
+  expect(document.notes).toBe('Manuelle Notiz');
+  await dialog.getByRole('button', { name: 'Wissen schließen', exact: true }).click();
+  await expect(page.locator('.pm-metadata-fields').getByLabel('Dokumentdatum', { exact: true })).toHaveValue('12.02.2026');
+  await page.reload();
+  await page.locator(`[data-document-id="${docId}"]`).click();
+  await page.getByRole('button', { name: 'Wissen zum Dokument anzeigen', exact: true }).click();
+  await expect(dialog.locator('.document-knowledge__compact-primary')).toContainText('225,00');
+  await expect(dialog.locator('.document-knowledge__compact-parties')).toContainText('Korrigiert');
+  await expect(dialog.locator('.document-knowledge__compact-parties')).toContainText('KMTV');
+});
+
+test('cleared knowledge corrections stay empty when AI completion suggests the rejected values again', async ({ page }) => {
+  const { document, patches, correspondents } = await mockApi(page);
+  const senderId = '30000000-0000-4000-8000-000000000001';
+  correspondents.push({ id: senderId, name: 'KMTV' });
+  Object.assign(document, { ocr_status: 'done', ai_status: 'done', document_type: 'Rechnung', document_date: '2026-01-01',
+    correspondent_id: senderId, correspondent_name: 'KMTV', ai_document_type: 'Rechnung', ai_document_date: '2026-01-01', ai_sender: 'KMTV' });
+  await page.route(`**/api/documents/${docId}/ai-metadata`, route => route.fulfill({ json: {
+    document_type: 'Rechnung', document_date: '2026-01-01', correspondent_id: senderId, tags: []
+  } }));
+  await login(page);
+  await page.locator(`[data-document-id="${docId}"]`).click();
+  await page.getByRole('button', { name: 'Wissen zum Dokument anzeigen', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Wissen', exact: true });
+  await dialog.getByRole('button', { name: 'Angaben bearbeiten', exact: true }).click();
+  await dialog.getByLabel('Dokumenttyp', { exact: true }).fill('');
+  await dialog.getByLabel('Dokumentdatum', { exact: true }).fill('');
+  await dialog.getByLabel('Korrespondent', { exact: true }).selectOption('');
+  await dialog.getByRole('button', { name: 'Speichern', exact: true }).click();
+  await expect(dialog.locator('.document-knowledge__compact-primary')).toHaveCount(0);
+  await expect(dialog.locator('.document-knowledge__compact-parties')).toHaveCount(0);
+  await dialog.getByRole('button', { name: /mit KI ergänzen$/ }).click();
+  await expect(dialog.getByRole('button', { name: /mit KI ergänzen$/ })).toBeEnabled();
+  expect(patches).toEqual([{ document_type: null, document_date: null, correspondent_id: null }]);
+  expect(document.document_type).toBeNull();
+  expect(document.document_date).toBeNull();
+  expect(document.correspondent_id).toBeNull();
+});
+
+for (const theme of ['light', 'dark']) {
+  test(`minimal retention shows the reason directly and saves or discards edits in ${theme}`, async ({ page }) => {
+    const { document, settings } = await mockApi(page);
+    settings.retention.enabled = true;
+    settings.ui.theme_mode = theme;
+    document.document_date = '2023-01-01';
+    let record = { document_id: docId, status: 'manual', period_years: 6, paper_original: 'keep', reason: 'Unterschriebenes Original.', retain_until: '2029-01-01' };
+    const saves = [];
+    await page.route(`**/api/documents/${docId}/retention`, route => {
+      if (route.request().method() === 'PUT') {
+        const patch = route.request().postDataJSON();
+        saves.push(patch);
+        record = { ...record, ...patch, retain_until: '2033-01-01' };
+      }
+      return route.fulfill({ json: record });
+    });
+    await login(page);
+    await page.addStyleTag({ content: '.onboarding-dev-launcher { display:none !important; }' });
+    await page.locator(`[data-document-id="${docId}"]`).click();
+    await page.getByRole('tab', { name: 'Aufbewahrung', exact: true }).click();
+    const panel = page.getByRole('tabpanel', { name: 'Aufbewahrung', exact: true });
+    const original = panel.getByRole('switch', { name: 'Original behalten', exact: true });
+    const save = panel.getByRole('button', { name: 'Speichern', exact: true });
+    const duration = panel.getByRole('combobox', { name: 'Aufbewahrungsdauer', exact: true });
+    await expect(duration).toHaveValue('6 Jahre · 01.01.2029');
+    const reason = panel.getByLabel('Begründung', { exact: true });
+    await expect(reason).toBeVisible();
+    await expect(save).toHaveCount(0);
+    const shortHeight = (await reason.boundingBox()).height;
+    await reason.fill(Array.from({ length: 8 }, (_, index) => `Begründung Zeile ${index + 1}`).join('\n'));
+    await expect.poll(async () => (await reason.boundingBox()).height).toBeGreaterThan(shortHeight + 80);
+    await expect.poll(() => reason.evaluate(el => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
+    await panel.screenshot({ path: `/tmp/papermind-retention-growing-reason-${theme}.png`, animations: 'disabled' });
+    await reason.fill('Unterschriebenes Original.');
+    await expect.poll(async () => (await reason.boundingBox()).height).toBeLessThan(shortHeight + 4);
+    await expect(save).toHaveCount(0);
+    await panel.screenshot({ path: `/tmp/papermind-retention-minimal-${theme}.png`, animations: 'disabled' });
+    await original.click();
+    await expect(save).toBeVisible();
+    await panel.getByRole('button', { name: 'Verwerfen', exact: true }).click();
+    await expect(original).toHaveAttribute('aria-checked', 'true');
+    await expect(save).toHaveCount(0);
+    expect(saves).toHaveLength(0);
+    await panel.locator('.v-select .v-field').click();
+    await expect(page.getByRole('option')).toHaveText(['Unklar', 'Keine Aufbewahrungspflicht', '3 Jahre · 01.01.2026', '6 Jahre · 01.01.2029', '10 Jahre · 01.01.2033', '30 Jahre · 01.01.2053', 'Unbegrenzt']);
+    await page.getByRole('listbox').screenshot({ path: `/tmp/papermind-retention-dates-dropdown-${theme}.png`, animations: 'disabled' });
+    await page.getByRole('option', { name: '10 Jahre · 01.01.2033', exact: true }).click();
+    await expect(duration).toHaveValue('10 Jahre · 01.01.2033');
+    await panel.getByLabel('Begründung', { exact: true }).fill('Manuelle Anpassung');
+    await original.click();
+    await save.click();
+    await expect(save).toHaveCount(0);
+    expect(saves).toEqual([{ status: 'manual', period_years: 10, paper_original: 'scan_sufficient', reason: 'Manuelle Anpassung' }]);
+    await expect(panel.getByLabel('Begründung', { exact: true })).toHaveValue('Manuelle Anpassung');
+    await expect(panel.locator('.retention-toggle-row__value')).toHaveText('Original behalten');
+  });
+}
+
+test('minimal retention keeps AI proposals reviewable and accepts them without duplicate summaries', async ({ page }) => {
+  const { document, settings } = await mockApi(page);
+  settings.retention.enabled = true;
+  document.document_date = '2023-01-01';
+  let record = { document_id: docId, status: 'suggested', period_years: 6, paper_original: 'keep', reason: 'KI-Vorschlag prüfen.', retain_until: '2029-01-01' };
+  let accepts = 0;
+  let suggestions = 0;
+  let releaseSuggestion;
+  const pendingSuggestion = new Promise(resolve => { releaseSuggestion = resolve; });
+  await page.route(`**/api/documents/${docId}/retention/suggest`, async route => {
+    suggestions++;
+    await pendingSuggestion;
+    record = { ...record, status: 'suggested' };
+    return route.fulfill({ json: record });
+  });
+  let releaseAccept;
+  const pendingAccept = new Promise(resolve => { releaseAccept = resolve; });
+  await page.route(`**/api/documents/${docId}/retention`, route => route.fulfill({ json: record }));
+  await page.route(`**/api/documents/${docId}/retention/accept`, async route => {
+    accepts++;
+    await pendingAccept;
+    record = { ...record, status: 'accepted' };
+    return route.fulfill({ json: record });
+  });
+  await login(page);
+  await page.addStyleTag({ content: '.onboarding-dev-launcher { display:none !important; }' });
+  await page.locator(`[data-document-id="${docId}"]`).click();
+  await page.getByRole('tab', { name: 'Aufbewahrung', exact: true }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Aufbewahrung', exact: true });
+  const accept = panel.locator('.retention-form__actions').getByRole('button', { name: 'Übernehmen', exact: true });
+  await expect(accept).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Speichern', exact: true })).toHaveCount(0);
+  await expect(panel.getByLabel('Begründung', { exact: true })).toHaveValue('KI-Vorschlag prüfen.');
+  await panel.screenshot({ path: '/tmp/papermind-retention-footer-accept.png', animations: 'disabled' });
+  await page.locator('.preview-layout__drawer').screenshot({ path: '/tmp/papermind-retention-drawer-spacing.png', animations: 'disabled' });
+  await panel.getByLabel('Begründung', { exact: true }).fill('Korrigierter Vorschlag');
+  await expect(accept).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Speichern', exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: 'Verwerfen', exact: true }).click();
+  await expect(panel.getByLabel('Begründung', { exact: true })).toHaveValue('KI-Vorschlag prüfen.');
+  await expect(accept).toBeVisible();
+  expect(accepts).toBe(0);
+  await accept.click();
+  await expect(accept).toBeDisabled();
+  await expect(panel.getByRole('button', { name: 'Speichern', exact: true })).toHaveCount(0);
+  releaseAccept();
+  await expect(panel.getByRole('button', { name: 'Übernehmen', exact: true })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Mit KI prüfen', exact: true })).toBeVisible();
+  expect(accepts).toBe(1);
+  const suggest = panel.getByRole('button', { name: 'Mit KI prüfen', exact: true });
+  await suggest.click();
+  await expect(suggest).toBeDisabled();
+  await expect(suggest).toHaveAttribute('aria-busy', 'true');
+  await expect(suggest.locator('.v-btn__content')).toHaveCSS('opacity', '1');
+  await expect(suggest.locator('.v-progress-circular')).toBeVisible();
+  await suggest.screenshot({ path: '/tmp/papermind-retention-suggest-loading.png', animations: 'disabled' });
+  releaseSuggestion();
+  await expect(suggest).toHaveCount(0);
+  await expect(accept).toBeVisible();
+  expect(suggestions).toBe(1);
+});
+
+test('no retention is saved distinctly from unknown and unlimited while keeping the original choice', async ({ page }) => {
+  const { document, settings } = await mockApi(page);
+  settings.retention.enabled = true;
+  document.document_date = '2023-01-01';
+  let record = { document_id: docId, status: 'manual', period_years: 6, paper_original: 'keep', reason: 'Freiwillig behalten', retain_until: '2029-01-01' };
+  const saves = [];
+  await page.route(`**/api/documents/${docId}/retention`, route => {
+    if (route.request().method() === 'PUT') {
+      const patch = route.request().postDataJSON();
+      saves.push(patch);
+      record = { ...record, ...patch, retain_until: null };
+    }
+    return route.fulfill({ json: record });
+  });
+  await login(page);
+  await page.addStyleTag({ content: '.onboarding-dev-launcher { display:none !important; }' });
+  await page.locator(`[data-document-id="${docId}"]`).click();
+  await page.getByRole('tab', { name: 'Aufbewahrung', exact: true }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Aufbewahrung', exact: true });
+  const duration = panel.getByRole('combobox', { name: 'Aufbewahrungsdauer', exact: true });
+  for (const [index, label, value] of [[0, 'Keine Aufbewahrungspflicht', 0], [1, 'Unbegrenzt', -1], [2, 'Unklar', null]]) {
+    await panel.locator('.v-select .v-field').click();
+    await page.getByRole('option', { name: label, exact: true }).click();
+    await expect(duration).toHaveValue(label);
+    await expect(panel.getByRole('switch', { name: 'Original behalten', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await panel.getByRole('button', { name: 'Speichern', exact: true }).click();
+    await expect(panel.getByRole('button', { name: 'Speichern', exact: true })).toHaveCount(0);
+    expect(saves[index]).toMatchObject({ period_years: value, paper_original: 'keep', status: 'manual' });
+    if (index === 0) {
+      await page.reload();
+      await page.addStyleTag({ content: '.onboarding-dev-launcher { display:none !important; }' });
+      await page.locator(`[data-document-id="${docId}"]`).click();
+      await page.getByRole('tab', { name: 'Aufbewahrung', exact: true }).click();
+      await expect(duration).toHaveValue('Keine Aufbewahrungspflicht');
+      await panel.screenshot({ path: '/tmp/papermind-no-retention.png', animations: 'disabled' });
+    }
+  }
 });

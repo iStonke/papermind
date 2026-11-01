@@ -213,6 +213,7 @@ class DocumentQueryService:
         if attention == DocumentAttentionFilter.retention_due:
             today = datetime.now(timezone.utc).date()
             due_ids = select(DocumentRetention.document_id).where(
+                DocumentRetention.period_years > 0,
                 DocumentRetention.retain_until.is_not(None),
                 DocumentRetention.retain_until >= today,
                 DocumentRetention.retain_until <= today + timedelta(days=30),

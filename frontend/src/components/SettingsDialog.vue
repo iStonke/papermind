@@ -4802,6 +4802,7 @@ const retentionPaperItems = [
 ];
 const retentionPeriodItems = [
   { title: 'Unklar', value: null },
+  { title: 'Keine Aufbewahrungspflicht', value: 0 },
   { title: '2 Jahre', value: 2 },
   { title: '3 Jahre', value: 3 },
   { title: '6 Jahre', value: 6 },
