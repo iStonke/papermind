@@ -127,6 +127,11 @@
   flex: none;
 }
 
+/* Aufmerksamkeits-Band: gleiche Karten wie die Kennzahlen, vier Spalten. */
+.dash-attention {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .dash-stat {
   min-width: 0;
   padding: 16px 17px;
@@ -1509,6 +1514,7 @@
 
 @media (max-width: 1180px) {
   .dash-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dash-attention { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dash-viz {
     grid-template-columns: minmax(0, 1fr);
     min-height: 0;
@@ -1539,7 +1545,8 @@
   .dashboard__scroll { --dash-pad-x: 16px; padding: 18px var(--dash-pad-x) 24px; }
   .dash-head { flex-direction: column; align-items: stretch; }
   .dash-head__actions { justify-content: flex-start; }
-  .dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-stats,
+  .dash-attention { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dash-lower__main { grid-template-columns: minmax(0, 1fr); }
   .dash-recent__grid {
     grid-template-columns: minmax(0, 1fr);
