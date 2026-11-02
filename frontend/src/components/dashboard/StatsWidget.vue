@@ -1,7 +1,8 @@
 <!--
   StatsWidget — Kennzahlen-Band (Dokumente, Diesen Monat, Korrespondenten, Tags,
-  Dokumenttypen) mit Sparkline und Trend. Klickbare Karten (Tags/Dokumenttypen)
-  melden über die Host-Aktion attentionSelect zurück.
+  Dokumenttypen) mit Sparkline und Trend. Tags/Dokumenttypen sind nur klickbar,
+  solange Dokumente ohne Tag bzw. Typ existieren, und melden das über die
+  Host-Aktion attentionSelect zurück.
 -->
 <template>
   <div class="dash-stats" :class="{ 'is-loading': showSkeleton }">
@@ -62,6 +63,7 @@ const statCards = computed(() => {
     documentsTotal,
     Math.max(0, Number(overview.value.attention?.without_document_type || 0))
   );
+  const untagged = Math.max(0, Number(overview.value.attention?.untagged || 0));
   const withoutDocumentTypePct = documentsTotal > 0
     ? Math.round((withoutDocumentType / documentsTotal) * 100)
     : 0;
@@ -104,7 +106,7 @@ const statCards = computed(() => {
       sub: `${(s.untagged_pct || 0).toLocaleString('de-DE', { maximumFractionDigits: 0 })} % ohne Tags`,
       trendIcon: null,
       trendClass: 'is-muted',
-      attentionKey: 'untagged',
+      attentionKey: untagged > 0 ? 'untagged' : null,
     },
     {
       key: 'document_types',
@@ -114,7 +116,7 @@ const statCards = computed(() => {
       sub: `${withoutDocumentTypePct.toLocaleString('de-DE', { maximumFractionDigits: 0 })} % ohne Dokumenttyp`,
       trendIcon: null,
       trendClass: 'is-muted',
-      attentionKey: 'without_document_type',
+      attentionKey: withoutDocumentType > 0 ? 'without_document_type' : null,
     },
   ];
 });
