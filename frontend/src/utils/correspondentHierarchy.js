@@ -200,8 +200,8 @@ export function sortCorrespondentTree(tree, sort = 'name', { preferShort = false
 }
 
 export const CORRESPONDENT_SECTIONS = Object.freeze([
-  { key: 'organization', label: 'Organisationen' },
   { key: 'collection', label: 'Sammlungen' },
+  { key: 'organization', label: 'Organisationen' },
   { key: 'person', label: 'Personen' },
   { key: 'untyped', label: 'Ohne Typ' },
 ]);
