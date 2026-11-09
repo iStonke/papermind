@@ -41,3 +41,13 @@ test('document card resolves a stored correspondent id when a cached list item h
 test('document card remains empty when no correspondent is assigned', () => {
   assert.equal(resolveDocumentCorrespondent({}, () => null), '');
 });
+
+test('resolveDocumentCorrespondent prefixes the organization of a person', () => {
+  const records = {
+    o1: { id: 'o1', name: 'Autohaus Müller', kind: 'organization' },
+    p1: { id: 'p1', name: 'Torge Quitsch', kind: 'person', parent_id: 'o1' },
+  };
+  const find = (id) => records[id] || null;
+  assert.equal(resolveDocumentCorrespondent({ correspondent_id: 'p1', correspondent_name: 'Torge Quitsch' }, find), 'Autohaus Müller · Torge Quitsch');
+  assert.equal(resolveDocumentCorrespondent({ correspondent_id: 'o1', correspondent_name: 'Autohaus Müller' }, find), 'Autohaus Müller');
+});

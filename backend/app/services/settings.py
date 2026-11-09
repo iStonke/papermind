@@ -43,6 +43,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             {"key": "kategorien", "visible": True},
         ],
         "dashboard_layout": [],
+        "correspondent_duplicate_dismissals": [],
         "dashboard_show_import_action": True,
         "dashboard_show_note_action": True,
         "sidebar_max_folders": 5,

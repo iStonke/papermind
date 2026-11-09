@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.document_type import DocumentType
+from app.services.legal_forms import canonicalize_legal_form
 
 
 _FILENAME_SEPARATOR = " "
@@ -17,10 +18,6 @@ _GERMAN_MONTHS = (
 _INVALID_TITLE_CHARS = re.compile(r'[\/\\:*?"<>|]+')
 _WHITESPACE_RE = re.compile(r"\s+")
 _PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::([^{}]+))?\}")
-_ISSUER_SUFFIX_RE = re.compile(
-    r"\b(gmbh|ag|ug|kg|e\.?\s?v\.?|ltd|inc)\b\.?",
-    re.IGNORECASE,
-)
 _TRAILING_PUNCT_RE = re.compile(r"[.,;:\-–\s]+$")
 
 
@@ -60,7 +57,7 @@ def _normalize_issuer(value: str) -> str | None:
     if not text:
         return None
     text = _TRAILING_PUNCT_RE.sub("", text)
-    text = _ISSUER_SUFFIX_RE.sub(lambda match: match.group(1).upper().replace("E.V", "e.V"), text)
+    text = canonicalize_legal_form(text)
     text = _clean_filename_component(text, max_len=60)
     return text or None
 

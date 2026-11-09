@@ -164,10 +164,10 @@ async function save() {
 
 <style scoped>
 .document-knowledge-anchor { display:inline-flex; }
-.document-knowledge-trigger { position:relative; isolation:isolate; display:inline-flex; align-items:center; gap:5px; flex:0 0 auto; appearance:none; font:inherit; font-weight:600; color:var(--pm-muted); background:transparent; border:0; padding:4px 8px; border-radius:999px; white-space:nowrap; cursor:pointer; }
+.document-knowledge-trigger { position:relative; isolation:isolate; display:inline-flex; align-items:center; gap:5px; flex:0 0 auto; appearance:none; font:inherit; color:var(--pm-muted); background:transparent; border:0; padding:4px 8px; border-radius:999px; white-space:nowrap; cursor:pointer; }
 .document-knowledge-trigger::before { content:''; position:absolute; inset:0; z-index:-1; border:1px solid color-mix(in srgb, currentColor 55%, transparent); border-radius:999px; background:color-mix(in srgb, currentColor 8%, transparent); opacity:0; transition:opacity 160ms ease; }
 .document-knowledge-trigger:hover::before { opacity:1; }
-.document-knowledge-trigger__count { color:var(--pm-muted); font-size:11px; font-weight:500; }
+.document-knowledge-trigger__count { color:var(--pm-muted); font-size:11px; }
 .document-knowledge-trigger:focus-visible { outline:2px solid var(--pm-accent); outline-offset:4px; }
 :global(.pm-no-animations .document-knowledge-trigger::before) { transition:none; }
 @media(prefers-reduced-motion:reduce) { .document-knowledge-trigger::before { transition:none; } }

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
+from app.services.import_metadata_heuristics import is_plausible_sender
 from app.services.correspondent_matching import CorrespondentMatchingService
 
 
@@ -215,13 +216,14 @@ class CorrespondentBackfillService:
         documents = self.db.execute(stmt).scalars().all()
         items: list[UnresolvedCorrespondentItem] = []
         for document in documents:
-            text = self._text_for_matching(document, max_chars=excerpt_chars)
+            text = self._text_for_matching(document, max_chars=excerpt_chars) if excerpt_chars else ""
             items.append(
                 UnresolvedCorrespondentItem(
                     document_id=str(document.id),
                     title=(document.display_name or document.original_filename or "").strip(),
                     original_filename=document.original_filename,
-                    sender=document.ai_sender,
+                    # Ältere Klassifizierungen enthalten mitunter Überschriften statt Absender.
+                    sender=document.ai_sender if is_plausible_sender(document.ai_sender) else None,
                     document_type=document.document_type,
                     document_date=document.document_date.isoformat() if document.document_date else None,
                     ai_status=document.ai_status,

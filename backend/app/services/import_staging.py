@@ -66,6 +66,7 @@ from app.services.import_metadata_heuristics import (
     detect_sender,
     detect_subject_heuristic,
     extract_issuer_from_line,
+    is_plausible_sender,
     extract_subject_rich,
     generate_tags_from_text,
     is_subject_supported_by_context,
@@ -1364,7 +1365,8 @@ class ImportStagingService:
             f"{examples_block}"
             "Felder:\n"
             f'- "doc_type": eines von [{doc_type_hint}]\n'
-            '- "issuer": Absender/Aussteller, max. 40 Zeichen, oder null\n'
+            '- "issuer": Absender/Aussteller (Firma, Behörde oder Person aus Briefkopf/Absenderzeile), max. 40 Zeichen, '
+            'oder null – nie eine Überschrift, ein Titel oder ein Thema (z. B. bei Notizen oder Anleitungen: null)\n'
             '- "subject": Dokumentthema als kurzer Ausdruck, max. 50 Zeichen, oder null\n'
             '- "date": Dokumentdatum als YYYY-MM-DD oder null\n'
             '- "tags": Array mit maximal 1–2 deutschen Schlagworten (vorhandene bevorzugen) oder []\n'
@@ -1504,7 +1506,7 @@ class ImportStagingService:
             "- tags: Liste von maximal 1-2 hochwertigen Schlagworten als Strings (z.B. [\"Strom\"]) oder []\n\n"
             "Regeln:\n"
             "- doc_type: erkenne Rechnung robust (z.B. Rechnung, Invoice, RG, Rechnungsnr).\n"
-            "- issuer: bevorzuge die erste erkennbare Firma/Marke im Kopfbereich.\n"
+            "- issuer: bevorzuge die erste erkennbare Firma/Marke im Kopfbereich; eine Überschrift oder ein Titel ist kein Absender (dann null).\n"
             "- subject: KEIN voller Satz, KEIN Datum, KEINE Rechnungsnummer.\n"
             "- amount: wenn mehrere Beträge, nimm Endbetrag (Summe/Total/Gesamtbetrag).\n"
             "- date: Rechnungs-/Brief-/Vertragsdatum – NICHT das heutige Datum.\n"
@@ -1862,7 +1864,11 @@ class ImportStagingService:
         if ollama_rich:
             rich: dict[str, object] = {
                 "doc_type": ollama_rich.get("doc_type") or rule_rich.get("doc_type"),
-                "issuer": meaningful_value(ollama_rich.get("issuer")) or rule_rich.get("issuer"),
+                "issuer": (
+                    ollama_rich.get("issuer")
+                    if meaningful_value(ollama_rich.get("issuer")) and is_plausible_sender(ollama_rich.get("issuer"), extracted_text)
+                    else rule_rich.get("issuer")
+                ),
                 "subject": self._normalize_subject(ollama_rich.get("subject") or "") or rule_rich.get("subject"),
                 "date": ollama_rich.get("date") if date_supported(str(ollama_rich.get("date") or ""), extracted_text) else rule_rich.get("date"),
                 "tags": ollama_rich.get("tags") or rule_rich.get("tags") or [],

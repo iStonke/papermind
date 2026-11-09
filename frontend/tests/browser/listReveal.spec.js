@@ -61,6 +61,20 @@ test('waits for data, staggers visible items and does not replay on edits or scr
   await page.locator('#list').evaluate(el => { el.scrollTop = 250; });
   expect(await page.evaluate(running)).toBe(0);
 });
+test('an uncapped list staggers visible rows beyond the default ten', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 1000 });
+  await mount(page);
+  await page.evaluate(items => Object.assign(window.listReveal, { items, ready: true, height: 752 }), rows);
+  const delay = index => page.locator(`[data-row="${index}"]`).evaluate(el =>
+    el.getAnimations().map(animation => animation.effect.getTiming())
+      .find(timing => timing.duration === 500)?.delay
+  );
+  await expect.poll(() => delay(9)).toBe(9 * 55);
+  expect(await delay(10)).toBeUndefined();
+  await page.evaluate(() => Object.assign(window.listReveal, { maxItems: Infinity, key: 'uncapped' }));
+  await expect.poll(() => delay(14)).toBe(14 * 55);
+  expect(await delay(15)).toBeUndefined();
+});
 test('rearms for a new view, waits for hidden lists and cancels on scroll', async ({ page }) => {
   await mount(page);
   await page.evaluate(items => { window.listReveal.hidden = true; window.listReveal.items = items; window.listReveal.ready = true; }, rows);

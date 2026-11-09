@@ -335,6 +335,19 @@ class DashboardWidgetLayout(BaseModel):
     h: int = Field(default=1, ge=1, le=100)
 
 
+def _normalize_duplicate_dismissals(values: list[str] | None) -> list[str]:
+    """Ausgeblendete Doppel-Paare („idA|idB“, sortiert), eindeutig und begrenzt."""
+    result: list[str] = []
+    for value in values or []:
+        parts = sorted(part.strip() for part in str(value or "").split("|") if part.strip())
+        if len(parts) != 2 or parts[0] == parts[1] or any(len(part) > 64 for part in parts):
+            continue
+        key = "|".join(parts)
+        if key not in result:
+            result.append(key)
+    return result[-1000:]
+
+
 def _normalize_dashboard_layout(
     layout: list[DashboardWidgetLayout] | None,
 ) -> list[DashboardWidgetLayout]:
@@ -369,6 +382,8 @@ class UISettingsRead(BaseModel):
     sidebar_sections: list[SidebarSectionConfig] = Field(default_factory=_default_sidebar_sections)
     # Übersicht-Board-Layout (leer = Frontend-Standard).
     dashboard_layout: list[DashboardWidgetLayout] = Field(default_factory=list)
+    # Korrespondenten-Paare, die als „Kein Doppel“ markiert wurden.
+    correspondent_duplicate_dismissals: list[str] = Field(default_factory=list)
     dashboard_show_import_action: bool = True
     dashboard_show_note_action: bool = True
     # Max. Anzahl der Quicklinks pro Sektion in der Seitenleiste (0 = nur die Kopfaktion).
@@ -396,6 +411,7 @@ class UISettingsRead(BaseModel):
     def normalize_sidebar_sections(self) -> "UISettingsRead":
         self.sidebar_sections = _normalize_sidebar_sections(self.sidebar_sections)
         self.dashboard_layout = _normalize_dashboard_layout(self.dashboard_layout)
+        self.correspondent_duplicate_dismissals = _normalize_duplicate_dismissals(self.correspondent_duplicate_dismissals)
         self.notes_text_replacements = _normalize_note_text_replacements(self.notes_text_replacements)
         return self
 
@@ -592,6 +608,7 @@ class UISettingsPatch(BaseModel):
     sidebar_primary_order: Literal["notes_first", "documents_first"] | None = None
     sidebar_sections: list[SidebarSectionConfig] | None = None
     dashboard_layout: list[DashboardWidgetLayout] | None = None
+    correspondent_duplicate_dismissals: list[str] | None = Field(default=None, max_length=2000)
     dashboard_show_import_action: bool | None = None
     dashboard_show_note_action: bool | None = None
     sidebar_max_folders: int | None = Field(default=None, ge=0, le=50)
@@ -631,6 +648,13 @@ class UISettingsPatch(BaseModel):
         if value is None:
             return None
         return _normalize_dashboard_layout(value)
+
+    @field_validator("correspondent_duplicate_dismissals")
+    @classmethod
+    def normalize_duplicate_dismissals(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        return _normalize_duplicate_dismissals(value)
 
     @field_validator("notes_text_replacements")
     @classmethod

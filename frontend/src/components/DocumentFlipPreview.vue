@@ -288,6 +288,16 @@ async function turn(value, focus = true) {
   }
   if (token !== revision) return;
   cancelTurn();
+  // The turned sheet stays steady while the other pages softly return.
+  if (!value && motionEnabled()) {
+    const currentPage = pageElement();
+    for (const page of front.value?.querySelectorAll('.pdf-preview__page') || []) {
+      if (page !== currentPage) page.animate(
+        [{ opacity: 0 }, { opacity: 1 }],
+        { duration: 500, easing: 'ease-out' }
+      );
+    }
+  }
   turning.value = false;
   await nextTick();
   if (token !== revision) return;

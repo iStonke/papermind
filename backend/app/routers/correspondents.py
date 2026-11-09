@@ -12,7 +12,12 @@ from app.schemas.correspondents import (
     CorrespondentCreateRequest,
     CorrespondentListResponse,
     CorrespondentMatcherCreateRequest,
+    CorrespondentMergeRequest,
+    CorrespondentMergeResponse,
+    CorrespondentProfileRead,
     CorrespondentRead,
+    CorrespondentRelationCreateRequest,
+    CorrespondentRelationRead,
     CorrespondentReviewIgnoreRequest,
     CorrespondentUpdateRequest,
     UnresolvedCorrespondentReportResponse,
@@ -98,6 +103,19 @@ def ignore_unresolved_correspondent(
     return OkResponse()
 
 
+@router.get(
+    "/{correspondent_id}/profile",
+    response_model=CorrespondentProfileRead,
+    summary="Profile figures of a correspondent (organizations include their persons)",
+    responses={404: {"model": ErrorResponse}},
+)
+def get_correspondent_profile(
+    correspondent_id: uuid.UUID,
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
+) -> CorrespondentProfileRead:
+    return CorrespondentService(db, user.id).get_profile(correspondent_id)
+
+
 @router.patch(
     "/{correspondent_id}",
     response_model=CorrespondentRead,
@@ -123,6 +141,30 @@ def delete_correspondent(correspondent_id: uuid.UUID, db: Session = Depends(get_
     service = CorrespondentService(db, user.id)
     service.delete_correspondent(correspondent_id)
     return OkResponse()
+
+
+@router.post(
+    "/{correspondent_id}/merge",
+    response_model=CorrespondentMergeResponse,
+    summary="Merge another correspondent into this one",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def merge_correspondents(
+    correspondent_id: uuid.UUID,
+    payload: CorrespondentMergeRequest,
+    db: Session = Depends(get_db, scope="function"),
+    user: User = Depends(get_current_user),
+) -> CorrespondentMergeResponse:
+    target, counts = CorrespondentService(db, user.id).merge_correspondents(correspondent_id, payload.source_id)
+    return CorrespondentMergeResponse(
+        correspondent=CorrespondentRead.model_validate(target, from_attributes=True),
+        documents=counts.documents,
+        aliases=counts.aliases,
+        matchers=counts.matchers,
+        relations=counts.relations,
+        members=counts.members,
+        notes=counts.notes,
+    )
 
 
 @router.post(
@@ -185,6 +227,36 @@ def add_correspondent_matcher(
 ) -> CorrespondentRead:
     service = CorrespondentService(db, user.id)
     return CorrespondentRead.model_validate(service.add_matcher(correspondent_id, payload), from_attributes=True)
+
+
+@router.post(
+    "/{correspondent_id}/relations",
+    response_model=CorrespondentRelationRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Connect a correspondent (predecessor, successor, acts for)",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+)
+def add_correspondent_relation(
+    correspondent_id: uuid.UUID,
+    payload: CorrespondentRelationCreateRequest,
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
+) -> CorrespondentRelationRead:
+    return CorrespondentService(db, user.id).add_relation(correspondent_id, payload)
+
+
+@router.delete(
+    "/{correspondent_id}/relations/{relation_id}",
+    response_model=OkResponse,
+    summary="Remove a connection between correspondents",
+    responses={404: {"model": ErrorResponse}},
+)
+def delete_correspondent_relation(
+    correspondent_id: uuid.UUID,
+    relation_id: uuid.UUID,
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
+) -> OkResponse:
+    CorrespondentService(db, user.id).delete_relation(correspondent_id, relation_id)
+    return OkResponse()
 
 
 @router.delete(

@@ -99,6 +99,39 @@ class CorrespondentMatchingTest(unittest.TestCase):
         match = match_correspondent(_seed_candidates(), sender="Völlig Unbekannt AG")
         self.assertIsNone(match)
 
+    def test_name_without_legal_form_matches(self) -> None:
+        candidates = [CorrespondentCandidate(correspondent_id=VODAFONE_ID, name="Wiker Autoservice GmbH")]
+        for sender in ("Wiker Autoservice", "WIKER AUTOSERVICE GMBH", "wiker autoservice gmbh."):
+            with self.subTest(sender=sender):
+                match = match_correspondent(candidates, sender=sender)
+                self.assertIsNotNone(match)
+                self.assertEqual(match.matched_by, "name")
+                self.assertGreater(match.score, 8000)
+
+    def test_sender_with_legal_form_matches_plain_name(self) -> None:
+        candidates = [CorrespondentCandidate(correspondent_id=TECHEM_ID, name="Techem")]
+        match = match_correspondent(candidates, sender="Techem GmbH")
+        self.assertIsNotNone(match)
+        self.assertEqual(match.correspondent_id, TECHEM_ID)
+
+    def test_conflicting_legal_forms_do_not_match(self) -> None:
+        candidates = [CorrespondentCandidate(correspondent_id=TECHEM_ID, name="Müller GmbH")]
+        self.assertIsNone(match_correspondent(candidates, sender="Müller KG"))
+
+    def test_alias_without_legal_form_matches(self) -> None:
+        candidates = [CorrespondentCandidate(correspondent_id=HUK_ID, name="HUK", aliases=("HUK-COBURG",))]
+        match = match_correspondent(candidates, sender="HUK-COBURG VVaG")
+        self.assertIsNotNone(match)
+        self.assertEqual(match.matched_by, "alias")
+
+    def test_exact_name_beats_legal_form_variant(self) -> None:
+        candidates = [
+            CorrespondentCandidate(correspondent_id=TECHEM_ID, name="Muster"),
+            CorrespondentCandidate(correspondent_id=HUK_ID, name="Muster GmbH"),
+        ]
+        self.assertEqual(match_correspondent(candidates, sender="Muster GmbH").correspondent_id, HUK_ID)
+        self.assertEqual(match_correspondent(candidates, sender="Muster").correspondent_id, TECHEM_ID)
+
     def test_empty_input_returns_none(self) -> None:
         self.assertIsNone(match_correspondent(_seed_candidates(), sender="   "))
 

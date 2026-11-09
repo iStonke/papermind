@@ -13,9 +13,15 @@ import {
   deleteCorrespondent as apiDeleteCorrespondent,
   deleteCorrespondentAlias as apiDeleteAlias,
   listCorrespondents,
+  mergeCorrespondents as apiMergeCorrespondents,
   unlinkCorrespondentDocuments as apiUnlinkCorrespondentDocuments,
   updateCorrespondent as apiUpdateCorrespondent,
 } from '../api/correspondents.js';
+import {
+  buildCorrespondentTree,
+  correspondentKindIcon,
+  formatCorrespondent,
+} from '../utils/correspondentHierarchy.js';
 import { mapApiError, useNotifications } from './notifications.js';
 import { reconcileRecordReload } from '../utils/recordReload.js';
 
@@ -41,18 +47,20 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
 
   /**
    * Für v-autocomplete: { title, value }. Sammlungen stehen geschlossen am
-   * Anfang (jeweils A–Z), danach die übrigen Korrespondenten A–Z.
+   * Anfang (jeweils A–Z), danach die übrigen Korrespondenten A–Z. Personen mit
+   * Organisation heißen „Organisation · Person“ und sind so auch über den
+   * Organisationsnamen auffindbar.
    */
   const correspondentOptions = computed(() =>
     correspondents.value
       .map((c) => ({
-        title: c.kind === 'collection' ? `${c.name} · Sammlung` : c.name,
+        title: c.kind === 'collection' ? `${c.name} · Sammlung` : formatCorrespondent(c, findById).label,
         value: c.id,
         name: c.name,
         kind: c.kind,
         short_name: c.short_name,
         props: {
-          prependIcon: c.kind === 'collection' ? 'mdi-shape-outline' : undefined,
+          prependIcon: correspondentKindIcon(c.kind) || undefined,
         },
       }))
       .sort((a, b) => {
@@ -62,6 +70,17 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
         return a.name.localeCompare(b.name, 'de-DE');
       })
   );
+
+  /** Übersicht: Organisationen mit eingerückten Personen. */
+  const tree = computed(() => buildCorrespondentTree(correspondents.value));
+
+  const membersOf = (id) => correspondents.value.filter((c) => id && c.parent_id === id);
+
+  /** Anzeige „Organisation · Person“ für eine Korrespondenten-ID. */
+  function displayLabel(id, fallback = '') {
+    const correspondent = findById(id);
+    return correspondent ? formatCorrespondent(correspondent, findById).label : fallback;
+  }
 
   function normalizeName(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
@@ -86,7 +105,13 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
     const previous = findById(updated.id);
     const fields = aliasesOnly ? { aliases: updated.aliases } : { ...updated };
     if (preserveAliases) delete fields.aliases;
-    const next = { ...previous, ...fields, usage_count: updated.usage_count ?? previous?.usage_count ?? 0 };
+    // Kennzahlen liefert nur die Liste; Einzelantworten (PATCH) überschreiben sie nicht.
+    const next = {
+      ...previous,
+      ...fields,
+      usage_count: updated.usage_count ?? previous?.usage_count ?? 0,
+      last_document_date: updated.last_document_date ?? previous?.last_document_date ?? null,
+    };
     correspondents.value = previous
       ? correspondents.value.map(item => item.id === updated.id ? next : item)
       : [...correspondents.value, next];
@@ -125,7 +150,7 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
   }
 
   /** POST /api/correspondents – legt an oder liefert vorhandenen (idempotent). */
-  async function createCorrespondentByName(rawName, { kind = null } = {}) {
+  async function createCorrespondentByName(rawName, { kind = null, first_name, last_name, short_name } = {}) {
     const name = normalizeName(rawName);
     if (name.length < NAME_MIN_LENGTH) {
       notify({ type: 'warning', message: `Korrespondent muss mindestens ${NAME_MIN_LENGTH} Zeichen enthalten.` });
@@ -137,7 +162,13 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
     }
     pendingMutations.value += 1;
     try {
-      const created = await apiCreateCorrespondent(kind ? { name, kind } : { name });
+      const payload = kind ? { name, kind } : { name };
+      if (kind === 'person' && (first_name !== undefined || last_name !== undefined)) {
+        Object.assign(payload, { first_name, last_name });
+      }
+      // undefined = Backend-Standard (Name ohne Rechtsform); null = bewusst kein Kurzname.
+      if (short_name !== undefined) payload.short_name = short_name;
+      const created = await apiCreateCorrespondent(payload);
       applyRecord(created);
       notify({ type: 'success', title: 'Korrespondent', message: 'Korrespondent angelegt.' });
       return { ok: true, id: created?.id, name: created?.name || name };
@@ -194,11 +225,42 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
       await apiDeleteCorrespondent(correspondentId);
       listVersion += 1;
       recordVersions.set(correspondentId, listVersion);
-      correspondents.value = correspondents.value.filter(item => item.id !== correspondentId);
+      correspondents.value = correspondents.value
+        .filter(item => item.id !== correspondentId)
+        .map(item => {
+          if (item.parent_id !== correspondentId) return item;
+          recordVersions.set(item.id, listVersion);
+          return { ...item, parent_id: null, parent_name: null };
+        });
       notify({ type: 'success', title: 'Korrespondent', message: 'Korrespondent gelöscht.' });
       return { ok: true };
     } catch (error) {
       notify({ type: 'error', message: mapApiError(error, 'Korrespondent konnte nicht gelöscht werden.') });
+      throw error;
+    } finally {
+      pendingMutations.value = Math.max(0, pendingMutations.value - 1);
+    }
+  }
+
+  /** source geht in target auf: Dokumente, Aliase, Regeln, Beziehungen wandern mit. */
+  async function mergeCorrespondents(targetId, sourceId) {
+    pendingMutations.value += 1;
+    try {
+      const result = await apiMergeCorrespondents(targetId, sourceId);
+      listVersion += 1;
+      recordVersions.set(sourceId, listVersion);
+      correspondents.value = correspondents.value.filter(item => item.id !== sourceId);
+      if (result?.correspondent) applyRecord(result.correspondent);
+      await fetchCorrespondents();
+      const count = Number(result?.documents || 0);
+      notify({
+        type: 'success',
+        title: 'Korrespondent',
+        message: `Zusammengeführt. ${count === 1 ? '1 Dokument wurde' : `${count} Dokumente wurden`} übertragen.`,
+      });
+      return { ok: true, ...result };
+    } catch (error) {
+      notify({ type: 'error', message: mapApiError(error, 'Die Einträge konnten nicht zusammengeführt werden.') });
       throw error;
     } finally {
       pendingMutations.value = Math.max(0, pendingMutations.value - 1);
@@ -255,10 +317,14 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
     isLoading,
     isMutationRunning,
     correspondentOptions,
+    tree,
+    membersOf,
+    displayLabel,
     findById,
     findByName,
     fetchCorrespondents,
     ensureLoaded,
+    mergeCorrespondents,
     createCorrespondentByName,
     updateCorrespondent,
     deleteCorrespondent,

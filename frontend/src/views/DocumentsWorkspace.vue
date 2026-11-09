@@ -186,12 +186,14 @@
 
       <div
         class="workspace"
+        :style="{ '--document-preview-width': `${documentPreviewWidth}%` }"
         :class="{
           'workspace--rail': sidebarRailActive,
           'workspace--dashboard': activeView === 'dashboard',
           'workspace--notes': activeView === 'notes',
           'workspace--search': activeView === 'search',
           'workspace--tag': activeView === 'tag',
+          'workspace--correspondents': activeView === 'correspondents',
           'workspace--dossiers': isDossierRoute,
           'workspace--wiki': isWikiRoute,
           'workspace--lernraum': isLernraumRoute,
@@ -433,6 +435,15 @@
           @trash-changed="scheduleSidebarCountsRefresh"
         />
 
+        <CorrespondentsWorkspace
+          v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && activeView === 'correspondents'"
+          v-model:selected-id="activeCorrespondentProfileId"
+          class="panel panel-correspondents"
+          @show-documents="showCorrespondentDocuments"
+          @open-document="openDocumentFromDashboard"
+          @documents-changed="refreshDocumentsAfterChange"
+        />
+
         <TagResultsView
           v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && activeView === 'tag'"
           class="panel panel-tag"
@@ -443,18 +454,21 @@
         />
 
         <section
-          v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag' && activeView !== 'search'"
+          v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && !FULL_WIDTH_VIEWS.has(activeView)"
           class="panel panel-middle"
           :class="{ 'panel-middle--tag-filter-open': isListFilterDrawerOpen }"
           :style="listFilterDrawerOffsetStyle"
         >
           <div
             class="panel-middle__header"
-            :class="{ 'panel-middle__header--search-focused': isHeaderSearchFocused }"
+            :class="{
+              'panel-middle__header--search-focused': isHeaderSearchFocused,
+              'panel-middle__header--correspondent-filter': activeCorrespondentFilter,
+            }"
           >
             <div class="panel-middle__title">
               <div class="panel-middle__heading">{{ panelHeading }}</div>
-              <div v-if="showSearchScopeToggle" class="panel-middle__scope">
+              <div v-if="showSearchScopeToggle && !activeCorrespondentFilter" class="panel-middle__scope">
                 <span class="panel-middle__scope-info">{{ scopeResultLabel }}</span>
                 <button
                   type="button"
@@ -472,11 +486,23 @@
               @focusin="onHeaderSearchFocusIn"
               @focusout="onHeaderSearchFocusOut"
             >
+              <button
+                v-if="activeCorrespondentFilter && !globalSearchActive"
+                type="button"
+                class="document-search-correspondent"
+                :aria-label="`Korrespondentenfilter entfernen: ${activeCorrespondentFilter.label}`"
+                :title="`Filter entfernen: ${activeCorrespondentFilter.label}`"
+                @mousedown.prevent
+                @click="clearCorrespondentFromSearch"
+              >
+                <span>{{ activeCorrespondentFilter.label }}</span>
+                <v-icon size="14" aria-hidden="true">mdi-close</v-icon>
+              </button>
               <v-text-field
                 ref="appBarSearchRef"
                 v-model="searchText"
                 class="pm-searchbar__field"
-                prepend-inner-icon="mdi-magnify"
+                :prepend-inner-icon="activeCorrespondentFilter && !globalSearchActive ? undefined : 'mdi-magnify'"
                 clearable
                 :placeholder="documentSearchPlaceholder"
                 aria-label="Diese Dokumentliste durchsuchen"
@@ -515,6 +541,27 @@
                       <v-icon size="16">mdi-check</v-icon>
                     </template>
                   </v-list-item>
+                  <template v-if="activeCorrespondentFilter && (hasSearchQuery || activeCorrespondentFilter.memberCount || activeCorrespondentFilter.parentId)">
+                    <v-divider />
+                    <v-list-subheader>Korrespondentenfilter</v-list-subheader>
+                    <v-list-item
+                      v-if="hasSearchQuery"
+                      :title="scopeSwitchLabel"
+                      @click="toggleSearchScope"
+                    />
+                    <template v-if="!globalSearchActive">
+                      <v-list-item
+                        v-if="activeCorrespondentFilter.memberCount"
+                        :title="activeCorrespondentFilter.includesMembers ? 'Nur direkt zugeordnete Dokumente' : 'Zugehörige Dokumente einbeziehen'"
+                        @click="toggleCorrespondentMembers"
+                      />
+                      <v-list-item
+                        v-else-if="activeCorrespondentFilter.parentId"
+                        :title="`Alle von ${activeCorrespondentFilter.parentName || 'der Organisation'}`"
+                        @click="widenCorrespondentFilterToOrganization"
+                      />
+                    </template>
+                  </template>
                 </v-list>
               </v-menu>
             </div>
@@ -1121,7 +1168,18 @@
 
         <!-- Auch Dokumenttreffer der globalen Suche nutzen dieses Panel, damit
              Vorschau und Detailschublade identisch zur Dokumentliste sind. -->
-        <section v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && ((activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag' && activeView !== 'search') || isSearchDocumentPreview)" class="panel panel-right">
+        <section v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && (!FULL_WIDTH_VIEWS.has(activeView) || isSearchDocumentPreview)" class="panel panel-right">
+          <div class="document-preview-resizer" role="separator" tabindex="0"
+            aria-label="Breite der Dokumentvorschau" aria-orientation="vertical"
+            :aria-valuenow="documentPreviewWidth" :aria-valuemin="39" :aria-valuemax="47"
+            @pointerdown="startPreviewResize" @pointermove="movePreviewResize"
+            @pointerup="stopPreviewResize" @pointercancel="stopPreviewResize"
+            @lostpointercapture="stopPreviewResize"
+            @keydown.left.prevent="documentPreviewWidth = Math.min(47, documentPreviewWidth + 1)"
+            @keydown.right.prevent="documentPreviewWidth = Math.max(39, documentPreviewWidth - 1)"
+            @keydown.home.prevent="documentPreviewWidth = 43"
+            @dblclick="documentPreviewWidth = 43"
+          />
           <DocumentPreviewLayout
             class="panel-right__preview panel-right__preview--details-panel"
             :show-drawer="!selectedTrashNoteId && !isTagView && !isCategoryView && Boolean(selectedDocumentDetail) && (!isChatView || chatPreviewVisible)"
@@ -1412,118 +1470,85 @@
             </template>
 
             <template #drawer-header>
-              <div
-                class="details-drawer__header"
-                :class="isDetailsDrawerVisuallyOpen ? 'details-drawer__header--expanded' : 'details-drawer__header--collapsed'"
-                @click="handleDetailsDrawerHeaderClick"
+              <DocumentDrawerHeader
+                :open="isDetailsDrawerVisuallyOpen"
+                :body-id="detailsBodyId"
+                :title="selectedDocumentDetail ? formatDocumentTitle(selectedDocumentDetail) : null"
+                :document-type="headerDocumentTypeLabel"
+                :page-count-label="headerPageCountLabel"
+                @toggle="toggleDetailsDrawer"
               >
-                <div class="details-drawer__inner">
-                  <div class="details-command-bar">
-                    <div class="details-command-bar__left">
-                      <div class="details-drawer__title-row">
-                        <div class="details-drawer__title-wrap">
-                          <div class="details-drawer__eyebrow"><div class="details-drawer__eyebrow-inner">
-                            <MetadataSaveIndicator
-                              :saving="isSavingMetadata"
-                              :error="Boolean(metadataErrorMessage)"
-                              :document-key="selectedDocumentDetail?.id"
-                            />
-                          </div></div>
-                          <div
-                            v-if="selectedDocumentDetail"
-                            class="details-drawer__subtitle"
-                            :style="detailsHeaderTitleStyle"
-                          >
-                            {{ formatDocumentTitle(selectedDocumentDetail) }}
-                          </div>
-                          <div v-if="selectedDocumentDetail" class="details-drawer__meta-line">
-                            <template v-if="headerPageCountLabel">
-                              <span class="details-drawer__meta-part">{{ headerPageCountLabel }}</span>
-                              <span class="details-drawer__meta-dot" aria-hidden="true" />
-                            </template>
-                            <DocumentDateDetails v-if="headerCreatedDateLabel" :document="selectedDocumentDetail" />
-                            <span v-if="headerCreatedDateLabel" class="details-drawer__meta-dot" aria-hidden="true" />
-                            <DocumentKnowledgeDetails v-if="selectedDocumentDetail" :document="selectedDocumentDetail"
-                              :busy="isRunningAiAnalysis && aiAnalysisDocumentId === selectedDocumentDetail.id" :missing-fields="missingMetadataFields"
-                              :completion-disabled="isRunningAiAnalysis" :completion-error="aiCompletionError?.documentId === selectedDocumentDetail.id ? aiCompletionError.message : ''"
-                              :save-changes="saveKnowledgeChanges" :document-types="categoryDrawerItems" :correspondents="correspondentDrawerItems"
-                              :editing-disabled="isSavingMetadata || isMetadataDirty || isSavingCategory || isSavingCorrespondent || isSavingKnowledge"
-                              @complete="completeKnowledgeFields" />
-                            <span v-if="headerOcrStatus" class="details-drawer__meta-dot" aria-hidden="true" />
-                            <button v-if="headerOcrStatus?.tone === 'pending'" type="button" class="details-ai-chip"
-                              :disabled="isQueueingHeaderOcr" :aria-busy="isQueueingHeaderOcr"
-                              :aria-label="isQueueingHeaderOcr ? 'OCR wird gestartet …' : 'OCR durchführen'"
-                              title="Texterkennung durchführen" @click.stop="queueOcrFromHeader">
-                              <v-progress-circular v-if="isQueueingHeaderOcr" indeterminate size="11" width="2" aria-hidden="true" />
-                              {{ isQueueingHeaderOcr ? 'OCR wird gestartet …' : headerOcrStatus.text }}
-                            </button>
-                            <DocumentOcrDetails v-else-if="headerOcrStatus" :document="selectedDocumentDetail"
-                              :status="headerOcrStatus" :busy="isOcrInProgress" @retry="queueOcrFromHeader" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="details-command-bar__right" @click.stop>
-                      <!-- Sekundäre Aktionen: Überlauf-Menü (leise) -->
-                      <v-menu v-if="headerMenuActions.length" location="bottom end">
-                        <template #activator="{ props: menuProps }">
-                          <v-btn
-                            v-bind="menuProps"
-                            icon="mdi-dots-vertical"
-                            size="small"
-                            density="comfortable"
-                            variant="text"
-                            class="details-action-btn details-action-btn--quiet"
-                            aria-label="Weitere Aktionen"
-                          />
+                <template #eyebrow>
+                  <MetadataSaveIndicator
+                    :saving="isSavingMetadata"
+                    :error="Boolean(metadataErrorMessage)"
+                    :document-key="selectedDocumentDetail?.id"
+                  />
+                </template>
+                <template #meta>
+                  <DocumentDateDetails v-if="headerCreatedDateLabel" :document="selectedDocumentDetail" />
+                  <span v-if="headerCreatedDateLabel" class="details-drawer__meta-dot" aria-hidden="true" />
+                  <DocumentKnowledgeDetails v-if="selectedDocumentDetail" :document="selectedDocumentDetail"
+                    :busy="isRunningAiAnalysis && aiAnalysisDocumentId === selectedDocumentDetail.id" :missing-fields="missingMetadataFields"
+                    :completion-disabled="isRunningAiAnalysis" :completion-error="aiCompletionError?.documentId === selectedDocumentDetail.id ? aiCompletionError.message : ''"
+                    :save-changes="saveKnowledgeChanges" :document-types="categoryDrawerItems" :correspondents="correspondentDrawerItems"
+                    :editing-disabled="isSavingMetadata || isMetadataDirty || isSavingCategory || isSavingCorrespondent || isSavingKnowledge"
+                    @complete="completeKnowledgeFields" />
+                  <span v-if="headerOcrStatus" class="details-drawer__meta-dot" aria-hidden="true" />
+                  <button v-if="headerOcrStatus?.tone === 'pending'" type="button" class="details-ai-chip"
+                    :disabled="isQueueingHeaderOcr" :aria-busy="isQueueingHeaderOcr"
+                    :aria-label="isQueueingHeaderOcr ? 'OCR wird gestartet …' : 'OCR durchführen'"
+                    title="Texterkennung durchführen" @click.stop="queueOcrFromHeader">
+                    <v-progress-circular v-if="isQueueingHeaderOcr" indeterminate size="11" width="2" aria-hidden="true" />
+                    {{ isQueueingHeaderOcr ? 'OCR wird gestartet …' : headerOcrStatus.text }}
+                  </button>
+                  <DocumentOcrDetails v-else-if="headerOcrStatus" :document="selectedDocumentDetail"
+                    :status="headerOcrStatus" :busy="isOcrInProgress" @retry="queueOcrFromHeader" />
+                </template>
+                <template #actions>
+                  <!-- Sekundäre Aktionen: Überlauf-Menü (leise) -->
+                  <v-menu v-if="headerMenuActions.length" location="bottom end">
+                    <template #activator="{ props: menuProps }">
+                      <v-btn
+                        v-bind="menuProps"
+                        icon="mdi-dots-vertical"
+                        size="small"
+                        density="comfortable"
+                        variant="text"
+                        class="details-action-btn details-action-btn--quiet"
+                        aria-label="Weitere Aktionen"
+                      />
+                    </template>
+                    <v-list density="compact">
+                      <v-list-item
+                        v-for="action in headerMenuActions"
+                        :key="action.key"
+                        @click.stop="action.handler"
+                      >
+                        <template #prepend>
+                          <v-icon size="16">{{ action.icon }}</v-icon>
                         </template>
-                        <v-list density="compact">
-                          <v-list-item
-                            v-for="action in headerMenuActions"
-                            :key="action.key"
-                            @click.stop="action.handler"
-                          >
-                            <template #prepend>
-                              <v-icon size="16">{{ action.icon }}</v-icon>
-                            </template>
-                            <v-list-item-title>{{ action.label }}</v-list-item-title>
-                          </v-list-item>
-                        </v-list>
-                      </v-menu>
+                        <v-list-item-title>{{ action.label }}</v-list-item-title>
+                      </v-list-item>
+                    </v-list>
+                  </v-menu>
 
-                      <v-btn
-                        :icon="isDetailsDrawerPinned ? 'mdi-pin' : 'mdi-pin-outline'"
-                        size="small"
-                        density="comfortable"
-                        variant="text"
-                        class="details-action-btn details-action-btn--quiet details-pin-btn"
-                        :class="{ 'details-pin-btn--active': isDetailsDrawerPinned }"
-                        aria-label="Schubladenposition merken"
-                        :aria-pressed="isDetailsDrawerPinned"
-                        :title="isDetailsDrawerPinned ? 'Position wird gemerkt – Fixierung lösen' : 'Position merken – automatisches Minimieren ausschalten'"
-                        :loading="settingsStore.isSettingSaving.drawer_remember_state"
-                        :disabled="settingsStore.isSettingSaving.drawer_remember_state"
-                        @click="toggleDetailsDrawerPin"
-                      />
-
-                      <!-- Disclosure: Auf-/Zuklappen (leise, strukturell) -->
-                      <v-btn
-                        :icon="detailsDrawerChevronIcon"
-                        size="small"
-                        density="comfortable"
-                        variant="text"
-                        class="details-action-btn details-action-btn--quiet details-chevron-btn"
-                        :class="{ 'details-chevron-btn--expanded': isDetailsDrawerChevronExpanded }"
-                        :aria-label="isDetailsDrawerVisuallyOpen ? 'Dokumentdetails schließen' : 'Dokumentdetails öffnen'"
-                        :aria-expanded="isDetailsDrawerVisuallyOpen"
-                        :aria-controls="detailsBodyId"
-                        @click="toggleDetailsDrawer"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
+                  <v-btn
+                    :icon="isDetailsDrawerPinned ? 'mdi-pin' : 'mdi-pin-outline'"
+                    size="small"
+                    density="comfortable"
+                    variant="text"
+                    class="details-action-btn details-action-btn--quiet details-pin-btn"
+                    :class="{ 'details-pin-btn--active': isDetailsDrawerPinned }"
+                    aria-label="Schubladenposition merken"
+                    :aria-pressed="isDetailsDrawerPinned"
+                    :title="isDetailsDrawerPinned ? 'Position wird gemerkt – Fixierung lösen' : 'Position merken – automatisches Minimieren ausschalten'"
+                    :loading="settingsStore.isSettingSaving.drawer_remember_state"
+                    :disabled="settingsStore.isSettingSaving.drawer_remember_state"
+                    @click="toggleDetailsDrawerPin"
+                  />
+                </template>
+              </DocumentDrawerHeader>
             </template>
 
             <template #drawer-tabs>
@@ -1551,7 +1576,7 @@
                       @update:note="metadataNotes = $event" @text-blur="commitMetadataTextFields"
                       @date-blur="handleDocumentDateBlur" @date-keydown="handleDocumentDateShortcut"
                       @correspondent-blur="handleMetadataCorrespondentBlur" @correspondent-focus="correspondentStore.ensureLoaded()"
-                      @manage-category="openDocumentTypeSettings" @manage-correspondent="openCorrespondentSettings">
+                      @manage-category="openDocumentTypeSettings" @manage-correspondent="openCorrespondentProfile">
                       <template #tags>
                           <TagInlineEditor
                             ref="metadataTagsCombobox"
@@ -1641,6 +1666,27 @@
 </template>
 
 <script setup>
+const documentPreviewWidth = ref(43);
+let previewResizeStart = null;
+function startPreviewResize(event) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  previewResizeStart = { x: event.clientX, width: documentPreviewWidth.value,
+    total: event.currentTarget.closest('.workspace').getBoundingClientRect().width };
+  event.currentTarget.setPointerCapture(event.pointerId);
+  event.currentTarget.closest('.workspace').classList.add('workspace--resizing-preview');
+}
+function movePreviewResize(event) {
+  if (!previewResizeStart) return;
+  documentPreviewWidth.value = Math.max(39, Math.min(47,
+    previewResizeStart.width + (previewResizeStart.x - event.clientX) / previewResizeStart.total * 100));
+}
+function stopPreviewResize(event) {
+  previewResizeStart = null;
+  event.currentTarget.closest('.workspace')?.classList.remove('workspace--resizing-preview');
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+}
+
 import DocumentFlipPreview from '../components/DocumentFlipPreview.vue';
 import DocumentConnections from '../components/DocumentConnections.vue';
 import { vListReveal } from '../directives/listReveal.js';
@@ -1655,6 +1701,7 @@ import ShortcutsHelpDialog from '../components/ShortcutsHelpDialog.vue';
 import PmEmptyState from '../components/PmEmptyState.vue';
 import KnowledgeStage from '../components/KnowledgeStage.vue';
 import DocumentPreviewLayout from '../components/DocumentPreviewLayout.vue';
+import DocumentDrawerHeader from '../components/DocumentDrawerHeader.vue';
 import MetadataSaveIndicator from '../components/MetadataSaveIndicator.vue';
 import DocumentDetailsTabs from '../components/DocumentDetailsTabs.vue';
 import DocumentOcrDetails from '../components/DocumentOcrDetails.vue';
@@ -1694,6 +1741,7 @@ const ImportStagingDialog = defineAsyncComponent(() => import('../components/Imp
 const BatchTagDialog = defineAsyncComponent(() => import('../components/BatchTagDialog.vue'));
 const SmartFolderEditor = defineAsyncComponent(() => import('../components/SmartFolderEditor.vue'));
 const DashboardView = defineAsyncComponent(() => import('./DashboardView.vue'));
+const CorrespondentsWorkspace = defineAsyncComponent(() => import('./CorrespondentsWorkspace.vue'));
 const DossierWorkspace = defineAsyncComponent(() => import('./DossierWorkspace.vue'));
 const WikiWorkspace = defineAsyncComponent(() => import('./WikiWorkspace.vue'));
 const LernraumWorkspace = defineAsyncComponent(() => import('./LernraumWorkspace.vue'));
@@ -2648,6 +2696,8 @@ const tagViewTagId = ref(null);
 const tagViewTagName = computed(
   () => tags.value.find((t) => String(t.id) === String(tagViewTagId.value))?.name || '',
 );
+// Ansichten, die Mittel- und Detailspalte selbst belegen (kein panel-middle/-right).
+const FULL_WIDTH_VIEWS = new Set(['dashboard', 'notes', 'tag', 'search', 'correspondents']);
 // Welche Dashboard-Aufmerksamkeits-Kachel gerade als gefilterte Liste offen ist.
 const activeAttention = ref(null);
 const ATTENTION_LABELS = Object.freeze({
@@ -2686,6 +2736,8 @@ const documentListQuery = reactive({
   tagIds: [],
   documentType: null,
   correspondentId: null,
+  // Roll-up: Organisation inkl. ihrer Personen (Standard an).
+  correspondentMembers: true,
   untagged: null,
   status: normalizeDocumentStatusFilter(initialDocumentToolbarState.status),
   dateFrom: initialDateRange.dateFrom,
@@ -3470,27 +3522,10 @@ watch(selectedDocumentId, (id, previousId) => {
   }
 }, { flush: 'sync' });
 const isDetailsDrawerVisuallyOpen = computed(() => isDetailsDrawerOpen.value && !documentBackVisible.value);
-const isDetailsDrawerChevronExpanded = computed(() => isDetailsDrawerVisuallyOpen.value);
 const isDetailsDrawerPinned = computed(() => Boolean(settingsStore.settings.ui.drawerRememberState));
-const detailsDrawerChevronIcon = 'mdi-chevron-up';
 // Expanding returns to the whole-page overview, while zoom remains available
 // for reading details afterward. The reader keeps its own zoom behavior.
 watch(isDetailsDrawerOpen, open => { if (open) panePreviewRef.value?.resetZoom(); });
-const detailsHeaderTitleStyle = computed(() => {
-  const title = selectedDocumentDetail.value ? formatDocumentTitle(selectedDocumentDetail.value) : '';
-  const titleLength = Array.from(title).length;
-  let size = '1.18rem';
-  if (titleLength > 78) {
-    size = '0.98rem';
-  } else if (titleLength > 62) {
-    size = '1.02rem';
-  } else if (titleLength > 46) {
-    size = '1.06rem';
-  } else if (titleLength > 32) {
-    size = '1.12rem';
-  }
-  return { '--details-header-title-size': size };
-});
 const metadataTagsCombobox = ref(null);
 
 const metadataDocName = ref('');
@@ -3602,6 +3637,9 @@ const ocrStatusValue = computed(() => {
   return 'not_started';
 });
 
+const headerDocumentTypeLabel = computed(() => String(
+  selectedDocumentDetail.value?.document_type || selectedDocumentDetail.value?.category || ''
+).trim());
 const headerPageCountLabel = computed(() => {
   const raw = Number(selectedDocumentDetail.value?.page_count);
   if (!Number.isFinite(raw) || raw <= 0) {
@@ -4261,6 +4299,7 @@ const hasActiveListFilter = computed(() => {
       documentListQuery.tagId ||
       activeTagFilterCount.value > 0 ||
       documentListQuery.documentType ||
+      documentListQuery.correspondentId ||
       documentListQuery.untagged ||
       (activeView.value === 'attention' && activeAttention.value) ||
       documentListQuery.status ||
@@ -4435,6 +4474,8 @@ const documentListQueryReloadKey = computed(() =>
     untagged: documentListQuery.untagged,
     attention: activeView.value === 'attention' ? activeAttention.value : null,
     documentType: documentListQuery.documentType,
+    correspondentId: documentListQuery.correspondentId,
+    correspondentMembers: documentListQuery.correspondentId ? documentListQuery.correspondentMembers : null,
     status: documentListQuery.status,
     dateFrom: documentListQuery.dateFrom,
     dateTo: documentListQuery.dateTo,
@@ -4613,6 +4654,44 @@ onBeforeUnmount(() => {
   clearSidebarRailTimers();
 });
 
+// Aktiver Korrespondentenfilter mit Hierarchie-Kontext für das Suchfeld.
+const activeCorrespondentFilter = computed(() => {
+  const id = documentListQuery.correspondentId;
+  if (!id || activeSavedSearchId.value) return null;
+  const correspondent = correspondentStore.findById(id);
+  const memberCount = correspondentStore.membersOf(id).length;
+  return {
+    id,
+    label: correspondentStore.displayLabel(id, 'Korrespondent'),
+    memberCount,
+    includesMembers: memberCount > 0 && documentListQuery.correspondentMembers,
+    parentId: correspondent?.parent_id || null,
+    parentName: correspondent?.parent_id ? correspondentStore.findById(correspondent.parent_id)?.name || '' : '',
+  };
+});
+
+// Korrespondenten-Ansicht: zuletzt geöffnetes Profil bleibt beim Zurückkehren erhalten.
+const activeCorrespondentProfileId = ref(null);
+
+function showCorrespondentDocuments({ id, includeMembers = true } = {}) {
+  applyCorrespondentFilter(id);
+  if (!includeMembers) {
+    patchDocumentListQuery({ correspondentMembers: false });
+    syncSearchStateToQuery({ resetOffset: true });
+  }
+}
+
+function toggleCorrespondentMembers() {
+  patchDocumentListQuery({ correspondentMembers: !documentListQuery.correspondentMembers });
+  syncSearchStateToQuery({ resetOffset: true });
+}
+
+// Von einer Person auf die ganze Organisation (inkl. aller Personen) erweitern.
+function widenCorrespondentFilterToOrganization() {
+  const parentId = activeCorrespondentFilter.value?.parentId;
+  if (parentId) applyCorrespondentFilter(parentId);
+}
+
 // Titel der mittleren Spalte (aktueller View/Filter) für die Kopfzeile.
 const panelHeading = computed(() => {
   if (activeSavedSearchId.value) return activeSavedSearchName.value || 'Ordner';
@@ -4648,7 +4727,7 @@ const resultCountLabel = computed(() => {
   const total = documentListTotal.value;
   if (!Number.isFinite(total) || total < 0) return '';
   const q = (documentListQuery.q || '').trim();
-  return q ? `${total} Treffer für „${q}"` : `${total} Treffer`;
+  return q && !activeCorrespondentFilter.value ? `${total} Treffer für „${q}"` : `${total} Treffer`;
 });
 
 // ── Such-Reichweite (Bereich ↔ alle Dokumente) ─────────────────────────────
@@ -4680,6 +4759,9 @@ const searchScopeContext = computed(() => {
   if (activeDocumentTypeFilterName.value) {
     return { kind: 'type', label: activeDocumentTypeFilterName.value };
   }
+  if (activeCorrespondentFilter.value) {
+    return { kind: 'correspondent', label: activeCorrespondentFilter.value.label };
+  }
   if (documentListQuery.untagged) return { kind: 'untagged', label: 'Ohne Tags' };
   if (isFavoritesView.value) return { kind: 'favorites', label: 'Favoriten' };
   if (isNoTextView.value) return { kind: 'no_text', label: 'Nicht durchsuchbar' };
@@ -4693,7 +4775,8 @@ const hasNarrowerSearchScope = computed(() => Boolean(searchScopeContext.value))
 const documentSearchPlaceholder = computed(() => {
   if (!searchScopeContext.value) return 'Suchen …';
   const mode = hasSearchQuery.value ? searchScopeMode.value : defaultSearchScopeMode.value;
-  return mode === 'all' ? 'Im Bestand suchen …' : 'Hier suchen …';
+  if (mode === 'all') return 'Im Bestand suchen …';
+  return activeCorrespondentFilter.value ? 'Suchen …' : 'Hier suchen …';
 });
 
 // Identität des aktiven Bereichs – wechselt sie, startet die Reichweite neu.
@@ -4703,6 +4786,7 @@ const searchScopeContextKey = computed(() =>
     tagId: documentListQuery.tagId || null,
     tagIds: activeTagFilterIds.value,
     type: activeDocumentTypeFilterName.value || null,
+    correspondent: documentListQuery.correspondentId || null,
     untagged: Boolean(documentListQuery.untagged),
     view: activeView.value,
     attention: activeView.value === 'attention' ? activeAttention.value : null
@@ -5530,7 +5614,7 @@ function canRestoreSidebarView(viewKey) {
   if (viewKey === 'no_text') return settingsStore.settings.ui.sidebar_show_no_text !== false;
   if (viewKey === 'tags') return isSidebarSectionVisible('tags');
   if (viewKey === 'categories') return isSidebarSectionVisible('kategorien');
-  return ['dashboard', 'all', 'notes', 'trash'].includes(viewKey);
+  return ['dashboard', 'all', 'notes', 'trash', 'correspondents'].includes(viewKey);
 }
 
 async function restoreSidebarSelection(selection) {
@@ -5675,12 +5759,20 @@ function onTagToolbarEnter() {
 }
 
 function handleSearchShortcut(event) {
+  if (event.key === 'Backspace' && !event.isComposing && !searchText.value && activeCorrespondentFilter.value) {
+    event.preventDefault();
+    clearCorrespondentFromSearch();
+    return;
+  }
   if (handleShortcut(event, SHORTCUT_ACTIONS.SEARCH_SUBMIT, triggerSearchNow, { ignoreEditable: false })) {
     // Nur committete Suchen (Enter) protokollieren – für die Dashboard-Statistik.
     logSearchEvent(parsedSearch.value.q);
     return;
   }
-  handleShortcut(event, SHORTCUT_ACTIONS.SEARCH_CANCEL, handleSearchEscape, { ignoreEditable: false });
+  handleShortcut(event, SHORTCUT_ACTIONS.SEARCH_CANCEL, () => {
+    if (!searchText.value && activeCorrespondentFilter.value) clearCorrespondentFromSearch();
+    else handleSearchEscape();
+  }, { ignoreEditable: false });
 }
 
 function handleTagToolbarShortcut(event) {
@@ -6111,8 +6203,11 @@ function openDocumentTypeSettings() {
   uiStore.openSettings('categories');
 }
 
-function openCorrespondentSettings() {
-  uiStore.openSettings('correspondents');
+function openCorrespondentProfile() {
+  const id = metadataCorrespondentId.value;
+  if (!closeDetailsDrawerWithGuard({ preserveRememberedState: true })) return;
+  activeCorrespondentProfileId.value = id;
+  selectView('correspondents');
 }
 
 function handleSystemThemeChange() {
@@ -6875,10 +6970,6 @@ function toggleDetailsDrawer() {
   isDetailsDrawerOpen.value = true;
 }
 
-function handleDetailsDrawerHeaderClick() {
-  toggleDetailsDrawer();
-}
-
 function focusMetadataTagsInput() {
   activeDetailsTab.value = 'metadata';
   const field = metadataTagsCombobox.value;
@@ -6994,6 +7085,7 @@ function buildDocumentListQuery(options = {}) {
 
     if (documentListQuery.correspondentId) {
       params.set('correspondent_id', documentListQuery.correspondentId);
+      if (documentListQuery.correspondentMembers) params.set('correspondent_members', 'true');
     }
 
     if (isImportsView.value) {
@@ -8241,6 +8333,12 @@ function selectView(viewKey, options = {}) {
     return;
   }
 
+  if (viewKey === 'correspondents') {
+    activeView.value = 'correspondents';
+    leaveActiveSavedSearch();
+    return;
+  }
+
   if (viewKey === 'chat') {
     activeView.value = 'chat';
     leaveActiveSavedSearch();
@@ -8849,11 +8947,17 @@ function applyCorrespondentFilter(correspondentId) {
     untagged: null,
     documentType: null,
     correspondentId: id,
+    correspondentMembers: true,
     status: resolveToolbarStatus('all'),
     dateFrom: null,
     dateTo: null
   });
   syncSearchStateToQuery({ resetOffset: false });
+}
+
+function clearCorrespondentFromSearch() {
+  patchDocumentListQuery({ correspondentId: null });
+  nextTick(focusSearchFieldInput);
 }
 
 function setCategoryUsageFilter(value) {
@@ -9206,14 +9310,14 @@ function onTagMutated({ action, sourceId, targetId, tagId } = {}) {
   scheduleSidebarCountsRefresh();
 }
 
-function onSettingsReloadImports() {
+function refreshDocumentsAfterChange() {
   void fetchDocuments(selectedDocumentId.value);
   scheduleSidebarCountsRefresh();
 }
 
 // Der SettingsDialog ist global gemountet (AppLayout); reload-imports kommt
 // als Signal über den ui-Store herein.
-watch(() => uiStore.importsReloadSignal, () => onSettingsReloadImports());
+watch(() => uiStore.importsReloadSignal, refreshDocumentsAfterChange);
 
 // Die Command-Palette ist global gemountet, activeView/openImport leben aber
 // hier lokal. Sie stößt View-Wechsel und Aktionen daher über Signale im

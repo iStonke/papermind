@@ -1,0 +1,58 @@
+{
+  "_comment": "Gemeinsame Testfälle für backend/app/services/legal_forms.py und frontend/src/utils/legalForms.js.",
+  "split": [
+    ["Vodafone GmbH", "Vodafone", "GmbH"],
+    ["Vodafone gmbh.", "Vodafone", "GmbH"],
+    ["Vodafone   GmbH ", "Vodafone", "GmbH"],
+    ["Wiker Autoservice GmbH & Co. KG", "Wiker Autoservice", "GmbH & Co. KG"],
+    ["Wiker Autoservice GmbH + Co KG", "Wiker Autoservice", "GmbH & Co. KG"],
+    ["Muster UG (haftungsbeschränkt)", "Muster", "UG (haftungsbeschränkt)"],
+    ["Muster UG", "Muster", "UG"],
+    ["Deutsche Bahn AG", "Deutsche Bahn", "AG"],
+    ["Allianz SE", "Allianz", "SE"],
+    ["Henkel AG & Co. KGaA", "Henkel", "AG & Co. KGaA"],
+    ["Müller & Co. KG", "Müller", "& Co. KG"],
+    ["Sportverein Kiel e.V.", "Sportverein Kiel", "e.V."],
+    ["Sportverein Kiel eV", "Sportverein Kiel", "e.V."],
+    ["Sportverein Kiel, e. V.", "Sportverein Kiel", "e.V."],
+    ["Huber e.K.", "Huber", "e.K."],
+    ["Bäckerei Huber e.Kfm.", "Bäckerei Huber", "e.K."],
+    ["Lebenshilfe gGmbH", "Lebenshilfe", "gGmbH"],
+    ["Raiffeisenbank eG", "Raiffeisenbank", "eG"],
+    ["HUK-COBURG VVaG", "HUK-COBURG", "VVaG"],
+    ["Dataport AöR", "Dataport", "AöR"],
+    ["Schmidt & Partner PartG mbB", "Schmidt & Partner", "PartG mbB"],
+    ["Apple Inc.", "Apple", "Inc."],
+    ["Acme Ltd", "Acme", "Ltd."],
+    ["Philips N.V.", "Philips", "N.V."],
+    ["AG Kiel", "AG Kiel", null],
+    ["GmbH", "GmbH", null],
+    ["Der Tag", "Der Tag", null],
+    ["Haus Ag", "Haus Ag", null],
+    ["Casa sa", "Casa sa", null],
+    ["Vodafone GmbH, Düsseldorf", "Vodafone GmbH, Düsseldorf", null],
+    ["Finanzamt Kiel", "Finanzamt Kiel", null],
+    ["", "", null]
+  ],
+  "equivalent": [
+    ["Vodafone", "Vodafone GmbH", true],
+    ["vodafone gmbh", "Vodafone GmbH", true],
+    ["Vodafone GmbH", "Vodafone GmbH", true],
+    ["Müller GmbH", "Müller KG", false],
+    ["Vodafone", "Vodafone Deutschland GmbH", false],
+    ["AG Kiel", "Kiel", false],
+    ["", "GmbH", false]
+  ],
+  "cut": [
+    ["Vodafone GmbH Kundenservice", "Vodafone"],
+    ["Muster Versicherung AG Abteilung Schaden", "Muster Versicherung"],
+    ["AG Kiel Abteilung 3", "AG Kiel Abteilung 3"],
+    ["Wiker Autoservice", "Wiker Autoservice"]
+  ],
+  "contains": [
+    ["Muster Versicherung GmbH", true],
+    ["Sportverein e.V. Kiel", true],
+    ["Beim Aufbau helfen", false],
+    ["Agentur für Arbeit", false]
+  ]
+}

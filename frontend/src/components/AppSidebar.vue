@@ -163,6 +163,19 @@
               </template>
               Nicht durchsuchbar
             </SidebarItem>
+
+            <SidebarItem
+              item-class="sidebar-item--secondary sidebar-item--correspondents"
+              :active="isViewActive('correspondents')"
+              count-class="sidebar-item-count--quiet"
+              :count="correspondentsSidebarCount || null"
+              @click="emit('select-view', 'correspondents')"
+            >
+              <template #icon>
+                <v-icon size="18">mdi-account-group-outline</v-icon>
+              </template>
+              Korrespondenten
+            </SidebarItem>
         </div>
       </div>
     </v-list>
@@ -543,6 +556,7 @@ import { useDossierStore } from '../stores/dossiers.js';
 import { normalizeSidebarSections } from '../utils/settingsApi.js';
 import { useNotesStore } from '../stores/notes.js';
 import { useLearnStore } from '../stores/learn.js';
+import { useCorrespondentStore } from '../stores/correspondents.js';
 import SidebarItem from './SidebarItem.vue';
 
 // ── Props & Emits ──────────────────────────────────────────────────────────
@@ -580,6 +594,8 @@ const sidebarStore  = useSidebarStore();
 const tagStore      = useTagStore();
 const categoryStore = useCategoryStore();
 const settingsStore = useSettingsStore();
+const correspondentStore = useCorrespondentStore();
+const correspondentsSidebarCount = computed(() => correspondentStore.correspondents.length);
 const dossierStore  = useDossierStore();
 const learnStore    = useLearnStore();
 
@@ -740,6 +756,7 @@ const noTextSidebarCount    = computed(() => Number(sidebarCounts.value.no_text_
 // Notizen aus dem Store (Backend). Beim ersten Mount laden, damit der Zähler stimmt.
 const notesStore = useNotesStore();
 onMounted(() => notesStore.ensureLoaded().then(() => notesStore.refreshGlobalThoughtRoomCount()).catch(() => {}));
+onMounted(() => { void correspondentStore.ensureLoaded(); });
 const thoughtSidebarCount = computed(() => notesStore.globalThoughtRoomCount);
 const notesSidebarCount = computed(() => notesStore.notes.length);
 const recentNotesSidebarCount = computed(() => Math.min(notesStore.allNotes.length, 10));
@@ -871,6 +888,11 @@ const flyoutRows = computed(() => {
         id: 'no_text', icon: 'mdi-text-box-remove-outline', label: 'Nicht durchsuchbar',
         count: noTextSidebarCount.value, active: isViewActive('no_text'),
         run: () => emit('select-view', 'no_text'),
+      });
+      rows.push({
+        id: 'correspondents', icon: 'mdi-account-group-outline', label: 'Korrespondenten',
+        count: correspondentsSidebarCount.value || null, active: isViewActive('correspondents'),
+        run: () => emit('select-view', 'correspondents'),
       });
       return rows;
     }

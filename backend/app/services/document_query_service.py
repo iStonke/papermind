@@ -136,6 +136,7 @@ class DocumentQueryService:
         document_type: str | None,
         correspondent_id: uuid.UUID | None,
         attention: DocumentAttentionFilter | None,
+        correspondent_members: bool = False,
     ):
         stmt = stmt.where(Document.is_deleted.is_(True if in_trash else False))
         if favorites_only:
@@ -182,7 +183,24 @@ class DocumentQueryService:
                 return stmt.where(False)
             stmt = stmt.where(func.lower(func.trim(Document.document_type)) == normalized_type.lower())
         if correspondent_id is not None:
-            stmt = stmt.where(Document.correspondent_id == correspondent_id)
+            if correspondent_members:
+                # Roll-up: Sammlung/Organisation + zugeordnete Einträge (zwei Stufen:
+                # Sammlung → Organisation → Person).
+                member_ids = select(Correspondent.id).where(Correspondent.parent_id == correspondent_id)
+                if self.owner_id is not None:
+                    member_ids = member_ids.where(Correspondent.owner_id == self.owner_id)
+                grand_ids = select(Correspondent.id).where(Correspondent.parent_id.in_(member_ids))
+                if self.owner_id is not None:
+                    grand_ids = grand_ids.where(Correspondent.owner_id == self.owner_id)
+                stmt = stmt.where(
+                    or_(
+                        Document.correspondent_id == correspondent_id,
+                        Document.correspondent_id.in_(member_ids),
+                        Document.correspondent_id.in_(grand_ids),
+                    )
+                )
+            else:
+                stmt = stmt.where(Document.correspondent_id == correspondent_id)
         if recent_imports:
             runtime_settings = SettingsService(self.db).get_settings()
             threshold = datetime.now(timezone.utc) - timedelta(
@@ -288,6 +306,7 @@ class DocumentQueryService:
         search_scope: DocumentSearchScope = DocumentSearchScope.all,
         attention: DocumentAttentionFilter | None = None,
         correspondent_id: uuid.UUID | None = None,
+        correspondent_members: bool = False,
         without_correspondent: bool = False,
         include_correspondent_groups: bool = False,
         without_document_type: bool = False,
@@ -304,6 +323,7 @@ class DocumentQueryService:
             self._scope(select(Document)), tag, tag_ids, untagged, status, date_from, date_to, recent_imports,
             in_trash=in_trash, favorites_only=favorites_only, without_text=without_text,
             document_type=document_type, correspondent_id=correspondent_id, attention=attention,
+            correspondent_members=correspondent_members,
         )
         if without_correspondent:
             filtered_stmt = filtered_stmt.where(Document.correspondent_id.is_(None))

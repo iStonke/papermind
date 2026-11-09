@@ -31,7 +31,7 @@ class NamingTemplateServiceTest(unittest.TestCase):
 
         self.assertEqual(
             NamingTemplateService().build_filename(meta),
-            "Mobilfunk Januar 2024 Vodafone GMBH 42,50€",
+            "Mobilfunk Januar 2024 Vodafone GmbH 42,50€",
         )
         self.assertEqual(NamingTemplateService().build_filename(meta), build_legacy_filename_from_meta(meta))
 

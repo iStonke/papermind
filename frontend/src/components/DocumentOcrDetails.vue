@@ -86,7 +86,7 @@ function close() { open.value = false; void nextTick(() => trigger.value?.focus(
 
 <style scoped>
 .ocr-details-anchor { display:inline-flex; }
-.ocr-details-trigger { position:relative; isolation:isolate; appearance:none; font:inherit; font-weight:600; background:transparent; border:0; padding:4px 8px; border-radius:999px; cursor:pointer; }
+.ocr-details-trigger { position:relative; isolation:isolate; appearance:none; font:inherit; background:transparent; border:0; padding:4px 8px; border-radius:999px; cursor:pointer; }
 .ocr-details-trigger::before { content:''; position:absolute; inset:0; z-index:-1; border:1px solid color-mix(in srgb, currentColor 55%, transparent); border-radius:999px; background:color-mix(in srgb, currentColor 8%, transparent); opacity:0; transition:opacity 160ms ease; }
 .ocr-details-trigger:hover::before { opacity:1; }
 .ocr-details-trigger:focus-visible { outline:2px solid var(--pm-accent); outline-offset:4px; }

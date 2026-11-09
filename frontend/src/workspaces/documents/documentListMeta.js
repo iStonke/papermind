@@ -3,7 +3,7 @@ export function resolveDocumentCorrespondent(document, findCorrespondentById = (
   const correspondentId = String(document?.correspondent_id || '').trim();
   const canonical = correspondentId ? findCorrespondentById(correspondentId) : null;
 
-  return String(
+  const name = String(
     document?.correspondent_short_name ||
     embedded?.short_name ||
     canonical?.short_name ||
@@ -13,4 +13,8 @@ export function resolveDocumentCorrespondent(document, findCorrespondentById = (
     canonical?.name ||
     ''
   ).trim();
+  // Personen mit Organisation: „Organisation · Person“ (gemeinsame Schreibweise).
+  const parent = canonical?.parent_id ? findCorrespondentById(canonical.parent_id) : null;
+  const organization = String(parent?.short_name || parent?.name || canonical?.parent_name || '').trim();
+  return organization && name ? `${organization} · ${name}` : name;
 }

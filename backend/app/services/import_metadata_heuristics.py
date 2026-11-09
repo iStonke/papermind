@@ -7,12 +7,12 @@ import re
 from app.services.import_metadata_rules import normalize_document_type
 from app.services.import_title_formatting import clean_filename_component, normalize_text
 from app.services.import_analysis_quality import meaningful_value
+from app.services.legal_forms import contains_legal_form, cut_at_legal_form
 
 _SENDER_LINE_HINTS = ("gmbh", "ag", "kg", "ug", "mbh", "ev", "e.v", "gbr", "ohg", "kasse", "auto-service")
 _SENDER_ORG_HINTS = (
     "verein", "sportverein", "bank", "sparkasse", "versicherung", "service", "werkstatt", "praxis", "klinik", "stadtwerke",
 )
-_ISSUER_SUFFIX_RE = re.compile(r"\b(gmbh|ag|ug|kg|e\.?\s?v\.?|ltd|inc)\b\.?", re.IGNORECASE)
 _TRAILING_PUNCT_RE = re.compile(r"[.,;:\-–\s]+$")
 _ISSUER_TOKEN_RE = re.compile(r"[A-Za-zÄÖÜäöüß0-9&.\-]+")
 _ISSUER_STOP_TOKENS = frozenset({
@@ -67,10 +67,48 @@ _TAG_KEYWORD_RULES: list[tuple[tuple[str, ...], list[str]]] = [
 ]
 
 
+_LETTER_CONTEXT_RE = re.compile(
+    r"Sehr geehrt|Mit freundlichen|\b(?:Rechnung|Briefdatum|Rechnungsdatum)\b|\b\d{5}\s+[A-ZÄÖÜ]", re.IGNORECASE
+)
+# Wörter, die einen Titel oder ein Thema kennzeichnen, aber keinen Absender.
+_NON_SENDER_RE = re.compile(
+    r"(?<![\wÄÖÜäöüß])(?:merkhilfe|anleitung|notiz(?:en)?|übersicht|checkliste|zusammenfassung|spickzettel|"
+    r"cheat ?sheet|mitschrift|handbuch|leitfaden|tutorial|how-?to|befehle|to-?do(?:-liste)?|einkaufsliste|"
+    r"lernzettel|skript)(?![\wÄÖÜäöüß])",
+    re.IGNORECASE,
+)
+
+
+def is_plausible_sender(sender: object, text_value: object = None) -> bool:
+    """Sieht ``sender`` nach einem echten Absender aus – nicht nach einer Überschrift?
+
+    Modelle übernehmen bei Notizen, Anleitungen oder Merkzetteln gern die
+    Überschrift als Absender („Pi Sync & Betrieb (Merkhilfe)“). Abgelehnt werden
+    Titelwörter sowie – wenn der Text bekannt ist – eine Überschrift in der ersten
+    Zeile ohne jeden Briefkontext. Eine Rechtsform spricht immer für einen Absender.
+    """
+    value = normalize_text(sender)
+    if not value:
+        return False
+    if contains_legal_form(value):
+        return True
+    if _NON_SENDER_RE.search(value):
+        return False
+    if text_value is None:
+        return True
+    text = str(text_value or "")
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    is_heading = normalize_text(first_line).casefold() == value.casefold()
+    if is_heading and not _LETTER_CONTEXT_RE.search(text) and not any(hint in value.lower() for hint in _SENDER_ORG_HINTS):
+        return False
+    return True
+
+
 def normalize_issuer(value: object) -> str:
     normalized = clean_filename_component(value, max_len=40)
     normalized = normalized.replace(" - ", " ").replace(" – ", " ")
-    normalized = _ISSUER_SUFFIX_RE.sub("", normalized)
+    # Rechtsform und alles danach (Abteilung, Ort) gehören nicht zum Absender.
+    normalized = cut_at_legal_form(normalized)
     normalized = _TRAILING_PUNCT_RE.sub("", normalized).strip()
     return normalized[:30].rstrip(" .,-") if len(normalized) > 30 else normalized
 
@@ -119,8 +157,8 @@ def detect_sender(text_value: object) -> str | None:
     candidates = lines[:20]
     scored_candidates: list[tuple[int, int, str]] = []
     # Legal suffixes must be words: 'AG' must not match 'Datumsangabe'.
-    organisation = lambda line: bool(_ISSUER_SUFFIX_RE.search(line)) or any(hint in line.lower() for hint in _SENDER_ORG_HINTS)
-    letter_context = bool(re.search(r'Sehr geehrt|Mit freundlichen|\b(?:Rechnung|Briefdatum|Rechnungsdatum)\b|\b\d{5}\s+[A-ZÄÖÜ]', str(text_value or ''), re.IGNORECASE))
+    organisation = lambda line: contains_legal_form(line) or any(hint in line.lower() for hint in _SENDER_ORG_HINTS)
+    letter_context = bool(_LETTER_CONTEXT_RE.search(str(text_value or '')))
     for index, line in enumerate(candidates):
         if organisation(line):
             issuer = extract_issuer_from_line(line)

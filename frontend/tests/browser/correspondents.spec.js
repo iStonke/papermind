@@ -1,9 +1,20 @@
 import { expect, test } from '@playwright/test';
+import { syntheticDocumentPdf } from './fixtures/syntheticDocumentPdf.js';
 
 const clubId = '30000000-0000-4000-8000-000000000001';
 const utilityId = '30000000-0000-4000-8000-000000000002';
 
+function collectApplicationErrors(page) {
+  const errors = [];
+  page.on('pageerror', error => {
+    if (error.message === 'WebSocket closed without opened.' && error.stack?.includes('/@vite/client:')) return;
+    errors.push(error.message);
+  });
+  return errors;
+}
+
 async function prepareWorkspace(page, { failUtilityOnce = false, themeMode = 'light', reorderDetailTags = false, includeUntyped = false } = {}) {
+  await page.addInitScript(() => localStorage.setItem('pm.dev.preferences.v1', JSON.stringify({ showOnboardingLauncher: false })));
   const user = { id: '20000000-0000-4000-8000-000000000001', username: 'review', is_admin: true, is_active: true };
   let loggedIn = false;
   const requests = [];
@@ -123,8 +134,7 @@ async function prepareWorkspace(page, { failUtilityOnce = false, themeMode = 'li
 
 test('document type view has complete counts, pagination, animated groups and correspondent metadata', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  const errors = [];
-  page.on('pageerror', error => errors.push(error.message));
+  const errors = collectApplicationErrors(page);
   const { requests } = await prepareWorkspace(page, { includeUntyped: true, reorderDetailTags: true });
   await page.getByRole('button', { name: 'Darstellung: Korrespondenten. Ändern', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Dokumenttyp', exact: true }).click();
@@ -206,8 +216,7 @@ test('document type view remembers groups separately and supports type search, u
 
 test('correspondent view has complete groups, paged documents, keyboard toggles and opens documents beyond the list page', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  const errors = [];
-  page.on('pageerror', error => errors.push(error.message));
+  const errors = collectApplicationErrors(page);
   const { requests, utility } = await prepareWorkspace(page);
   const groups = page.locator('.doc-groups__group');
   await expect(groups.locator('.doc-groups__name')).toHaveText(['KMTV', 'Stadtwerke Leipzig', 'Ohne Korrespondent']);
@@ -343,6 +352,470 @@ test('opening a document keeps its visible tags and their order stable', async (
   await expect(tags).toHaveText(initialTags);
 });
 
+test('the document search shows and clears the exact filter opened from a correspondent profile', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const { requests } = await prepareWorkspace(page);
+  const correspondent = { id: utilityId, name: 'Stadtwerke Leipzig', kind: 'organization', usage_count: 1 };
+  const member = { id: '30000000-0000-4000-8000-000000000003', name: 'Alex Bauer', kind: 'person', parent_id: utilityId };
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items: [correspondent, member] } }));
+  await page.route(`**/api/correspondents/${utilityId}/profile`, route => route.fulfill({
+    json: { correspondent, document_count: 1, own_document_count: 1, members: [member], activity: [], relations: [] },
+  }));
+
+  const search = page.getByRole('textbox', { name: 'Diese Dokumentliste durchsuchen', exact: true });
+  const chip = page.getByRole('search').getByRole('button', { name: 'Korrespondentenfilter entfernen: Stadtwerke Leipzig', exact: true });
+  const groups = page.locator('.doc-groups__name');
+
+  async function openFilteredDocuments() {
+    await page.locator('.sidebar-item--correspondents').click();
+    const workspace = page.locator('.panel-correspondents');
+    await workspace.getByRole('tree').getByText('Stadtwerke Leipzig', { exact: true }).click();
+    await workspace.getByRole('button', { name: 'In Dokumenten zeigen', exact: true }).click();
+    await expect(chip).toBeVisible();
+    await expect(search).toHaveValue('');
+    await expect(groups).toHaveText(['Stadtwerke Leipzig']);
+  }
+
+  await openFilteredDocuments();
+  expect(requests.some(request => request.correspondent_id === utilityId && request.correspondent_members === 'true' && !request.q)).toBe(true);
+  const header = page.locator('.panel-middle__header').filter({ has: search });
+  await expect(header.locator('.panel-middle__count')).toHaveText('1 Treffer');
+  await expect(header.locator('.panel-middle__scope')).toHaveCount(0);
+  expect(await chip.locator('span').evaluate(label => label.scrollWidth <= label.clientWidth)).toBe(true);
+  const scopeButton = header.getByRole('button', { name: /^Suchfeld:/ });
+  await scopeButton.click();
+  await page.getByText('Nur direkt zugeordnete Dokumente', { exact: true }).click();
+  await expect.poll(() => requests.some(request => request.correspondent_id === utilityId && !request.correspondent_members)).toBe(true);
+  await search.fill('Stadtwerke');
+  await expect.poll(() => requests.some(request => request.q === 'Stadtwerke' && request.correspondent_id === utilityId)).toBe(true);
+  await scopeButton.click();
+  await page.getByText(/^Alle Dokumente durchsuchen/).click();
+  await expect(chip).toHaveCount(0);
+  await scopeButton.click();
+  await page.getByText(/^Nur in „Stadtwerke Leipzig/).click();
+  await expect(chip).toBeVisible();
+  await chip.click();
+  await expect(chip).toHaveCount(0);
+  await expect(search).toHaveValue('Stadtwerke');
+  await expect.poll(() => requests.some(request => request.q === 'Stadtwerke' && !request.correspondent_id)).toBe(true);
+  await search.clear();
+  await expect(groups).toHaveCount(3);
+
+  await openFilteredDocuments();
+  await search.press('Backspace');
+  await expect(chip).toHaveCount(0);
+  await expect(groups).toHaveCount(3);
+});
+
+test('recent documents scroll horizontally and load the next page', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const { requests, utility } = await prepareWorkspace(page);
+  Object.assign(utility, { amount: '42.00', currency: 'EUR' });
+  const correspondents = [
+    { id: clubId, name: 'Kieler Männer-Turnverein', kind: 'organization', usage_count: 52 },
+    { id: utilityId, name: 'Stadtwerke Leipzig', kind: 'organization', usage_count: 1 },
+    { id: 'energy', name: 'Energie', kind: 'collection', usage_count: 0 },
+  ];
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items: correspondents } }));
+  for (const correspondent of correspondents) {
+    await page.route(`**/api/correspondents/${correspondent.id}/profile`, route => route.fulfill({ json: {
+      correspondent, document_count: correspondent.usage_count, own_document_count: correspondent.usage_count,
+      members: [], activity: [], relations: [],
+    } }));
+  }
+  let failNextPage = true;
+  await page.route('**/api/documents?*', route => {
+    const params = new URL(route.request().url()).searchParams;
+    if (failNextPage && params.get('correspondent_id') === clubId && params.get('offset') === '6') {
+      failNextPage = false;
+      return route.fulfill({ status: 503, json: {} });
+    }
+    return route.fallback();
+  });
+
+  await page.locator('.sidebar-item--correspondents').click();
+  const workspace = page.locator('.panel-correspondents');
+  const tree = workspace.getByRole('tree');
+  const rail = workspace.getByRole('list', { name: 'Neuste Dokumente' });
+  await tree.getByText('Kieler Männer-Turnverein', { exact: true }).click();
+  await expect(rail.getByRole('listitem')).toHaveCount(6);
+  const [first, fourth] = await Promise.all([rail.getByRole('listitem').first().boundingBox(), rail.getByRole('listitem').nth(3).boundingBox()]);
+  expect(fourth.y).toBe(first.y);
+  expect(fourth.x).toBeGreaterThan(first.x + first.width);
+  await rail.evaluate(list => { list.scrollLeft = list.scrollWidth; });
+  const error = workspace.getByRole('status').filter({ hasText: 'Weitere Dokumente konnten nicht geladen werden.' });
+  await expect(error).toBeVisible();
+  await expect(rail.getByRole('listitem')).toHaveCount(6);
+  await error.getByRole('button', { name: 'Erneut versuchen' }).click();
+  await expect(rail.getByRole('listitem')).toHaveCount(12);
+  expect(requests.some(request => request.correspondent_id === clubId && request.correspondent_members === 'true'
+    && request.sort === 'correspondent_date' && request.offset === '6')).toBe(true);
+  await expect(workspace.getByRole('button', { name: 'Alle 52 anzeigen' })).toBeVisible();
+
+  await tree.getByText('Stadtwerke Leipzig', { exact: true }).click();
+  await expect(rail.getByRole('listitem')).toHaveCount(1);
+  const documentCard = rail.getByRole('button', { name: /^Jahresabrechnung Strom/ });
+  await expect(documentCard.getByText('Rechnung', { exact: true })).toHaveCSS('font-weight', '600');
+  await expect(documentCard.getByText('20.05.2026')).toBeVisible();
+  await expect(documentCard).not.toContainText('42,00');
+  expect(await rail.evaluate(list => list.scrollLeft)).toBe(0);
+  const recent = workspace.getByRole('region', { name: 'Neuste Dokumente' });
+  expect((await documentCard.boundingBox()).width).toBeCloseTo((await recent.boundingBox()).width / 2, 0);
+
+  await tree.getByText('Energie', { exact: true }).click();
+  const emptyCard = recent.locator('.pm-recent-docs__empty');
+  await expect(emptyCard.getByText('Noch keine Dokumente')).toBeVisible();
+  expect((await emptyCard.boundingBox()).width).toBeCloseTo((await recent.boundingBox()).width / 2, 0);
+  await page.setViewportSize({ width: 420, height: 900 });
+  await expect(emptyCard).toHaveCSS('flex-direction', 'column');
+  await expect.poll(async () => (await recent.boundingBox()).width).toBeGreaterThan(250);
+  await expect.poll(() => emptyCard.evaluate(card => Math.abs(card.offsetWidth - card.closest('section').offsetWidth / 2))).toBeLessThanOrEqual(1);
+});
+
+test('alias and note placeholders expand to solid borders, and saved notes keep their border', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await prepareWorkspace(page);
+  const correspondent = { id: utilityId, name: 'Stadtwerke Leipzig', kind: 'organization', aliases: [{ id: 'utility-alias', alias: 'SW Leipzig' }] };
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items: [correspondent] } }));
+  await page.route(`**/api/correspondents/${utilityId}/profile`, route => route.fulfill({
+    json: { correspondent, document_count: 0, own_document_count: 0, members: [], activity: [], relations: [] },
+  }));
+  await page.route(`**/api/correspondents/${utilityId}`, route => {
+    Object.assign(correspondent, route.request().postDataJSON());
+    return route.fulfill({ json: correspondent });
+  });
+
+  await page.locator('.sidebar-item--correspondents').click();
+  const workspace = page.locator('.panel-correspondents');
+  await workspace.getByRole('tree').getByText('Stadtwerke Leipzig', { exact: true }).click();
+  const aliasButton = workspace.getByRole('button', { name: 'Alias hinzufügen', exact: true });
+  const noteButton = workspace.getByRole('button', { name: 'Notiz hinzufügen', exact: true });
+
+  async function expectResize(selector, dimensions, action, grows = false) {
+    const animation = page.waitForFunction(({ selector, dimensions, grows }) => {
+      const field = document.querySelector(selector);
+      if (!field || getComputedStyle(field).borderTopStyle !== (grows ? 'solid' : 'dashed')) return false;
+      const animations = field.getAnimations();
+      if (animations.some(animation => animation.animationName === 'pm-inline-add-in')) return false;
+      return animations.some(animation => {
+        const [start, end] = animation.effect.getKeyframes();
+        return dimensions.every(dimension => grows
+          ? parseFloat(end[dimension]) > parseFloat(start[dimension])
+          : parseFloat(end[dimension]) < parseFloat(start[dimension]));
+      });
+    }, { selector, dimensions, grows }, { timeout: 3000 });
+    await Promise.all([animation, action()]);
+  }
+
+  await expect(aliasButton).toHaveCSS('border-top-style', 'dashed');
+  await expectResize('.pm-recog__add', ['width'], () => aliasButton.click(), true);
+  const aliasInput = workspace.getByRole('textbox', { name: 'Weiteren Alias hinzufügen' });
+  await expect(aliasInput).toBeFocused();
+  await aliasInput.evaluate(input => Promise.all(input.form.getAnimations().map(animation => animation.finished)));
+  await expectResize('.pm-recog__action', ['width'], () => workspace.getByRole('heading', { name: 'Aliase' }).click());
+  await expect(aliasInput).toHaveCount(0);
+  await expect(aliasButton).toBeVisible();
+
+  const notePlaceholderWidth = (await noteButton.boundingBox()).width;
+  await expect(noteButton).toHaveCSS('border-top-style', 'dashed');
+  await expectResize('.corr-note--input', ['width', 'height'], () => noteButton.click(), true);
+  const noteInput = workspace.getByRole('textbox', { name: 'Notiz zum Korrespondenten' });
+  await expect(noteInput).toBeFocused();
+  await noteInput.evaluate(input => Promise.all(input.getAnimations().map(animation => animation.finished)));
+  const noteSection = workspace.getByRole('region', { name: 'Notiz', exact: true });
+  const availableWidth = (await noteSection.boundingBox()).width;
+  const initialEditorWidth = (await noteInput.boundingBox()).width;
+  expect(initialEditorWidth).toBeGreaterThan(notePlaceholderWidth);
+  expect(initialEditorWidth).toBeLessThan(availableWidth);
+  await expectResize('.corr-note--empty', ['width', 'height'], () => noteInput.press('Escape'));
+  await expect(noteInput).toHaveCount(0);
+  await expect(noteButton).toBeFocused();
+
+  const noteHeading = workspace.getByRole('heading', { name: 'Notiz', exact: true });
+  await noteButton.click();
+  await noteInput.evaluate(input => Promise.all(input.getAnimations().map(animation => animation.finished)));
+  await noteInput.fill('LangerNotiztext'.repeat(80));
+  expect((await noteInput.boundingBox()).width).toBeCloseTo(availableWidth, 0);
+  expect(await noteInput.evaluate(input => input.scrollWidth - input.clientWidth)).toBeLessThanOrEqual(1);
+  await noteInput.fill('Zählerstand im Dezember melden.');
+  expect((await noteInput.boundingBox()).width).toBeLessThan(availableWidth);
+  await noteHeading.click();
+  const savedNote = workspace.getByRole('button', { name: 'Zählerstand im Dezember melden.', exact: true });
+  await expect(savedNote).toHaveCSS('border-top-style', 'solid');
+  const aliasBackground = await workspace.locator('.pm-recog__chip').evaluate(chip => getComputedStyle(chip).backgroundColor);
+  await expect(savedNote).toHaveCSS('background-color', aliasBackground);
+  await savedNote.evaluate(note => Promise.all(note.getAnimations().map(animation => animation.finished)));
+  expect((await savedNote.boundingBox()).width).toBeLessThan(availableWidth);
+
+  await savedNote.click();
+  await noteInput.clear();
+  await noteHeading.click();
+  await expect(noteButton).toHaveCSS('border-top-style', 'dashed');
+  await expect(noteButton).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+});
+
+for (const [themeMode, fieldBackground] of [['light', 'rgb(251, 252, 253)'], ['dark', 'rgb(40, 53, 59)']]) {
+  test(`the correspondent name editor uses the ${themeMode} form palette`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await prepareWorkspace(page, { themeMode });
+
+    await page.locator('.sidebar-item--correspondents').click();
+    const workspace = page.locator('.panel-correspondents');
+    await workspace.getByRole('tree').getByText('Stadtwerke Leipzig', { exact: true }).click();
+    await workspace.getByRole('button', { name: 'Stadtwerke Leipzig', exact: true }).click();
+    const nameInput = workspace.getByRole('textbox', { name: 'Name des Korrespondenten' });
+    await expect(nameInput).toBeFocused();
+    await expect(nameInput).toHaveCSS('background-color', fieldBackground);
+    const selection = await nameInput.evaluate(input => {
+      const style = getComputedStyle(input, '::selection');
+      return {
+        text: input.value.slice(input.selectionStart, input.selectionEnd),
+        foreground: style.color,
+        background: style.backgroundColor,
+        textColor: getComputedStyle(input).color,
+      };
+    });
+    expect(selection.text).toBe('Stadtwerke Leipzig');
+    expect(selection.foreground).toBe(selection.textColor);
+    expect(selection.background).not.toBe('rgba(0, 0, 0, 0)');
+  });
+}
+
+test('the directory handles open document assignments and only offers short names outside collections', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const { utility } = await prepareWorkspace(page);
+  const correspondents = [
+    { id: utilityId, name: 'Stadtwerke Leipzig', kind: 'organization' },
+    { id: 'energy', name: 'Energie', kind: 'collection', short_name: 'Altbestand' },
+    { id: 'untyped', name: 'Unsortierter Kontakt', kind: null },
+  ];
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items: correspondents } }));
+  for (const item of correspondents) {
+    await page.route(`**/api/correspondents/${item.id}/profile`, route => route.fulfill({
+      json: { correspondent: item, document_count: 0, own_document_count: 0, members: [], activity: [], relations: [] },
+    }));
+  }
+  await page.route(`**/api/correspondents/${utilityId}`, route => {
+    Object.assign(correspondents[0], route.request().postDataJSON());
+    return route.fulfill({ json: correspondents[0] });
+  });
+  const classificationUpdates = [];
+  await page.route('**/api/correspondents/untyped', route => {
+    const payload = route.request().postDataJSON();
+    classificationUpdates.push(payload);
+    Object.assign(correspondents[2], payload);
+    return route.fulfill({ json: correspondents[2] });
+  });
+  const unassigned = [
+    { document_id: 'unassigned1', title: 'Garantiebeleg', sender: 'Stadtwerke-Leipzig', document_type: 'Rechnung', document_date: '2026-05-20' },
+    { document_id: 'unassignedNew', title: 'Teilnahmebestätigung', sender: 'Nordlicht Akademie' },
+    { document_id: 'unassigned2', title: 'Privater Beleg' },
+  ];
+  const assignments = [];
+  const newCorrespondents = [];
+  const academy = { id: 'academy', name: 'Nordlicht Akademie' };
+  await page.route('**/api/correspondents', route => {
+    expect(route.request().method()).toBe('POST');
+    newCorrespondents.push(route.request().postDataJSON());
+    correspondents.push(academy);
+    return route.fulfill({ json: academy });
+  });
+  await page.route('**/api/correspondents/unresolved?*', route => route.fulfill({ json: { items: unassigned } }));
+  await page.route('**/api/documents/unassigned1', route => {
+    expect(route.request().method()).toBe('PATCH');
+    assignments.push(route.request().postDataJSON());
+    unassigned.shift();
+    return route.fulfill({ json: {} });
+  });
+  await page.route('**/api/documents/unassignedNew', route => {
+    expect(route.request().method()).toBe('PATCH');
+    assignments.push(route.request().postDataJSON());
+    unassigned.shift();
+    return route.fulfill({ json: {} });
+  });
+  await page.route('**/api/documents/unassigned*/file?*', route => {
+    expect(new URL(route.request().url()).searchParams.get('role')).toBe('searchable');
+    return route.fulfill({ contentType: 'application/pdf', body: syntheticDocumentPdf() });
+  });
+  await page.route('**/api/correspondents/unresolved/unassigned2/ignore', route => {
+    expect(route.request().method()).toBe('POST');
+    unassigned.shift();
+    return route.fulfill({ json: { ok: true } });
+  });
+
+  const utilityGroup = page.locator('.doc-groups__group').filter({ hasText: utility.correspondent_name });
+  await utilityGroup.locator('.doc-groups__heading').click();
+  await utilityGroup.getByRole('button', { name: /^Jahresabrechnung Strom/ }).press('Enter');
+  await page.getByRole('button', { name: 'Dokumentdetails öffnen', exact: true }).click();
+  const drawerMeta = page.locator('.details-drawer__meta-line');
+  const drawerSpacing = await drawerMeta.evaluate(element => {
+    const { columnGap, rowGap, marginTop } = getComputedStyle(element);
+    const type = element.querySelector('.details-drawer__meta-part--type');
+    return { columnGap, rowGap, marginTop, inset: getComputedStyle(type).paddingInlineEnd };
+  });
+  await page.getByRole('button', { name: 'Zu Korrespondenten wechseln', exact: true }).click();
+
+  const workspace = page.locator('.panel-correspondents');
+  await expect(workspace.getByRole('heading', { name: 'Stadtwerke Leipzig', exact: true })).toBeVisible();
+  const profileMeta = workspace.locator('.corr-profile__meta');
+  await expect(profileMeta).toHaveCSS('column-gap', drawerSpacing.columnGap);
+  await expect(profileMeta).toHaveCSS('row-gap', drawerSpacing.rowGap);
+  await expect(profileMeta).toHaveCSS('margin-top', drawerSpacing.marginTop);
+  await expect(profileMeta.getByText('0 Dokumente', { exact: true })).toHaveCSS('padding-inline-end', drawerSpacing.inset);
+  const affiliations = workspace.getByRole('region', { name: 'Zugehörigkeiten', exact: true });
+  await expect(affiliations.getByRole('button', { name: 'Zugehörigkeit hinzufügen', exact: true })).toBeVisible();
+  await expect(affiliations.getByText('Noch keine Zugehörigkeiten.')).toHaveCount(0);
+  await workspace.getByRole('button', { name: 'Kurzname hinzufügen', exact: true }).click();
+  const shortNameDialog = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'Kurzname bearbeiten' }) });
+  await shortNameDialog.getByRole('textbox', { name: 'Kurzname' }).fill('SW Leipzig');
+  await shortNameDialog.getByRole('button', { name: 'Speichern' }).click();
+  await expect(workspace.getByRole('button', { name: 'Kurzname bearbeiten: SW Leipzig' })).toBeVisible();
+  await workspace.getByRole('textbox', { name: 'Korrespondenten durchsuchen' }).fill('SW Leipzig');
+  await expect(workspace.getByRole('treeitem')).toHaveCount(1);
+  await workspace.getByRole('textbox', { name: 'Korrespondenten durchsuchen' }).clear();
+  await workspace.getByRole('tree').getByText('Energie', { exact: true }).click();
+  await expect(workspace.getByRole('heading', { name: 'Energie', exact: true })).toBeVisible();
+  await expect(workspace.getByRole('button', { name: /^Kurzname/ })).toHaveCount(0);
+  await expect(workspace.getByText('Altbestand', { exact: true })).toHaveCount(0);
+  const members = workspace.getByRole('region', { name: 'Mitglieder', exact: true });
+  await members.getByRole('button', { name: 'Mitglied hinzufügen', exact: true }).click();
+  await expect(members.getByText('Noch keine Mitglieder.')).toHaveCount(0);
+  const connectionMenu = page.getByRole('dialog', { name: 'Verbindung hinzufügen' });
+  await expect(connectionMenu.getByRole('button', { name: /Stadtwerke Leipzig/ })).toBeVisible();
+  await expect(connectionMenu.getByRole('button', { name: /Unsortierter Kontakt/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(connectionMenu).toBeHidden();
+
+  const untyped = workspace.getByRole('treeitem').filter({ hasText: 'Unsortierter Kontakt' });
+  await expect(untyped).toHaveAttribute('draggable', 'false');
+  await untyped.click();
+  const classification = workspace.getByRole('region', { name: 'Einordnung', exact: true });
+  await expect(classification.getByText('Dieser Eintrag hat noch keinen Typ.')).toHaveCount(0);
+  const typePlaceholder = classification.getByRole('button', { name: 'Typ festlegen', exact: true });
+  await expect(typePlaceholder).toHaveCSS('border-top-style', 'dashed');
+  await expect(typePlaceholder).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  const notePlaceholder = workspace.getByRole('button', { name: 'Notiz hinzufügen', exact: true });
+  expect((await typePlaceholder.boundingBox()).height).toBe((await notePlaceholder.boundingBox()).height);
+  expect((await typePlaceholder.boundingBox()).width).toBeLessThan((await classification.boundingBox()).width);
+  await typePlaceholder.click();
+  const kindDialog = page.getByRole('dialog', { name: 'Typ festlegen', exact: true });
+  await kindDialog.getByRole('radio', { name: 'Organisation', exact: true }).check();
+  await kindDialog.getByRole('button', { name: 'Typ übernehmen' }).click();
+  await expect(classification).toHaveCount(0);
+  await affiliations.getByRole('button', { name: 'Zugehörigkeit hinzufügen', exact: true }).click();
+  await connectionMenu.getByRole('button', { name: 'Richtung tauschen' }).click();
+  await expect(connectionMenu.getByRole('button', { name: /Stadtwerke Leipzig/ })).toHaveCount(0);
+  await connectionMenu.getByRole('button', { name: /Energie/ }).click();
+  const collectionTile = affiliations.getByRole('button', { name: /^Energie/ });
+  await expect(collectionTile).toBeVisible();
+  expect(classificationUpdates).toEqual([{ kind: 'organization' }, { parent_id: 'energy' }]);
+  const addAffiliation = affiliations.getByRole('button', { name: 'Zugehörigkeit hinzufügen', exact: true });
+  await expect(addAffiliation).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  expect((await addAffiliation.boundingBox()).y).toBeGreaterThan((await collectionTile.boundingBox()).y);
+
+  await collectionTile.click();
+  await expect(members.getByRole('button', { name: /^Unsortierter Kontakt/ })).toBeVisible();
+  const addMember = members.getByRole('button', { name: 'Mitglied hinzufügen', exact: true });
+  await expect(addMember).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(addMember).toHaveCSS('border-top-style', 'dashed');
+
+  const tree = workspace.getByRole('tree', { name: 'Korrespondenten' });
+  const unassignedGroup = tree.getByRole('group', { name: 'Ohne Korrespondent', exact: true });
+  await expect(tree.getByRole('group').first()).toHaveAttribute('aria-label', 'Ohne Korrespondent');
+  const inboxRow = unassignedGroup.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true });
+  await expect(unassignedGroup.getByRole('treeitem')).toHaveCount(1);
+  await expect(inboxRow.locator('.corr-inbox__count')).toHaveText('3');
+  await expect(tree.getByRole('treeitem', { name: 'Garantiebeleg', exact: true })).toHaveCount(0);
+  await expect(workspace.getByRole('button', { name: 'Dokumente ohne Korrespondenten', exact: true })).toHaveCount(0);
+  await inboxRow.press('Enter');
+  const review = workspace.getByRole('region', { name: 'Dokumente ohne Korrespondenten', exact: true });
+  await expect(tree).toBeVisible();
+  await expect(inboxRow).toHaveAttribute('aria-selected', 'true');
+  const strip = review.getByRole('listbox', { name: 'Offene Dokumente', exact: true });
+  await expect(strip.getByRole('option')).toHaveCount(3);
+  await expect(strip.getByRole('option', { name: 'Garantiebeleg', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(review.getByText('1 / 3', { exact: true })).toBeVisible();
+  await expect(review.getByRole('heading', { name: 'Garantiebeleg', exact: true })).toBeVisible();
+  await expect(review.getByText('Privater Beleg', { exact: true })).toHaveCount(0);
+  const preview = review.getByRole('region', { name: 'Dokumentvorschau: Garantiebeleg' });
+  await expect(preview.locator('.pdf-preview__viewer--ready')).toBeVisible({ timeout: 10000 });
+  const drawer = review.getByRole('region', { name: 'Dokumentdetails', exact: true });
+  const correspondent = drawer.getByRole('combobox', { name: 'Korrespondent', exact: true });
+  await expect(drawer.getByText('2 Seiten', { exact: true })).toBeVisible();
+  await expect(drawer.getByRole('tablist')).toHaveCount(0);
+  await expect(correspondent).toBeVisible();
+  const suggestionChip = drawer.getByText('Vorschlag', { exact: true });
+  await expect(suggestionChip).toBeVisible();
+  await correspondent.fill('Energie');
+  await page.getByRole('option').filter({ hasText: 'Energie' }).click();
+  await expect(suggestionChip).toHaveCount(0);
+  await correspondent.fill('Stadtwerke');
+  await page.getByRole('option').filter({ hasText: 'Stadtwerke Leipzig' }).click();
+  await expect(suggestionChip).toBeVisible();
+  await drawer.getByRole('button', { name: 'Dokumentdetails schließen', exact: true }).click();
+  await expect(correspondent).toBeHidden();
+  await expect(preview.locator('.pdf-preview__viewer--ready')).toBeVisible();
+  // The strip stays visible with the collapsed drawer and keeps it collapsed.
+  const privateThumb = strip.getByRole('option', { name: 'Privater Beleg', exact: true });
+  await privateThumb.click();
+  await expect(drawer.getByRole('heading', { name: 'Privater Beleg', exact: true })).toBeVisible();
+  await expect(privateThumb).toHaveAttribute('aria-selected', 'true');
+  await expect(privateThumb).toBeFocused();
+  await expect(review.getByText('3 / 3', { exact: true })).toBeVisible();
+  await expect(correspondent).toBeHidden();
+  await page.keyboard.press('ArrowLeft');
+  await expect(drawer.getByRole('heading', { name: 'Teilnahmebestätigung', exact: true })).toBeVisible();
+  await page.keyboard.press('Home');
+  await expect(drawer.getByRole('heading', { name: 'Garantiebeleg', exact: true })).toBeVisible();
+  await expect(strip.getByRole('option', { name: 'Garantiebeleg', exact: true })).toBeFocused();
+  await drawer.getByRole('button', { name: 'Dokumentdetails öffnen', exact: true }).click();
+  await expect(correspondent).toBeVisible();
+  await drawer.getByRole('button', { name: 'Dokumentdetails schließen', exact: true }).click();
+  const headerMenu = drawer.locator('.details-drawer__header').getByRole('button', { name: 'Weitere Aktionen' });
+  await headerMenu.click();
+  await page.getByText('Absender als Alias übernehmen', { exact: true }).click();
+  await expect(drawer.getByRole('button', { name: 'Dokumentdetails schließen', exact: true })).toBeVisible();
+  await expect(correspondent).toBeFocused();
+  await expect(suggestionChip).toHaveCount(0);
+  await expect(drawer.getByRole('button', { name: 'Alias übernehmen und zuordnen' })).toBeDisabled();
+  await drawer.getByRole('button', { name: 'Abbrechen', exact: true }).click();
+  await expect(drawer.locator('.pm-metadata-value')).toContainText('SW Leipzig');
+  await expect(drawer.getByText(/Erkannter Absender|Vorschlag anhand/)).toHaveCount(0);
+  await drawer.getByRole('button', { name: 'Zuordnen', exact: true }).click();
+  await expect(review.getByRole('heading', { name: 'Teilnahmebestätigung', exact: true })).toBeVisible();
+  await expect(drawer.locator('.pm-metadata-value')).toContainText('Nordlicht Akademie');
+  await expect(suggestionChip).toBeVisible();
+  expect(newCorrespondents).toEqual([]);
+  await drawer.getByRole('button', { name: 'Anlegen und zuordnen', exact: true }).click();
+  expect(newCorrespondents).toEqual([{ name: academy.name }]);
+  await expect(review.getByRole('heading', { name: 'Privater Beleg', exact: true })).toBeVisible();
+  await expect(suggestionChip).toHaveCount(0);
+  await expect(preview).toHaveCount(0);
+  await expect(drawer.getByRole('button', { name: 'Zuordnen', exact: true })).toBeDisabled();
+  expect(assignments).toEqual([{ correspondent_id: utilityId }, { correspondent_id: academy.id }]);
+  await expect(inboxRow.locator('.corr-inbox__count')).toHaveText('1');
+  await expect(strip).toHaveCount(0);
+
+  const remainingRow = inboxRow;
+  await expect(remainingRow).toHaveAttribute('aria-selected', 'true');
+  await page.setViewportSize({ width: 820, height: 1000 });
+  await expect(tree).toBeHidden();
+  await drawer.getByRole('button', { name: 'Dokumentdetails schließen', exact: true }).click();
+  await expect(correspondent).toBeHidden();
+  await review.getByRole('button', { name: 'Korrespondenten', exact: true }).click();
+  await expect(tree).toBeVisible();
+  await expect(remainingRow).toBeFocused();
+  await remainingRow.click();
+  await expect(correspondent).toBeVisible();
+  await review.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByText('Bewusst ohne Korrespondent', { exact: true }).click();
+  await expect(review.getByRole('status')).toHaveText('Keine offenen Zuordnungen.');
+  await review.getByRole('button', { name: 'Korrespondenten', exact: true }).click();
+  await expect(unassignedGroup).toHaveCount(0);
+});
+
 test('remembers open and closed groups across view changes, searches and reloads', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await prepareWorkspace(page);
@@ -409,4 +882,311 @@ test('search narrows groups and narrow view has no horizontal overflow', async (
   const overflow = await page.locator('.doc-groups').evaluate(element => element.scrollWidth > element.clientWidth);
   expect(overflow).toBe(false);
   await page.locator('.doc-groups').screenshot({ path: testInfo.outputPath('correspondents-narrow.png') });
+});
+
+test('new correspondent detects exact aliases and can add alternative spellings', async ({ page }) => {
+  await prepareWorkspace(page);
+  const correspondent = { id: utilityId, name: 'Wiker Autoservice', kind: 'organization', aliases: [{ id: 'old', alias: 'Wiker Werkstatt' }] };
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items: [correspondent] } }));
+  await page.route(`**/api/correspondents/${utilityId}/profile`, route => route.fulfill({ json: { correspondent, document_count: 0, members: [], activity: [], relations: [] } }));
+  let savedAlias;
+  await page.route(`**/api/correspondents/${utilityId}/aliases`, route => {
+    savedAlias = route.request().postDataJSON().alias;
+    return route.fulfill({ json: { ...correspondent, aliases: [...correspondent.aliases, { id: 'new', alias: savedAlias }] } });
+  });
+  await page.locator('.sidebar-item--correspondents').click();
+  await page.getByRole('button', { name: 'Neuer Korrespondent', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  const name = dialog.getByRole('textbox', { name: 'Name', exact: true });
+  await name.fill('Wiker Werkstatt');
+  await expect(dialog.getByText('Dieser Name ist bereits vorhanden.', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Anlegen', exact: true })).toBeDisabled();
+  const matches = dialog.getByRole('region', { name: 'Vorhandene Korrespondenten', exact: true });
+  await name.fill('Wiker Autoservice GmbH');
+  await expect(matches.getByText('„Wiker Autoservice“ ist bereits vorhanden – nur die Rechtsform unterscheidet sich.', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Trotzdem anlegen', exact: true })).toBeEnabled();
+  await name.fill('Wiker-Auto-Service');
+  await expect(matches.getByText('1 ähnlicher Eintrag vorhanden', { exact: true })).toBeVisible();
+  await expect(matches.getByText('Organisation · 0 Dokumente', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Trotzdem anlegen', exact: true })).toBeEnabled();
+  await expect(name).toHaveAttribute('autocomplete', 'off');
+  // Safari AutoFill: no <form> that records submitted values, no contact-like field name.
+  await expect(name).toHaveAttribute('name', 'pm-correspondent-search');
+  await expect(dialog.locator('form')).toHaveCount(0);
+  // Matches sit directly below the name in a single narrow column.
+  const nameBox = await name.boundingBox();
+  const matchesBox = await matches.boundingBox();
+  expect(matchesBox.y).toBeGreaterThan(nameBox.y);
+  expect(Math.abs(matchesBox.x - (await dialog.locator('.corr-create .v-field').first().boundingBox()).x)).toBeLessThan(2);
+  expect((await dialog.locator('.corr-create-dialog').boundingBox()).width).toBeLessThanOrEqual(520);
+  // Organisations can only belong to collections; without any the link stays away.
+  const parentLink = dialog.getByRole('button', { name: 'Gehört zu …', exact: true });
+  await expect(parentLink).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Person', exact: true }).click();
+  await expect(dialog.getByRole('combobox', { name: 'Gehört zu', exact: true })).toHaveCount(0);
+  await parentLink.click();
+  await expect(dialog.getByRole('combobox', { name: 'Gehört zu', exact: true })).toBeVisible();
+  await page.getByRole('option', { name: 'Wiker Autoservice' }).click();
+  await dialog.getByRole('button', { name: 'Organisation', exact: true }).click();
+  await expect(name).toHaveValue('Wiker-Auto-Service');
+  await page.setViewportSize({ width: 420, height: 900 });
+  await expect(matches).toBeVisible();
+  await dialog.getByRole('button', { name: 'Als Alias zu Wiker Autoservice hinzufügen', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(savedAlias).toBe('Wiker-Auto-Service');
+});
+
+test('enter in the name field creates the correspondent without a form submit', async ({ page }) => {
+  await prepareWorkspace(page);
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items: [] } }));
+  let created;
+  await page.route('**/api/correspondents', route => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    created = route.request().postDataJSON();
+    return route.fulfill({ json: { id: 'new-corr', name: created.name, kind: created.kind || 'organization', aliases: [] } });
+  });
+  await page.locator('.sidebar-item--correspondents').click();
+  await page.getByRole('button', { name: 'Neuer Korrespondent', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  const name = dialog.getByRole('textbox', { name: 'Name', exact: true });
+  await name.fill('Neue Firma');
+  const shortName = dialog.getByRole('textbox', { name: 'Kurzname (optional)', exact: true });
+  await expect(shortName).toHaveValue('');
+  await name.fill('Neue Firma GmbH');
+  await expect(shortName).toHaveValue('Neue Firma');
+  await expect(dialog.getByText('Vorschlag ohne Rechtsform GmbH', { exact: true })).toBeVisible();
+  await name.press('Enter');
+  await expect.poll(() => created?.name).toBe('Neue Firma GmbH');
+  expect(created.short_name).toBe('Neue Firma');
+});
+
+test('the short name can be edited, cleared or set for persons', async ({ page }) => {
+  await prepareWorkspace(page);
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items: [] } }));
+  const created = [];
+  await page.route('**/api/correspondents', route => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    const body = route.request().postDataJSON();
+    created.push(body);
+    return route.fulfill({ json: { id: `new-${created.length}`, name: body.name, kind: body.kind, aliases: [] } });
+  });
+  await page.locator('.sidebar-item--correspondents').click();
+  const open = async () => {
+    await page.getByRole('button', { name: 'Neuer Korrespondent', exact: true }).click();
+    return page.getByRole('dialog');
+  };
+  let dialog = await open();
+  const shortName = () => dialog.getByRole('textbox', { name: 'Kurzname (optional)', exact: true });
+  await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Muster Versicherung AG');
+  await expect(shortName()).toHaveValue('Muster Versicherung');
+  // Clearing keeps the full name visible: no short name is stored.
+  await shortName().fill('');
+  await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Muster Versicherung SE');
+  await expect(shortName()).toHaveValue('');
+  await dialog.getByRole('button', { name: 'Anlegen', exact: true }).click();
+  await expect.poll(() => created.length).toBe(1);
+  expect(created[0]).toMatchObject({ name: 'Muster Versicherung SE', kind: 'organization', short_name: null });
+
+  dialog = await open();
+  await dialog.getByRole('button', { name: 'Person', exact: true }).click();
+  await dialog.getByRole('textbox', { name: 'Vorname', exact: true }).fill('Erika');
+  await dialog.getByRole('textbox', { name: 'Nachname', exact: true }).fill('Mustermann');
+  await shortName().fill('Oma');
+  await dialog.getByRole('button', { name: 'Anlegen', exact: true }).click();
+  await expect.poll(() => created.length).toBe(2);
+  expect(created[1]).toMatchObject({ kind: 'person', first_name: 'Erika', last_name: 'Mustermann', short_name: 'Oma' });
+
+  dialog = await open();
+  await dialog.getByRole('button', { name: 'Sammlung', exact: true }).click();
+  await expect(shortName()).toHaveCount(0);
+});
+
+test('the duplicates tile lists likely pairs and merges into the entry with more documents', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await prepareWorkspace(page);
+  const small = { id: clubId, name: 'Vodafone', kind: 'organization', usage_count: 2, aliases: [], notes: 'Kundennr. 42' };
+  const large = { id: utilityId, name: 'Vodafone GmbH', kind: 'organization', usage_count: 12, aliases: [] };
+  const other = { id: '30000000-0000-4000-8000-000000000009', name: 'Vodafone Kabel', kind: 'organization', usage_count: 1, aliases: [] };
+  let items = [small, large, other];
+  let mergeRequest;
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items } }));
+  for (const entry of [small, large, other]) {
+    await page.route(`**/api/correspondents/${entry.id}/profile`, route => route.fulfill({
+      json: { correspondent: entry, document_count: entry.usage_count, own_document_count: entry.usage_count, members: [], activity: [], relations: [] },
+    }));
+  }
+  await page.route(`**/api/correspondents/*/merge`, route => {
+    mergeRequest = { target: route.request().url().split('/').at(-2), ...route.request().postDataJSON() };
+    const merged = { ...large, usage_count: 14, aliases: [{ id: 'alias-1', alias: 'Vodafone' }] };
+    items = [merged, other];
+    return route.fulfill({ json: { correspondent: merged, documents: 2, aliases: 1, matchers: 0, relations: 0, members: 0, notes: 0 } });
+  });
+
+  await page.locator('.sidebar-item--correspondents').click();
+  const workspace = page.locator('.panel-correspondents');
+  const tile = workspace.getByRole('treeitem', { name: 'Mögliche Doppelte', exact: true });
+  await expect(tile.locator('.corr-inbox__count')).toHaveText('1');
+  await tile.click();
+  await expect(tile).toHaveAttribute('aria-selected', 'true');
+  const panel = workspace.getByRole('region', { name: 'Mögliche Doppelte', exact: true });
+  const pairs = panel.getByRole('list', { name: 'Paare' }).getByRole('listitem');
+  await expect(pairs).toHaveCount(1);
+  await expect(pairs.first()).toContainText('Nur die Rechtsform unterscheidet sich');
+  await expect(panel).not.toContainText('Vodafone Kabel');
+  await pairs.first().getByRole('button', { name: 'Vodafone und Vodafone GmbH zusammenführen' }).click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('combobox', { name: 'Zusammenführen mit' })).toBeVisible();
+  const keep = dialog.getByRole('radiogroup', { name: 'Bleibt erhalten', exact: true });
+  await expect(keep.getByRole('radio', { name: /Vodafone GmbH/ })).toHaveAttribute('aria-checked', 'true');
+  await expect(dialog.getByText('2 Dokumente von „Vodafone“ werden „Vodafone GmbH“ zugeordnet.', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Die Notiz von „Vodafone“ wird angehängt.', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('„Vodafone“ wird danach gelöscht. Das lässt sich nicht rückgängig machen.', { exact: true })).toBeVisible();
+  // Switching sides swaps the summary.
+  await keep.getByRole('radio', { name: /^Vodafone 2 Dokumente/ }).click();
+  await expect(dialog.getByText('12 Dokumente von „Vodafone GmbH“ werden „Vodafone“ zugeordnet.', { exact: true })).toBeVisible();
+  await keep.getByRole('radio', { name: /Vodafone GmbH/ }).click();
+  await dialog.getByRole('button', { name: 'Zusammenführen', exact: true }).click();
+
+  await expect(dialog).toBeHidden();
+  expect(mergeRequest).toEqual({ target: utilityId, source_id: clubId });
+  await expect(workspace.getByRole('tree').getByText('Vodafone', { exact: true })).toHaveCount(0);
+  // The duplicates view stays open and is now empty; the tile disappears.
+  await expect(panel.getByText('Keine möglichen Doppelten.')).toBeVisible();
+  await expect(tile).toHaveCount(0);
+});
+
+test('a pair marked as no duplicate stays hidden', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await prepareWorkspace(page);
+  const items = [
+    { id: clubId, name: 'Müller', kind: 'organization', usage_count: 1, aliases: [] },
+    { id: utilityId, name: 'Müller GmbH', kind: 'organization', usage_count: 2, aliases: [] },
+  ];
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items } }));
+  let patch;
+  await page.route('**/api/settings', route => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    patch = route.request().postDataJSON();
+    return route.fulfill({ json: { ui: { start_view: 'all', theme_mode: 'light', ...patch.ui }, retention: { enabled: false } } });
+  });
+  await page.locator('.sidebar-item--correspondents').click();
+  const workspace = page.locator('.panel-correspondents');
+  const tile = workspace.getByRole('treeitem', { name: 'Mögliche Doppelte', exact: true });
+  await tile.click();
+  const panel = workspace.getByRole('region', { name: 'Mögliche Doppelte', exact: true });
+  await panel.getByRole('button', { name: 'Müller und Müller GmbH: kein Doppel' }).click();
+  await expect.poll(() => patch).toEqual({ ui: { correspondent_duplicate_dismissals: [[clubId, utilityId].sort().join('|')] } });
+  await expect(panel.getByText('Keine möglichen Doppelten.')).toBeVisible();
+  await expect(tile).toHaveCount(0);
+});
+
+test('several open documents can be assigned at once and a new spelling can be kept as alias', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await prepareWorkspace(page);
+  const utility = { id: utilityId, name: 'Stadtwerke Leipzig', kind: 'organization', aliases: [] };
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items: [utility] } }));
+  let unassigned = [
+    { document_id: 'bulk1', title: 'Abschlag Januar', sender: 'SWL Energie' },
+    { document_id: 'bulk2', title: 'Abschlag Februar', sender: 'SWL Energie' },
+    { document_id: 'bulk3', title: 'Notizzettel' },
+  ];
+  await page.route('**/api/correspondents/unresolved?*', route => route.fulfill({ json: { items: unassigned } }));
+  const patched = [];
+  await page.route('**/api/documents/bulk*', route => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    const id = new URL(route.request().url()).pathname.split('/').at(-1);
+    patched.push([id, route.request().postDataJSON().correspondent_id]);
+    unassigned = unassigned.filter(item => item.document_id !== id);
+    return route.fulfill({ json: {} });
+  });
+  await page.route('**/api/documents/bulk*/file?*', route => route.fulfill({ contentType: 'application/pdf', body: syntheticDocumentPdf() }));
+  let alias;
+  await page.route(`**/api/correspondents/${utilityId}/aliases`, route => {
+    alias = route.request().postDataJSON().alias;
+    return route.fulfill({ json: { ...utility, aliases: [{ id: 'a1', alias }] } });
+  });
+
+  await page.locator('.sidebar-item--correspondents').click();
+  const workspace = page.locator('.panel-correspondents');
+  await workspace.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true }).click();
+  const review = workspace.getByRole('region', { name: 'Dokumente ohne Korrespondenten', exact: true });
+  const strip = review.getByRole('listbox', { name: 'Offene Dokumente', exact: true });
+  await expect(strip).toHaveAttribute('aria-multiselectable', 'true');
+  await strip.getByRole('option', { name: 'Abschlag Februar', exact: true }).click({ modifiers: ['ControlOrMeta'] });
+  await expect(review.getByText('2 Dokumente ausgewählt')).toBeVisible();
+  await expect(strip.getByRole('option', { name: 'Abschlag Januar', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(strip.getByRole('option', { name: 'Abschlag Februar', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(strip.getByRole('option', { name: 'Notizzettel', exact: true })).toHaveAttribute('aria-selected', 'false');
+
+  const drawer = review.getByRole('region', { name: 'Dokumentdetails', exact: true });
+  const correspondent = drawer.getByRole('combobox', { name: 'Korrespondent', exact: true });
+  await correspondent.fill('Stadtwerke');
+  await page.getByRole('option').filter({ hasText: 'Stadtwerke Leipzig' }).click();
+  await expect(drawer.getByRole('button', { name: '2 Dokumente zuordnen' })).toBeEnabled();
+  await page.keyboard.press('ControlOrMeta+Enter');
+
+  await expect.poll(() => patched).toEqual([['bulk1', utilityId], ['bulk2', utilityId]]);
+  await expect(review.getByRole('heading', { name: 'Notizzettel', exact: true })).toBeVisible();
+  await expect(review.getByText('2 Dokumente ausgewählt')).toHaveCount(0);
+  const toast = page.getByText('2 Dokumente zugeordnet. „SWL Energie“ als Schreibweise von Stadtwerke Leipzig merken?');
+  await expect(toast).toBeVisible();
+  await page.getByRole('button', { name: 'Als Alias merken' }).click();
+  await expect.poll(() => alias).toBe('SWL Energie');
+});
+
+test('cleanup fills in short names and deletes empty entries', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await prepareWorkspace(page);
+  let items = [
+    { id: utilityId, name: 'Vodafone GmbH', kind: 'organization', usage_count: 12, aliases: [] },
+    { id: clubId, name: 'Vodafone', kind: 'organization', usage_count: 3, aliases: [] },
+    { id: 'empty-1', name: 'Alte Hausverwaltung', kind: 'organization', usage_count: 0, aliases: [] },
+    { id: 'empty-2', name: 'Testkontakt', kind: null, usage_count: 0, aliases: [] },
+  ];
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items } }));
+  const patches = [];
+  const deletes = [];
+  await page.route(/\/api\/correspondents\/[^/?]+$/, route => {
+    const id = new URL(route.request().url()).pathname.split('/').at(-1);
+    if (route.request().method() === 'PATCH') {
+      const body = route.request().postDataJSON();
+      patches.push([id, body]);
+      items = items.map(item => (item.id === id ? { ...item, ...body } : item));
+      return route.fulfill({ json: items.find(item => item.id === id) });
+    }
+    if (route.request().method() === 'DELETE') {
+      deletes.push(id);
+      items = items.filter(item => item.id !== id);
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fallback();
+  });
+
+  await page.locator('.sidebar-item--correspondents').click();
+  const cleanupButton = page.getByRole('button', { name: 'Aufräumen: 3 Vorschläge', exact: true });
+  await cleanupButton.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('list', { name: 'Mögliche Doppelte' })).toHaveCount(0);
+
+  const shortNames = dialog.getByRole('list', { name: 'Kurznamen nachtragen' });
+  await expect(shortNames.getByRole('checkbox', { name: 'Kurzname Vodafone für Vodafone GmbH' })).toBeChecked();
+  await dialog.getByRole('button', { name: '1 Kurzname übernehmen' }).click();
+  await expect.poll(() => patches).toEqual([[utilityId, { short_name: 'Vodafone' }]]);
+  await expect(shortNames).toHaveCount(0);
+
+  const empties = dialog.getByRole('list', { name: 'Ohne Dokumente' });
+  await expect(empties.getByRole('checkbox')).toHaveCount(2);
+  await dialog.getByRole('button', { name: 'Alle auswählen', exact: true }).click();
+  await dialog.getByRole('button', { name: '2 Einträge löschen …' }).click();
+  expect(deletes).toEqual([]);
+  await dialog.getByRole('button', { name: '2 Einträge endgültig löschen' }).click();
+  await expect.poll(() => deletes.sort()).toEqual(['empty-1', 'empty-2']);
+  await expect(empties).toHaveCount(0);
+
+  await dialog.getByRole('button', { name: 'Fertig', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(cleanupButton).toHaveCount(0);
 });

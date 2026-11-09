@@ -99,6 +99,34 @@ test('a missing correspondent can be created from search, retried after failure 
   await expect(page.getByRole('button', { name:'Importieren', exact:true })).toBeEnabled();
 });
 
+test('a person can be created with separate names from the import', async ({ page }) => {
+  await mount(page);
+  await completeRequiredMetadata(page);
+  await page.evaluate(() => { window.importFixture.store.documents[0].meta.form.correspondentId = null; });
+  const created = [];
+  await page.route('**/api/correspondents', route => {
+    if (route.request().method() !== 'POST') return route.fulfill({ json: { items: [] } });
+    const body = route.request().postDataJSON();
+    created.push(body);
+    return route.fulfill({ json: { id: 'created-person', ...body } });
+  });
+  await page.getByRole('combobox', { name: 'Korrespondent', exact: true }).fill('Ana de la Cruz');
+  const createAction = page.locator('.isd-create-correspondent');
+  await expect.poll(() => createAction.evaluate(el => getComputedStyle(el.closest('.v-overlay__content')).opacity)).toBe('1');
+  await createAction.focus();
+  await createAction.press('Enter');
+  const dialog = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'Korrespondenten anlegen' }) });
+  await dialog.getByRole('combobox', { name: 'Art', exact: true }).press('Enter');
+  await page.getByRole('option', { name: 'Person', exact: true }).click();
+  await expect(dialog.getByLabel('Vorname', { exact: true })).toHaveValue('Ana');
+  await expect(dialog.getByLabel('Nachname', { exact: true })).toHaveValue('de la Cruz');
+  await dialog.getByLabel('Vorname', { exact: true }).fill('Ana Maria');
+  await dialog.getByRole('button', { name: 'Anlegen und auswählen', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(created).toEqual([{ name: 'Ana Maria de la Cruz', kind: 'person', first_name: 'Ana Maria', last_name: 'de la Cruz' }]);
+  await expect.poll(() => page.evaluate(() => window.importFixture.store.documents[0].meta.form.correspondentId)).toBe('created-person');
+});
+
 test('field chips expose contextual proposals and keep accepted or dismissed choices explicit', async ({ page }) => {
   const requests = await mount(page);
   await completeRequiredMetadata(page);

@@ -26,12 +26,12 @@ class Correspondent(Base):
             "kind IS NULL OR kind IN ('organization', 'person', 'collection')",
             name="ck_correspondents_kind",
         ),
-        # Zwei-Ebenen-Regel: nur Personen dürfen einer Organisation zugeordnet sein.
-        # Dass der Parent selbst eine Organisation ist, erzwingt die Service-Schicht
-        # (Cross-Row-Bedingung, per CHECK nicht ausdrückbar).
+        # Hierarchie Sammlung → Organisation → Person: Sammlungen und Einträge
+        # ohne Typ gehören zu niemandem. Welche Eltern erlaubt sind, erzwingt
+        # die Service-Schicht (Cross-Row-Bedingung, per CHECK nicht ausdrückbar).
         CheckConstraint(
-            "parent_id IS NULL OR kind = 'person'",
-            name="ck_correspondents_parent_only_person",
+            "parent_id IS NULL OR kind IN ('person', 'organization')",
+            name="ck_correspondents_parent_kind",
         ),
     )
 
@@ -40,11 +40,14 @@ class Correspondent(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    first_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     short_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 'organization' | 'person' | 'collection'; NULL = noch nicht typisiert.
     kind: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Zugehörige Organisation einer Person (Self-FK, genau zwei Ebenen).
+    # Übergeordneter Eintrag: Organisation/Sammlung einer Person, Sammlung
+    # einer Organisation (Self-FK, höchstens drei Ebenen).
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("correspondents.id", ondelete="SET NULL"),
@@ -125,3 +128,40 @@ class CorrespondentMatcher(Base):
     priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="100")
 
     correspondent: Mapped["Correspondent"] = relationship("Correspondent", back_populates="matchers")
+
+
+class CorrespondentRelation(Base):
+    """Seitliche Verbindung zweier Korrespondenten (neben „gehört zu“).
+
+    ``successor``: source wurde zu target (Umbenennung, Fusion) – source ist
+    der Vorgänger. ``acts_for``: source handelt im Auftrag von target
+    (Hausverwaltung → Eigentümer, Inkasso → Gläubiger).
+    """
+
+    __tablename__ = "correspondent_relations"
+    __table_args__ = (
+        UniqueConstraint("source_id", "target_id", "kind", name="uq_correspondent_relations_pair"),
+        CheckConstraint("kind IN ('successor', 'acts_for')", name="ck_correspondent_relations_kind"),
+        CheckConstraint("source_id <> target_id", name="ck_correspondent_relations_distinct"),
+        # Ein Vorgänger geht in genau einem Nachfolger auf.
+        Index(
+            "uq_correspondent_relations_single_successor",
+            "source_id",
+            unique=True,
+            postgresql_where=text("kind = 'successor'"),
+        ),
+        Index("ix_correspondent_relations_target_id", "target_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("correspondents.id", ondelete="CASCADE"), nullable=False
+    )
+    target_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("correspondents.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

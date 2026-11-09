@@ -27,20 +27,22 @@
             :items="correspondents" item-title="title" item-value="value" :return-object="false" variant="plain" density="compact"
             :search="search" @update:search="search = $event || ''; emit('update:correspondent-search', search)"
             hide-details clearable :placeholder="pending.correspondent ? 'Wird ermittelt…' : 'Korrespondent wählen…'" :disabled="disabled" :loading="correspondentLoading"
-            :menu-props="menuProps" @update:model-value="emit('update:correspondent', $event)" @blur="emit('correspondent-blur')" @focus="emit('correspondent-focus')">
+            :menu-props="menuProps" :autofocus="correspondentAutofocus" @update:model-value="emit('update:correspondent', $event)" @blur="emit('correspondent-blur')" @focus="emit('correspondent-focus')">
             <template #item="{ props: itemProps, item }"><v-list-item v-bind="itemProps" :title="undefined" :prepend-icon="undefined">
               <template #title>{{ item.raw?.name || item.title }}{{ item.raw?.kind === 'collection' ? ' · Sammlung' : '' }}</template>
             </v-list-item></template>
             <template #selection="{ item }">{{ item.raw?.short_name || item.raw?.name || item.title }}{{ item.raw?.kind === 'collection' ? ' · Sammlung' : '' }}</template>
-            <template #no-data><slot name="correspondent-empty"><v-list-item title="Kein Korrespondent gefunden" subtitle="Neue Korrespondenten in den Einstellungen anlegen" /></slot></template>
+            <template #no-data><slot name="correspondent-empty"><v-list-item title="Kein Korrespondent gefunden" subtitle="Neue Einträge im Bereich „Korrespondenten“ anlegen" /></slot></template>
             <template #append-item><slot name="correspondent-append" /></template>
           </v-autocomplete>
           <template v-else-if="field.key === 'tags'"><slot name="tags" :input-id="`${id}-tags`" :required="requiredFields" :error="Boolean(errors.tags)" :error-id="errors.tags ? `${id}-tags-error` : undefined" /></template>
           <v-textarea v-else :id="`${id}-note`" :model-value="note" :aria-label="standaloneNote ? field.label : undefined" maxlength="10000" :rows="standaloneNote ? 5 : 3" :max-rows="standaloneNote ? 12 : 8" auto-grow
             variant="plain" density="compact" hide-details :placeholder="pending.note ? 'Wird ermittelt…' : 'Notiz hinzufügen…'" :disabled="disabled"
             :error="Boolean(errors.note)" :aria-invalid="Boolean(errors.note)" @update:model-value="emit('update:note', $event)" @blur="emit('text-blur')" />
-          <v-btn v-if="manage && ['category', 'correspondent'].includes(field.key)" class="pm-metadata-manage" icon="mdi-cog-outline" variant="text" size="x-small"
-            :aria-label="field.key === 'category' ? 'Dokumenttypen verwalten' : 'Korrespondenten verwalten'" @click="emit(`manage-${field.key}`)" />
+          <slot v-if="field.key === 'correspondent'" name="correspondent-suffix" />
+          <v-btn v-if="manage && ['category', 'correspondent'].includes(field.key)" class="pm-metadata-manage"
+            :icon="field.key === 'category' ? 'mdi-cog-outline' : 'mdi-arrow-right'" variant="text" size="x-small"
+            :aria-label="field.key === 'category' ? 'Dokumenttypen verwalten' : 'Zu Korrespondenten wechseln'" @click="emit(`manage-${field.key}`)" />
         </div>
         <p v-if="errors[field.key]" :id="`${id}-${field.key}-error`" class="pm-metadata-error" role="alert">{{ errors[field.key] }}</p>
         <slot :name="`after-${field.key}`" />
@@ -56,7 +58,8 @@ const props = defineProps({ fieldKeys: { type: Array, default: null }, name: Str
   proposals: { type: Object, default: () => ({}) }, correspondentSearch: String,
   pending: { type: Object, default: () => ({}) },
   menuProps: { type: Object, default: () => ({ maxHeight: 240, attach: 'body', zIndex: 6000 }) },
-  disabled: Boolean, categoryLoading: Boolean, correspondentLoading: Boolean, requiredFields: Boolean, manage: Boolean, standaloneNote: Boolean });
+  disabled: Boolean, categoryLoading: Boolean, correspondentLoading: Boolean, correspondentAutofocus: Boolean,
+  requiredFields: Boolean, manage: Boolean, standaloneNote: Boolean });
 const emit = defineEmits(['update:name', 'update:date', 'update:category', 'update:correspondent', 'update:note',
   'text-blur', 'date-blur', 'date-keydown', 'correspondent-blur', 'correspondent-focus', 'manage-category', 'manage-correspondent', 'field-focus', 'field-blur', 'update:correspondent-search']);
 const id = useId();

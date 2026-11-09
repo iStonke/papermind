@@ -16,6 +16,7 @@ import './style.css';
 import './theme/theme.css';
 import './theme/searchbar.css';
 import './theme/lists.css';
+import './theme/listHeader.css';
 
 installFetchInterceptor();
 

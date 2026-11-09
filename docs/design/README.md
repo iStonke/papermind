@@ -75,6 +75,32 @@ Ruhezustand; nur Hover und aktive Toggles erhalten die Tonalfläche:
   `frontend/src/style.css`. Referenzen sind die Kopfzeilen von Dokumente,
   Notizen und Wissen sowie die Aktionsgruppe im Notizen-Editor.
 
+## Listen-Kopfzeile (Standard)
+
+Neue Listenbereiche verwenden `PmListHeader` (Titel + Zählzeile, Suchfeld mit
+optionalem Bereichsfilter, Ansichtsumschalter `PmViewModeMenu`, Plus-Button)
+und direkt darunter `ListActionToolbar` für Sortierung und Filter:
+
+```vue
+<PmListHeader
+  v-model:search="query"
+  v-model:view-mode="viewMode"
+  title="Korrespondenten"
+  :subtitle="countLabel"
+  :view-modes="[{ value: 'list', label: 'Liste', icon: 'mdi-format-list-bulleted' }, …]"
+  create-label="Neuer Korrespondent"
+  @create="openCreateDialog"
+/>
+<ListActionToolbar :actions="toolbarActions" :show-selection="false" @action-select="…" />
+```
+
+- Maßstab ist die Kopfzeile der Dokumentenliste; beim Fokus der Suche weicht
+  der Titel. Der Umschalter erscheint erst ab zwei Darstellungen.
+- Optik global in `frontend/src/theme/listHeader.css` (auch das Menü
+  „Darstellung“, das die Dokumentenliste mitnutzt). Referenz:
+  `CorrespondentsWorkspace.vue`. Dokumente, Notizen und Gedanken haben noch
+  eigene Kopien derselben Kopfzeile.
+
 ## Tokens
 Vollständig in `tokens.css` (Custom Properties, Hell im `:root`, Dunkel unter `:root[data-theme="dark"]` bzw. `.dark`). Kernwerte:
 

@@ -144,6 +144,7 @@ function createDefaultSettings() {
       sidebar_primary_order: 'notes_first',
       sidebar_sections: normalizeSidebarSections(null),
       dashboard_layout: normalizeDashboardLayout(null),
+      correspondent_duplicate_dismissals: [],
       dashboard_show_import_action: true,
       dashboard_show_note_action: true,
       sidebar_max_folders: 5,
@@ -601,6 +602,9 @@ export const useSettingsStore = defineStore('settings', {
           sidebar_primary_order: normalizeSidebarPrimaryOrder(payload?.ui?.sidebar_primary_order),
           sidebar_sections: normalizeSidebarSections(payload?.ui?.sidebar_sections),
           dashboard_layout: normalizeDashboardLayout(payload?.ui?.dashboard_layout),
+          correspondent_duplicate_dismissals: Array.isArray(payload?.ui?.correspondent_duplicate_dismissals)
+            ? payload.ui.correspondent_duplicate_dismissals.filter(value => typeof value === 'string')
+            : [],
           dashboard_show_import_action:
             typeof payload?.ui?.dashboard_show_import_action === 'boolean'
               ? payload.ui.dashboard_show_import_action

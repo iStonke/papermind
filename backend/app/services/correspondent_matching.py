@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.correspondent import Correspondent
+from app.services.legal_forms import names_equivalent
 
 logger = logging.getLogger("papermind.correspondent_matching")
 
@@ -26,6 +27,9 @@ _MIN_CONTAINS_LEN = 3
 # Score-Bänder, höchster Treffer gewinnt.
 _SCORE_NAME_EXACT = 10000
 _SCORE_ALIAS_EXACT = 9000
+# Gleicher Name, nur die Rechtsform fehlt oder ist gleich („Vodafone" ↔ „Vodafone GmbH").
+_SCORE_NAME_LEGAL_FORM = 8000
+_SCORE_ALIAS_LEGAL_FORM = 7000
 _SCORE_MATCHER_BASE = 1000
 _SCORE_ALIAS_CONTAINS = 500
 
@@ -112,8 +116,8 @@ def match_correspondent(
 ) -> CorrespondentMatch | None:
     """Besten Korrespondenten für die gegebenen Rohtexte bestimmen, oder ``None``.
 
-    Reihenfolge der Sicherheit: exakter Name > exakter Alias > Matcher > Alias als
-    Teilstring. Bei Gleichstand gewinnt der längere Treffer, dann der Name.
+    Reihenfolge der Sicherheit: exakter Name > exakter Alias > Name bzw. Alias
+    ohne Rechtsform > Matcher > Alias als Teilstring. Bei Gleichstand gewinnt der längere Treffer, dann der Name.
     """
     sender_norm = _normalize(sender)
     filename_norm = _normalize(filename)
@@ -139,6 +143,8 @@ def match_correspondent(
         name_norm = _normalize(candidate.name)
         if sender_cf and name_norm and name_norm.casefold() == sender_cf:
             consider(_SCORE_NAME_EXACT + len(name_norm), "name", name_norm, candidate)
+        elif sender_cf and name_norm and names_equivalent(sender_norm, name_norm):
+            consider(_SCORE_NAME_LEGAL_FORM + len(name_norm), "name", name_norm, candidate)
 
         for alias in candidate.aliases:
             alias_norm = _normalize(alias)
@@ -147,6 +153,8 @@ def match_correspondent(
             alias_cf = alias_norm.casefold()
             if sender_cf and alias_cf == sender_cf:
                 consider(_SCORE_ALIAS_EXACT + len(alias_norm), "alias", alias_norm, candidate)
+            elif sender_cf and names_equivalent(sender_norm, alias_norm):
+                consider(_SCORE_ALIAS_LEGAL_FORM + len(alias_norm), "alias", alias_norm, candidate)
             elif sender_cf and len(alias_norm) >= _MIN_CONTAINS_LEN and alias_cf in sender_cf:
                 consider(_SCORE_ALIAS_CONTAINS + len(alias_norm), "alias", alias_norm, candidate)
 

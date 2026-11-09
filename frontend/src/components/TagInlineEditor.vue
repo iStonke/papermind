@@ -6,7 +6,7 @@
       'pm-tags-input--single-line': singleLine,
     }"
   >
-    <TransitionGroup name="metadata-tag-chip" tag="div" class="pm-tags-input__chips">
+    <TransitionGroup name="metadata-tag-chip" enter-active-class="pm-inline-add-enter-active" move-class="pm-inline-add-move" tag="div" class="pm-tags-input__chips">
       <span
         v-for="name in normalizedNames"
         :key="name"
@@ -222,26 +222,12 @@ const resolvedMenuProps = computed(() => ({
   display: inline-flex;
 }
 
-.pm-tags-input__chip-wrap.metadata-tag-chip-enter-active,
 .pm-tags-input__chip-wrap.metadata-tag-chip-leave-active {
   will-change: opacity, transform;
 }
 
-.pm-tags-input__chip-wrap.metadata-tag-chip-enter-active {
-  animation: metadata-tag-chip-in var(--pm-tag-chip-enter-duration, 320ms) cubic-bezier(0.22, 1.25, 0.36, 1) both;
-}
-
 .pm-tags-input__chip-wrap.metadata-tag-chip-leave-active {
   animation: metadata-tag-chip-out var(--pm-tag-chip-leave-duration, 200ms) ease-in both;
-}
-
-.metadata-tag-chip-move {
-  transition: transform var(--pm-duration-fast, 140ms) cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-@keyframes metadata-tag-chip-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.72); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 @keyframes metadata-tag-chip-out {
@@ -376,9 +362,7 @@ const resolvedMenuProps = computed(() => ({
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pm-tags-input__chip-wrap.metadata-tag-chip-enter-active,
   .pm-tags-input__chip-wrap.metadata-tag-chip-leave-active {
-    --pm-tag-chip-enter-duration: 0ms;
     --pm-tag-chip-leave-duration: 0ms;
   }
 }

@@ -1338,7 +1338,7 @@
                                 <v-icon size="18">mdi-trash-can-outline</v-icon>
                               </v-btn>
                             </div>
-                            <div class="settings-correspondent-block">
+                            <div class="settings-category-template">
                               <v-textarea
                                 v-model="editingCategoryTemplate"
                                 density="compact"
@@ -1629,409 +1629,6 @@
                 </div>
               </div>
             </div>
-          </div>
-        </section>
-
-        <section v-if="activeCategory === 'correspondents'" class="pm-settings-section">
-          <div class="pm-settings-content">
-            <SettingsInfoCard
-              icon="mdi-account-outline"
-              title="Korrespondenten"
-              subtitle="Absender, Aussteller und Sammelkorrespondenten pflegen und zuordnen."
-            >
-              <template #actions>
-                <v-btn
-                  icon
-                  variant="tonal"
-                  size="small"
-                  class="settings-unresolved-info-action"
-                  title="Offene Zuordnungen"
-                  :loading="isUnresolvedCorrespondentsLoading"
-                  @click="openUnresolvedCorrespondentsDialog"
-                >
-                  <v-icon size="19">mdi-file-document-outline</v-icon>
-                  <span v-if="unresolvedCorrespondents.length" class="settings-unresolved-info-action__badge">
-                    {{ unresolvedCorrespondents.length }}
-                  </span>
-                </v-btn>
-              </template>
-            </SettingsInfoCard>
-
-            <div class="settings-category-management">
-              <VocabularySearch
-                ref="correspondentSearchField"
-                v-model="correspondentSearch"
-                search-label="Korrespondenten durchsuchen"
-                create-label="Korrespondent hinzufügen"
-                :can-create="canCreateCorrespondentFromSearch"
-                :creating="isCreatingCorrespondent"
-                @create="addCorrespondent"
-              />
-
-              <div class="settings-correspondent-filter">
-                <v-chip-group
-                  v-model="correspondentTypeFilter"
-                  mandatory
-                  selected-class="text-primary"
-                >
-                  <v-chip value="all" size="small" variant="outlined" filter>
-                    Alle {{ correspondentStore.correspondents.length }}
-                  </v-chip>
-                  <v-chip value="organization" size="small" variant="outlined" filter>
-                    Organisationen {{ organizationCorrespondentCount }}
-                  </v-chip>
-                  <v-chip value="person" size="small" variant="outlined" filter>
-                    Personen {{ personCorrespondentCount }}
-                  </v-chip>
-                  <v-chip value="collection" size="small" variant="outlined" filter>
-                    Sammlungen {{ collectionCorrespondentCount }}
-                  </v-chip>
-                  <v-chip value="unassigned" size="small" variant="outlined" filter>
-                    Ohne Typ {{ unassignedCorrespondentCount }}
-                  </v-chip>
-                </v-chip-group>
-              </div>
-
-              <div v-list-reveal="{ selector: '.settings-correspondent-row' }" class="settings-correspondents">
-                <div
-                  v-for="item in displayedCorrespondents"
-                  :key="item.id"
-                  class="settings-correspondent-row"
-                  :class="{
-                    'settings-correspondent-row--active': selectedCorrespondentId === item.id,
-                    'settings-correspondent-row--nested':
-                      correspondentTypeFilter === 'all' && correspondentIsNested(item),
-                  }"
-                >
-                  <button
-                    type="button"
-                    class="settings-correspondent-summary"
-                    :aria-expanded="selectedCorrespondentId === item.id"
-                    :aria-controls="`correspondent-editor-${item.id}`"
-                    @click="toggleCorrespondent(item)"
-                  >
-                    <span class="settings-category-main">
-                      <span class="settings-category-icon" aria-hidden="true">
-                        <v-icon size="16">{{ correspondentKindIcon(item) }}</v-icon>
-                      </span>
-                      <span class="settings-category-text">
-                        <span class="settings-category-name">{{ item.name }}</span>
-                        <span class="settings-category-meta">
-                          {{ correspondentMetaText(item) }}
-                        </span>
-                      </span>
-                    </span>
-                    <span class="settings-correspondent-summary__right">
-                      <span v-if="['error', 'invalid'].includes(correspondentEditor.stateFor(item.id))" class="settings-record-error">Nicht gespeichert</span>
-                      <span class="settings-category-count" :title="`${item.usage_count || 0} Dokument(e)`">
-                        {{ item.usage_count || 0 }}
-                      </span>
-                      <v-icon size="18" class="settings-drawer-chevron" :class="{ 'settings-drawer-chevron--open': selectedCorrespondentId === item.id }">mdi-chevron-down</v-icon>
-                    </span>
-                  </button>
-
-                  <div
-                    class="settings-correspondent-editor-shell"
-                    :id="`correspondent-editor-${item.id}`"
-                    :class="{ 'settings-correspondent-editor-shell--open': selectedCorrespondentId === item.id }"
-                    :aria-hidden="selectedCorrespondentId === item.id ? 'false' : 'true'"
-                    :inert="selectedCorrespondentId === item.id ? null : true"
-                  >
-                    <Transition name="settings-drawer" :css="animationsEnabled">
-                      <div v-if="selectedCorrespondentId === item.id" class="settings-drawer">
-                        <div class="settings-drawer__clip">
-                          <div class="settings-correspondent-editor">
-                            <div class="settings-correspondent-editor__head">
-                              <v-btn-toggle
-                                :model-value="editingCorrespondentKind"
-                                density="compact"
-                                variant="text"
-                                class="settings-correspondent-kind-toggle"
-                                @update:model-value="onEditingKindChange"
-                              >
-                                <v-btn value="organization" size="small">
-                                  <v-icon size="16" start>mdi-domain</v-icon>Organisation
-                                </v-btn>
-                                <v-btn value="person" size="small">
-                                  <v-icon size="16" start>mdi-account-outline</v-icon>Person
-                                </v-btn>
-                                <v-btn value="collection" size="small">
-                                  <v-icon size="16" start>mdi-shape-outline</v-icon>Sammlung
-                                </v-btn>
-                              </v-btn-toggle>
-
-                              <v-spacer />
-
-
-
-                              <span class="settings-correspondent-delete-wrapper">
-                                <v-btn
-                                  v-if="(item.usage_count || 0) > 0"
-                                  icon
-                                  variant="text"
-                                  size="small"
-                                  color="primary"
-                                  class="settings-correspondent-icon-action settings-correspondent-unlink"
-                                  :title="correspondentUnlinkTitle(item)"
-                                  :aria-label="correspondentUnlinkTitle(item)"
-                                  :disabled="correspondentStore.isMutationRunning"
-                                  @click="openCorrespondentUnlinkConfirm(item)"
-                                >
-                                  <v-icon size="18">mdi-link-off</v-icon>
-                                </v-btn>
-                                <v-btn
-                                  v-else
-                                  icon
-                                  variant="text"
-                                  size="small"
-                                  color="error"
-                                  class="settings-correspondent-icon-action settings-correspondent-delete"
-                                  title="Korrespondent löschen"
-                                  aria-label="Korrespondent löschen"
-                                  :disabled="correspondentStore.isMutationRunning"
-                                  @click="removeSelectedCorrespondent"
-                                >
-                                  <v-icon size="18">mdi-trash-can-outline</v-icon>
-                                </v-btn>
-                              </span>
-                            </div>
-
-                            <div class="settings-correspondent-fields">
-                              <div class="settings-correspondent-fields__name-row">
-                                <v-text-field
-                                  v-model="editingCorrespondentName"
-                                  density="compact"
-                                  variant="outlined"
-                                  hide-details="auto"
-                                  label="Name"
-                                  maxlength="120"
-                                  :rules="[(v) => (v || '').trim().length >= 2 || 'Mindestens 2 Zeichen']"
-                                  @keydown.enter.prevent="scheduleCorrespondentAutosave(true)"
-                                />
-                                <v-text-field
-                                  v-model="editingCorrespondentShortName"
-                                  density="compact"
-                                  variant="outlined"
-                                  hide-details
-                                  label="Kurzname"
-                                  placeholder="optional"
-                                  maxlength="60"
-                                  @keydown.enter.prevent="scheduleCorrespondentAutosave(true)"
-                                />
-                              </div>
-                              <v-select
-                                v-if="editingCorrespondentKind === 'person'"
-                                :model-value="editingCorrespondentParentId"
-                                :items="organizationOptions.filter((o) => o.value !== item.id)"
-                                density="compact"
-                                variant="outlined"
-                                hide-details
-                                clearable
-                                label="Gehört zu Organisation"
-                                placeholder="Keine Zuordnung"
-                                class="settings-correspondent-parent-select"
-                                @update:model-value="onEditingParentChange"
-                              />
-                            </div>
-
-                            <div class="settings-correspondent-block">
-                              <div class="settings-correspondent-block__title">{{ editingCorrespondentKind === 'collection' ? 'Erkennungsnamen' : 'Aliase' }}</div>
-                              <div class="settings-correspondent-block__hint">Alternative Namen helfen bei der automatischen Zuordnung.</div>
-                              <div class="settings-inline-add">
-                                <v-text-field
-                                  v-model="newAliasName"
-                                  density="compact"
-                                  variant="outlined"
-                                  hide-details
-                                  maxlength="120"
-                                  :label="correspondentAliasLabel(item)"
-                                  :placeholder="correspondentAliasPlaceholder(item)"
-                                  @keydown.enter.prevent="addAliasToSelected"
-                                />
-                                <v-btn
-                                  icon
-                                  variant="text"
-                                  color="primary"
-                                  class="settings-correspondent-icon-action"
-                                  :title="correspondentAliasAddTitle(item)"
-                                  :aria-label="correspondentAliasAddTitle(item)"
-                                  :disabled="!newAliasName.trim() || correspondentStore.isMutationRunning"
-                                  @click="addAliasToSelected"
-                                >
-                                  <v-icon size="18">mdi-plus</v-icon>
-                                </v-btn>
-                              </div>
-                              <div v-if="item.aliases?.length" class="settings-chip-list">
-                                <v-chip
-                                  v-for="alias in item.aliases"
-                                  :key="alias.id"
-                                  size="small"
-                                  closable
-                                  :disabled="correspondentStore.isMutationRunning"
-                                  @click:close="removeAlias(alias)"
-                                >
-                                  {{ alias.alias }}
-                                </v-chip>
-                              </div>
-                            </div>
-
-                            <RecordSaveStatus :state="correspondentSaveState" @retry="scheduleCorrespondentAutosave(true)" />
-                          </div>
-                        </div>
-                      </div>
-                    </Transition>
-                  </div>
-                </div>
-
-                <div
-                  v-if="correspondentStore.isLoading && correspondentStore.correspondents.length === 0"
-                  class="settings-vocab-loading"
-                >
-                  <v-progress-circular indeterminate size="24" width="2" color="primary" />
-                  <span>Korrespondenten werden geladen…</span>
-                </div>
-                <div v-else-if="displayedCorrespondents.length === 0" class="settings-category-empty">
-                  {{ correspondentStore.correspondents.length ? 'Keine Korrespondenten für diese Auswahl gefunden.' : 'Noch keine Korrespondenten angelegt.' }}
-                </div>
-              </div>
-            </div>
-
-            <v-dialog v-model="unresolvedCorrespondentsDialogOpen" max-width="920">
-              <v-card class="settings-unresolved-dialog">
-                <v-card-title class="settings-unresolved-dialog__title">
-                  <div>
-                    <div>Offene Zuordnungen</div>
-                    <div class="pm-setting-description">
-                      {{ unresolvedCorrespondents.length }} Dokument{{ unresolvedCorrespondents.length === 1 ? '' : 'e' }} ohne Korrespondent.
-                    </div>
-                  </div>
-                  <v-spacer />
-                  <v-btn
-                    icon
-                    size="small"
-                    variant="text"
-                    title="Aktualisieren"
-                    :loading="isUnresolvedCorrespondentsLoading"
-                    @click="loadUnresolvedCorrespondents"
-                  >
-                    <v-icon size="18">mdi-refresh</v-icon>
-                  </v-btn>
-                  <v-btn
-                    icon
-                    size="small"
-                    variant="text"
-                    title="Schließen"
-                    @click="unresolvedCorrespondentsDialogOpen = false"
-                  >
-                    <v-icon size="18">mdi-close</v-icon>
-                  </v-btn>
-                </v-card-title>
-                <v-divider />
-                <v-card-text class="settings-unresolved-dialog__body">
-                  <div v-if="isUnresolvedCorrespondentsLoading && !unresolvedCorrespondents.length" class="settings-unresolved-empty">
-                    <v-progress-circular indeterminate size="22" width="2" />
-                    <span>Offene Zuordnungen werden geladen…</span>
-                  </div>
-                  <div v-else-if="!unresolvedCorrespondents.length" class="settings-unresolved-empty">
-                    Keine offenen Zuordnungen.
-                  </div>
-                  <div v-else class="settings-correspondent-review settings-correspondent-review--dialog">
-                    <div
-                      v-for="item in unresolvedCorrespondents"
-                      :key="item.document_id"
-                      class="settings-unresolved-row"
-                    >
-                      <div class="settings-unresolved-row__main">
-                        <div class="settings-category-name">{{ item.title || item.original_filename }}</div>
-                        <div class="settings-category-meta">
-                          {{ item.sender || 'kein erkannter Absender' }}
-                          <template v-if="item.document_type"> · {{ item.document_type }}</template>
-                          <template v-if="item.document_date"> · {{ item.document_date }}</template>
-                        </div>
-                      </div>
-                      <v-select
-                        v-model="unresolvedSelections[item.document_id]"
-                        :items="correspondentStore.correspondentOptions"
-                        density="compact"
-                        variant="outlined"
-                        hide-details
-                        placeholder="Korrespondent wählen…"
-                        class="settings-unresolved-row__select"
-                      />
-                      <v-btn
-                        icon
-                        variant="tonal"
-                        color="primary"
-                        title="Zuordnen"
-                        :disabled="!unresolvedSelections[item.document_id] || assigningUnresolvedId === item.document_id"
-                        :loading="assigningUnresolvedId === item.document_id"
-                        @click="assignUnresolvedCorrespondent(item, false)"
-                      >
-                        <v-icon size="18">mdi-check</v-icon>
-                      </v-btn>
-                      <v-btn
-                        icon
-                        variant="text"
-                        color="primary"
-                        :title="unresolvedRecognitionTitle(item.document_id)"
-                        :disabled="!item.sender || !unresolvedSelections[item.document_id] || assigningUnresolvedId === item.document_id"
-                        @click="assignUnresolvedCorrespondent(item, true)"
-                      >
-                        <v-icon size="18">mdi-tag-plus</v-icon>
-                      </v-btn>
-                      <v-btn
-                        icon
-                        variant="text"
-                        color="primary"
-                        title="Neuen Korrespondenten aus Absender anlegen"
-                        :disabled="!item.sender || creatingUnresolvedId === item.document_id"
-                        :loading="creatingUnresolvedId === item.document_id"
-                        @click="createCorrespondentFromUnresolved(item)"
-                      >
-                        <v-icon size="18">mdi-account-plus</v-icon>
-                      </v-btn>
-                      <v-btn
-                        icon
-                        variant="text"
-                        title="Bewusst leer lassen"
-                        :disabled="ignoringUnresolvedId === item.document_id"
-                        :loading="ignoringUnresolvedId === item.document_id"
-                        @click="ignoreUnresolvedCorrespondent(item)"
-                      >
-                        <v-icon size="18">mdi-close</v-icon>
-                      </v-btn>
-                    </div>
-                  </div>
-                </v-card-text>
-              </v-card>
-            </v-dialog>
-
-            <ConfirmDialog
-              v-model="collectionTypeConfirmOpen"
-              title="In eine Sammlung umwandeln?"
-              :description="collectionTypeConfirmDescription"
-              primary-text="In Sammlung umwandeln"
-              secondary-text="Abbrechen"
-              icon="mdi-shape-outline"
-              max-width="520"
-              @primary="confirmCollectionTypeChange"
-              @secondary="cancelCollectionTypeChange"
-              @close="cancelCollectionTypeChange"
-            />
-
-            <ConfirmDialog
-              v-model="correspondentUnlinkConfirmOpen"
-              title="Alle Dokumentzuordnungen lösen?"
-              :description="correspondentUnlinkConfirmDescription"
-              primary-text="Zuordnungen lösen"
-              secondary-text="Abbrechen"
-              icon="mdi-link-off"
-              max-width="540"
-              :loading="correspondentStore.isMutationRunning"
-              @primary="confirmCorrespondentUnlink"
-              @secondary="cancelCorrespondentUnlink"
-              @close="cancelCorrespondentUnlink"
-            />
           </div>
         </section>
 
@@ -2933,7 +2530,6 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch }
 import { useRecordAutosave } from '../composables/useRecordAutosave.js';
 import { useDisplay, useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
-import ConfirmDialog from './ConfirmDialog.vue';
 import DestructiveDialog from './DestructiveDialog.vue';
 import SettingsInfoCard from './SettingsInfoCard.vue';
 import RecordSaveStatus from './RecordSaveStatus.vue';
@@ -2953,11 +2549,10 @@ import { getBaseUrl } from '../api/client';
 import { useAuthStore } from '../stores/auth';
 import { useSettingsStore } from '../stores/settings';
 import { useCategoryStore } from '../stores/categories';
-import { useCorrespondentStore } from '../stores/correspondents';
 import { notifyError, useNotifications } from '../stores/notifications';
 import { useTagStore } from '../stores/tags';
 import { cleanupUnusedTags } from '../api/tags';
-import { backfillOcr, patchDocument as apiPatchDocument } from '../api/documents';
+import { backfillOcr } from '../api/documents';
 import {
   deleteAICredential,
   getAICredentialStatus,
@@ -2973,10 +2568,6 @@ import {
   testBackupConnection,
   updateBackupConfig,
 } from '../api/backup';
-import {
-  ignoreUnresolvedCorrespondent as apiIgnoreUnresolvedCorrespondent,
-  listUnresolvedCorrespondents as apiListUnresolvedCorrespondents
-} from '../api/correspondents';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 import {
   NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT,
@@ -3032,7 +2623,6 @@ const settingsNavRef = ref(null);
 const auth = useAuthStore();
 const settingsStore = useSettingsStore();
 const categoryStore = useCategoryStore();
-const correspondentStore = useCorrespondentStore();
 
 const VOCAB_NAME_MAX_LENGTH = 30;
 const documentTypeAreas = [
@@ -3162,7 +2752,6 @@ const settingsCategories = [
   { value: 'wiki', label: 'Wissen', icon: 'mdi-source-merge', group: 'ai', adminOnly: true },
   { value: 'document_details', label: 'Allgemein', icon: 'mdi-file-document-outline', group: 'documents' },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline', group: 'documents' },
-  { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline', group: 'documents' },
   { value: 'retention', label: 'Aufbewahrung', icon: 'mdi-folder-clock-outline', group: 'documents', adminOnly: true },
   { value: 'backup', label: 'Backup', icon: 'mdi-cloud-upload-outline', group: 'system', adminOnly: true },
   { value: 'services', label: 'Dienste', icon: 'mdi-server-network', group: 'system', adminOnly: true },
@@ -3181,7 +2770,7 @@ const settingsCategoryGroups = [
   ...(import.meta.env.DEV ? [{ key: 'development', label: 'Entwicklung' }] : [])
 ];
 // Systemkonfigurations-Tabs nur für Admins; persönliche Darstellung sowie die
-// Pro-Benutzer-Daten (Dokumenttypen/Korrespondenten) bleiben für alle sichtbar.
+// Dokumenttypen bleiben für alle sichtbar.
 const visibleCategories = computed(() =>
   settingsCategories.filter((cat) => !cat.adminOnly || auth.isAdmin)
 );
@@ -3709,30 +3298,13 @@ async function confirmDeleteArchive() {
   }
 }
 
-// Faules Laden der Sektionsdaten: Kategorien/Korrespondenten werden nicht mehr
-// blockierend beim Rendern geholt. Die Flags verhindern, dass dieselben Daten
-// innerhalb einer Dialog-Sitzung mehrfach nachgeladen werden; sie werden beim
-// Öffnen zurückgesetzt (siehe modelValue-Watcher weiter unten).
+// Dokumenttypen werden pro Dialog-Sitzung einmal im Hintergrund geladen.
 let categoriesSectionLoaded = false;
-let correspondentsSectionLoaded = false;
-let unresolvedCorrespondentsLoaded = false;
 
 function ensureCategoriesLoaded() {
   if (categoriesSectionLoaded) return;
   categoriesSectionLoaded = true;
   void categoryStore.fetchCategories();
-}
-
-function ensureCorrespondentsLoaded() {
-  if (correspondentsSectionLoaded) return;
-  correspondentsSectionLoaded = true;
-  void correspondentStore.fetchCorrespondents();
-}
-
-function ensureUnresolvedCorrespondentsLoaded() {
-  if (unresolvedCorrespondentsLoaded) return;
-  unresolvedCorrespondentsLoaded = true;
-  void loadUnresolvedCorrespondents();
 }
 
 function loadSectionData(value) {
@@ -3742,10 +3314,6 @@ function loadSectionData(value) {
     case 'categories':
     case 'retention':
       ensureCategoriesLoaded();
-      break;
-    case 'correspondents':
-      ensureCorrespondentsLoaded();
-      ensureUnresolvedCorrespondentsLoaded();
       break;
     case 'backup':
       backupSetupInitialized = false; // Panel-Zustand beim Betreten neu bestimmen
@@ -5165,49 +4733,6 @@ const editingCategoryArea = categoryEditor.field('area', null);
 const categorySaveState = categoryEditor.state;
 const categoryEditOrder = ref([]);
 
-const correspondentSearchField = ref(null);
-const isCreatingCorrespondent = ref(false);
-const correspondentTypeFilter = ref('all');
-const correspondentSearch = ref('');
-const correspondentEditor = useRecordAutosave({
-  items: () => correspondentStore.correspondents,
-  readDraft: item => ({ name: item.name || '', shortName: item.short_name || '', kind: item.kind || null, parentId: item.parent_id || null }),
-  toPayload: draft => ({
-    name: normalizeVocabText(draft.name), short_name: normalizeVocabText(draft.shortName) || null,
-    kind: draft.kind || null, parent_id: draft.kind === 'person' ? draft.parentId || null : null,
-  }),
-  validate: draft => normalizeVocabText(draft.name).length >= 2 && normalizeVocabText(draft.name).length <= 120,
-  persist: async (id, payload) => (await correspondentStore.updateCorrespondent(id, payload, { silent: true })).correspondent,
-});
-const selectedCorrespondentId = correspondentEditor.selectedId;
-const editingCorrespondentName = correspondentEditor.field('name');
-const editingCorrespondentShortName = correspondentEditor.field('shortName');
-const editingCorrespondentKind = correspondentEditor.field('kind', null);
-const editingCorrespondentParentId = correspondentEditor.field('parentId', null);
-const correspondentSaveState = correspondentEditor.state;
-const correspondentEditOrder = ref([]);
-const selectedCorrespondentWasNested = ref(false);
-const collectionTypeConfirmOpen = ref(false);
-const pendingCorrespondentKind = ref(null);
-const correspondentUnlinkConfirmOpen = ref(false);
-const pendingCorrespondentUnlink = ref(null);
-const aliasDrafts = ref({});
-const newAliasName = computed({
-  get: () => aliasDrafts.value[selectedCorrespondentId.value] || '',
-  set: value => { if (selectedCorrespondentId.value) aliasDrafts.value[selectedCorrespondentId.value] = value; },
-});
-const unresolvedCorrespondents = ref([]);
-const unresolvedSelections = ref({});
-const unresolvedCorrespondentsDialogOpen = ref(false);
-const isUnresolvedCorrespondentsLoading = ref(false);
-const assigningUnresolvedId = ref(null);
-const creatingUnresolvedId = ref(null);
-const ignoringUnresolvedId = ref(null);
-
-const selectedCorrespondent = computed(() =>
-  selectedCorrespondentId.value ? correspondentStore.findById(selectedCorrespondentId.value) : null
-);
-
 const unassignedDocumentTypeCount = computed(() =>
   categoryStore.categories.filter(category => !category.area).length
 );
@@ -5248,184 +4773,6 @@ function documentTypeAreaLabel(area) {
 const categoryTemplatePreviewParts = computed(() =>
   renderCategoryTemplatePreviewParts(editingCategoryTemplate.value)
 );
-
-const correspondentNameSort = (a, b) => a.name.localeCompare(b.name, 'de-DE');
-
-/** Organisationen als Auswahl für den Parent-Picker einer Person. */
-const organizationOptions = computed(() =>
-  correspondentStore.correspondents
-    .filter((c) => c.kind === 'organization')
-    .slice()
-    .sort(correspondentNameSort)
-    .map((c) => ({ title: c.name, value: c.id }))
-);
-
-const organizationCorrespondentCount = computed(
-  () => correspondentStore.correspondents.filter((c) => c.kind === 'organization').length
-);
-
-const personCorrespondentCount = computed(
-  () => correspondentStore.correspondents.filter((c) => c.kind === 'person').length
-);
-
-const collectionCorrespondentCount = computed(
-  () => correspondentStore.correspondents.filter((c) => c.kind === 'collection').length
-);
-
-const unassignedCorrespondentCount = computed(
-  () => correspondentStore.correspondents.filter((c) => !c.kind).length
-);
-
-const collectionTypeConfirmDescription = computed(() => {
-  if (editingCorrespondentKind.value === 'person') {
-    return 'Die Person wird zu einer Sammlung. Eine bestehende Zuordnung zu einer Organisation wird dabei entfernt. Dokumentzuordnungen und Aliase bleiben erhalten.';
-  }
-  return 'Die Organisation wird zu einer Sammlung. Dokumentzuordnungen und Aliase bleiben erhalten; Aliase werden anschließend als Erkennungsnamen verwendet.';
-});
-
-/**
- * Korrespondenten gruppiert für die Liste: zuerst Sammelkorrespondenten, dann
- * jede Organisation gefolgt von ihren zugeordneten Personen, danach Personen
- * ohne Organisation und noch nicht typisierte Einträge.
- */
-const orderedCorrespondents = computed(() => {
-  const all = correspondentStore.correspondents;
-  const byId = new Map(all.map((c) => [c.id, c]));
-  const collections = all.filter((c) => c.kind === 'collection').slice().sort(correspondentNameSort);
-  const orgs = all.filter((c) => c.kind === 'organization').slice().sort(correspondentNameSort);
-  const personsByParent = new Map();
-  const orphanPersons = [];
-  const untyped = [];
-  for (const c of all) {
-    if (c.kind === 'person') {
-      if (c.parent_id && byId.has(c.parent_id)) {
-        if (!personsByParent.has(c.parent_id)) personsByParent.set(c.parent_id, []);
-        personsByParent.get(c.parent_id).push(c);
-      } else {
-        orphanPersons.push(c);
-      }
-    } else if (c.kind !== 'organization' && c.kind !== 'collection') {
-      untyped.push(c);
-    }
-  }
-  const ordered = [...collections];
-  for (const org of orgs) {
-    ordered.push(org);
-    for (const p of (personsByParent.get(org.id) || []).slice().sort(correspondentNameSort)) {
-      ordered.push(p);
-    }
-  }
-  for (const p of orphanPersons.slice().sort(correspondentNameSort)) ordered.push(p);
-  for (const u of untyped.slice().sort(correspondentNameSort)) ordered.push(u);
-
-  return ordered;
-});
-
-const correspondentSearchName = computed(() => normalizeVocabText(correspondentSearch.value));
-const matchingCorrespondents = computed(() => {
-  const query = correspondentSearchName.value.toLocaleLowerCase('de-DE');
-  return correspondentStore.correspondents.filter(item => !query ||
-    [item.name, item.short_name, ...(item.aliases || []).map(alias => alias.alias)]
-      .some(value => normalizeVocabText(value).toLocaleLowerCase('de-DE').includes(query))
-  );
-});
-
-const canCreateCorrespondentFromSearch = computed(() =>
-  correspondentSearchName.value.length >= 2 && correspondentSearchName.value.length <= 120 &&
-  correspondentStore.isLoaded && !correspondentStore.isLoading &&
-  !correspondentStore.isMutationRunning && !isCreatingCorrespondent.value &&
-  matchingCorrespondents.value.length === 0
-);
-
-const displayedCorrespondents = computed(() => {
-  const filter = correspondentTypeFilter.value;
-  const matchingIds = new Set(matchingCorrespondents.value.map(item => item.id));
-  const items = orderedCorrespondents.value.filter(item => {
-    if (item.id === selectedCorrespondentId.value) return true;
-    const matchesType = filter === 'all' || (filter === 'unassigned' ? !item.kind : item.kind === filter);
-    return matchesType && matchingIds.has(item.id);
-  });
-  return selectedCorrespondentId.value ? stableEditorOrder(items, correspondentEditOrder.value) : items;
-});
-
-/** Einrückung: eine Person, die einer (vorhandenen) Organisation zugeordnet ist. */
-function correspondentIsNested(item) {
-  if (item.id === selectedCorrespondentId.value) return selectedCorrespondentWasNested.value;
-  return Boolean(
-    item?.kind === 'person' &&
-      item?.parent_id &&
-      correspondentStore.correspondents.some((c) => c.id === item.parent_id)
-  );
-}
-
-function correspondentKindIcon(item) {
-  if (item?.kind === 'organization') return 'mdi-domain';
-  if (item?.kind === 'person') return 'mdi-account-outline';
-  if (item?.kind === 'collection') return 'mdi-shape-outline';
-  return 'mdi-help-circle-outline';
-}
-
-function correspondentKindLabel(kind) {
-  if (kind === 'person') return 'Person';
-  if (kind === 'collection') return 'Sammelkorrespondent';
-  if (kind === 'organization') return 'Organisation';
-  return 'Ohne Typ';
-}
-
-function correspondentAliasLabel(item) {
-  return item?.kind === 'collection' ? 'Erkennungsnamen' : 'Aliase';
-}
-
-function correspondentAliasPlaceholder(item) {
-  return item?.kind === 'collection' ? 'Erkennungsname hinzufügen…' : 'Alias hinzufügen…';
-}
-
-function correspondentAliasAddTitle(item) {
-  return item?.kind === 'collection' ? 'Erkennungsname hinzufügen' : 'Alias hinzufügen';
-}
-
-function correspondentUnlinkTitle(item) {
-  const usageCount = Number(item?.usage_count || 0);
-  if (usageCount === 1) return 'Zuordnung zu 1 Dokument lösen';
-  return `Zuordnungen zu ${usageCount} Dokumenten lösen`;
-}
-
-const correspondentUnlinkConfirmDescription = computed(() => {
-  const item = pendingCorrespondentUnlink.value;
-  const usageCount = Number(item?.usage_count || 0);
-  if (!item || usageCount <= 0) return '';
-  const assignmentText = usageCount === 1
-    ? 'Die Zuordnung zu 1 Dokument'
-    : `Die Zuordnungen zu ${usageCount} Dokumenten`;
-  return `${assignmentText} werden gelöst. Der Korrespondent „${item.name}“ sowie seine Aliase bleiben erhalten.`;
-});
-
-function unresolvedRecognitionTitle(documentId) {
-  const correspondent = correspondentStore.findById(unresolvedSelections.value[documentId]);
-  return correspondent?.kind === 'collection'
-    ? 'Absender als Erkennungsname hinzufügen und zuordnen'
-    : 'Absender als Alias hinzufügen und zuordnen';
-}
-
-function correspondentMetaText(item) {
-  const parts = [];
-  if (item?.kind === 'person' && item?.parent_name) parts.push(item.parent_name);
-  else if (!item?.kind) parts.push('ohne Typ');
-  parts.push(item?.short_name || 'kein Kurzname');
-  if (item?.kind === 'organization') {
-    const personCount = correspondentStore.correspondents.filter(
-      (correspondent) => correspondent.kind === 'person' && correspondent.parent_id === item.id
-    ).length;
-    parts.push(`${personCount} ${personCount === 1 ? 'Person' : 'Personen'}`);
-  }
-  const aliasCount = item?.aliases?.length || 0;
-  if (item?.kind === 'collection') {
-    parts.push(`${aliasCount} Erkennungsname${aliasCount === 1 ? '' : 'n'}`);
-  } else {
-    parts.push(`${aliasCount} Alias${aliasCount === 1 ? '' : 'e'}`);
-  }
-  return parts.join(' · ');
-}
 
 function templatePreviewValues() {
   return {
@@ -5473,8 +4820,6 @@ watch(
     if (open) {
       // Neue Sitzung: Sektionsdaten dürfen wieder frisch geladen werden.
       categoriesSectionLoaded = false;
-      correspondentsSectionLoaded = false;
-      unresolvedCorrespondentsLoaded = false;
       const next = resolveInitialSettingsCategory(props.initialCategory);
       const unchanged = activeCategory.value === next;
       activeCategory.value = next;
@@ -5482,37 +4827,23 @@ watch(
       // Zielsektion. Bleibt sie gleich (erneutes Öffnen auf denselben Tab), feuert
       // der Watcher nicht – dann stoßen wir das Laden hier direkt an.
       if (unchanged) loadSectionData(next);
-      // Vorabladen im Hintergrund (nicht render-blockierend): Dokumenttypen und
-      // Korrespondenten sind dadurch beim späteren Tab-Wechsel meist schon da.
-      // Das schwerere „unresolved" bleibt bewusst tab-lokal.
       ensureCategoriesLoaded();
-      ensureCorrespondentsLoaded();
     }
   },
   { immediate: true }
 );
 
-watch(() => correspondentStore.correspondents, items => {
-  if (selectedCorrespondentId.value && !items.some(item => item.id === selectedCorrespondentId.value)) {
-    correspondentEditor.forget(selectedCorrespondentId.value);
-  }
-});
 watch(() => categoryStore.categories, items => {
   if (selectedCategoryId.value && !items.some(item => item.id === selectedCategoryId.value)) {
     categoryEditor.forget(selectedCategoryId.value);
   }
 });
 watch(documentTypeAreaFilter, () => categoryEditor.select(null));
-watch(correspondentTypeFilter, () => correspondentEditor.select(null));
 watch(activeCategory, (next, previous) => {
-  if (previous === 'correspondents') {
-    void correspondentEditor.flush();
-  }
   if (previous === 'categories') void categoryEditor.flush();
 });
 watch(() => props.modelValue, open => {
   if (!open) {
-    void correspondentEditor.flush();
     void categoryEditor.flush();
   }
 });
@@ -5524,7 +4855,6 @@ watch([activeCategory, () => props.modelValue, isSettingsLoading], async () => {
   if (tab) nav.scrollLeft += tab.getBoundingClientRect().left - nav.getBoundingClientRect().left - 16;
 }, { immediate: true });
 onBeforeUnmount(() => {
-  void correspondentEditor.flush();
   void categoryEditor.flush();
 });
 
@@ -5572,240 +4902,6 @@ function toggleCategory(category) {
 function selectCategory(category) {
   categoryEditOrder.value = displayedDocumentTypes.value.map(item => item.id);
   categoryEditor.select(category);
-}
-
-function scheduleCorrespondentAutosave(immediate = false) {
-  void correspondentEditor.schedule(selectedCorrespondentId.value, immediate);
-}
-
-/** Beim Umschalten des Typs die Zwei-Ebenen-Regel spiegeln und sofort speichern. */
-function onEditingKindChange(nextKind) {
-  const current = selectedCorrespondent.value;
-  if (!current || !nextKind || nextKind === editingCorrespondentKind.value) return;
-  if (nextKind === 'collection' && editingCorrespondentKind.value !== 'collection') {
-    if (current.kind === 'organization') {
-      const assignedPersons = correspondentStore.correspondents.filter(
-        (correspondent) => correspondent.kind === 'person' && correspondent.parent_id === current.id
-      ).length;
-      if (assignedPersons > 0) {
-        notify({
-          type: 'warning',
-          message: `Typ kann nicht geändert werden: ${assignedPersons} ${
-            assignedPersons === 1 ? 'Person ist' : 'Personen sind'
-          } dieser Organisation zugeordnet.`,
-        });
-        return;
-      }
-    }
-    pendingCorrespondentKind.value = nextKind;
-    collectionTypeConfirmOpen.value = true;
-    return;
-  }
-  applyEditingKindChange(nextKind);
-}
-
-function applyEditingKindChange(nextKind) {
-  editingCorrespondentKind.value = nextKind || null;
-  // Nur Personen dürfen einer Organisation zugeordnet sein.
-  if (nextKind !== 'person') {
-    editingCorrespondentParentId.value = null;
-  }
-  scheduleCorrespondentAutosave(true);
-}
-
-function confirmCollectionTypeChange() {
-  const nextKind = pendingCorrespondentKind.value;
-  collectionTypeConfirmOpen.value = false;
-  pendingCorrespondentKind.value = null;
-  if (nextKind) applyEditingKindChange(nextKind);
-}
-
-function cancelCollectionTypeChange() {
-  collectionTypeConfirmOpen.value = false;
-  pendingCorrespondentKind.value = null;
-}
-
-/** Organisations-Zuordnung geändert → sofort speichern. */
-function onEditingParentChange(value) {
-  editingCorrespondentParentId.value = value || null;
-  scheduleCorrespondentAutosave(true);
-}
-
-function selectCorrespondent(correspondent) {
-  correspondentEditOrder.value = displayedCorrespondents.value.map(item => item.id);
-  selectedCorrespondentWasNested.value = Boolean(correspondent?.kind === 'person' && correspondent.parent_id);
-  correspondentEditor.select(correspondent);
-}
-
-function toggleCorrespondent(correspondent) {
-  if (selectedCorrespondentId.value === correspondent?.id) {
-    correspondentEditor.select(null);
-    return;
-  }
-  selectCorrespondent(correspondent);
-}
-
-async function addCorrespondent() {
-  if (!canCreateCorrespondentFromSearch.value) return;
-  const name = correspondentSearchName.value;
-  isCreatingCorrespondent.value = true;
-  try {
-    const result = await correspondentStore.createCorrespondentByName(name);
-    if (result.ok) {
-      const created = correspondentStore.findById(result.id);
-      if (created) selectCorrespondent(created);
-    }
-  } catch {
-    /* Fehler wird im Store als Notification gemeldet; die Eingabe bleibt erhalten. */
-  } finally {
-    isCreatingCorrespondent.value = false;
-    nextTick(() => { if (props.modelValue) correspondentSearchField.value?.focus(); });
-  }
-}
-
-async function loadUnresolvedCorrespondents() {
-  isUnresolvedCorrespondentsLoading.value = true;
-  try {
-    const payload = await apiListUnresolvedCorrespondents({ limit: 50, excerptChars: 240 });
-    unresolvedCorrespondents.value = payload?.items ?? [];
-    const validIds = new Set(unresolvedCorrespondents.value.map((item) => item.document_id));
-    unresolvedSelections.value = Object.fromEntries(
-      Object.entries(unresolvedSelections.value).filter(([id]) => validIds.has(id))
-    );
-  } catch (error) {
-    notifyError(error, 'Offene Korrespondenten konnten nicht geladen werden.');
-  } finally {
-    isUnresolvedCorrespondentsLoading.value = false;
-  }
-}
-
-function openUnresolvedCorrespondentsDialog() {
-  unresolvedCorrespondentsDialogOpen.value = true;
-  void loadUnresolvedCorrespondents();
-}
-
-async function assignUnresolvedCorrespondent(item, addSenderAlias = false) {
-  const documentId = item?.document_id;
-  const correspondentId = unresolvedSelections.value[documentId];
-  if (!documentId || !correspondentId) return;
-  assigningUnresolvedId.value = documentId;
-  try {
-    if (addSenderAlias && item.sender) {
-      await correspondentStore.addAlias(correspondentId, item.sender);
-    }
-    await apiPatchDocument(documentId, { correspondent_id: correspondentId });
-    await Promise.all([
-      correspondentStore.fetchCorrespondents(),
-      loadUnresolvedCorrespondents(),
-    ]);
-    emit('reload-imports');
-    notify({ type: 'success', title: 'Korrespondent', message: 'Dokument zugeordnet.' });
-  } catch (error) {
-    notifyError(error, 'Korrespondent konnte nicht zugeordnet werden.');
-  } finally {
-    assigningUnresolvedId.value = null;
-  }
-}
-
-async function createCorrespondentFromUnresolved(item) {
-  const documentId = item?.document_id;
-  const name = String(item?.sender || '').trim();
-  if (!documentId || !name) return;
-  creatingUnresolvedId.value = documentId;
-  try {
-    const result = await correspondentStore.createCorrespondentByName(name);
-    const correspondentId = result?.id;
-    if (!correspondentId) return;
-    unresolvedSelections.value = {
-      ...unresolvedSelections.value,
-      [documentId]: correspondentId,
-    };
-    await apiPatchDocument(documentId, { correspondent_id: correspondentId });
-    await Promise.all([
-      correspondentStore.fetchCorrespondents(),
-      loadUnresolvedCorrespondents(),
-    ]);
-    emit('reload-imports');
-    notify({ type: 'success', title: 'Korrespondent', message: 'Korrespondent angelegt und Dokument zugeordnet.' });
-  } catch (error) {
-    notifyError(error, 'Korrespondent konnte nicht angelegt werden.');
-  } finally {
-    creatingUnresolvedId.value = null;
-  }
-}
-
-async function ignoreUnresolvedCorrespondent(item) {
-  const documentId = item?.document_id;
-  if (!documentId) return;
-  ignoringUnresolvedId.value = documentId;
-  try {
-    await apiIgnoreUnresolvedCorrespondent(documentId, 'Bewusst ohne Korrespondent');
-    await loadUnresolvedCorrespondents();
-    notify({ type: 'success', title: 'Korrespondent', message: 'Fall ausgeblendet.' });
-  } catch (error) {
-    notifyError(error, 'Fall konnte nicht ausgeblendet werden.');
-  } finally {
-    ignoringUnresolvedId.value = null;
-  }
-}
-
-async function removeSelectedCorrespondent() {
-  const current = selectedCorrespondent.value;
-  if (!current || (current.usage_count || 0) > 0 || correspondentStore.isMutationRunning) return;
-  correspondentEditor.cancelScheduled(current.id);
-  try {
-    await correspondentStore.deleteCorrespondent(current.id);
-  } catch {
-    correspondentEditor.schedule(current.id);
-    /* Fehler wird im Store als Notification gemeldet */
-  }
-}
-
-function openCorrespondentUnlinkConfirm(item) {
-  if (!item || Number(item.usage_count || 0) <= 0) return;
-  pendingCorrespondentUnlink.value = item;
-  correspondentUnlinkConfirmOpen.value = true;
-}
-
-function cancelCorrespondentUnlink() {
-  if (correspondentStore.isMutationRunning) return;
-  correspondentUnlinkConfirmOpen.value = false;
-  pendingCorrespondentUnlink.value = null;
-}
-
-async function confirmCorrespondentUnlink() {
-  const item = pendingCorrespondentUnlink.value;
-  if (!item || correspondentStore.isMutationRunning) return;
-  try {
-    await correspondentStore.unlinkDocuments(item.id);
-    correspondentUnlinkConfirmOpen.value = false;
-    pendingCorrespondentUnlink.value = null;
-    emit('reload-imports');
-  } catch {
-    /* Fehler wird im Store als Notification gemeldet */
-  }
-}
-
-async function addAliasToSelected() {
-  const current = selectedCorrespondent.value;
-  const alias = newAliasName.value.trim();
-  if (!current || !alias || correspondentStore.isMutationRunning) return;
-  try {
-    await correspondentStore.addAlias(current.id, alias);
-    if (aliasDrafts.value[current.id]?.trim() === alias) aliasDrafts.value[current.id] = '';
-  } catch {
-    /* Fehler wird im Store als Notification gemeldet */
-  }
-}
-
-async function removeAlias(alias) {
-  const current = selectedCorrespondent.value;
-  if (!current || !alias?.id || correspondentStore.isMutationRunning) return;
-  try {
-    await correspondentStore.deleteAlias(current.id, alias.id);
-  } catch {
-    /* Fehler wird im Store als Notification gemeldet */
-  }
 }
 </script>
 

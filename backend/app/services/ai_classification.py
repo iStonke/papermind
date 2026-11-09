@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timezone
 
 from app.models.document import Document
+from app.services.import_metadata_heuristics import is_plausible_sender
 from app.services.ollama_classification import (
     DEFAULT_OLLAMA_BASE_URL,
     DEFAULT_OLLAMA_MODEL,
@@ -96,7 +97,8 @@ def apply_ollama_classification(
 
     document.ai_document_type = result.document_type
     document.ai_document_date = result.document_date
-    document.ai_sender = result.sender
+    # Überschriften von Notizen/Anleitungen sind keine Absender.
+    document.ai_sender = result.sender if is_plausible_sender(result.sender, extracted_text) else None
     document.ai_recipient = result.recipient
     document.ai_amount = result.amount
     document.ai_currency = result.currency

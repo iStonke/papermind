@@ -4,6 +4,10 @@ import { apiDelete, apiGet, apiPatch, apiPost } from './client.js';
 export const listCorrespondents = (includeCount = false) =>
   apiGet(`/api/correspondents${includeCount ? '?include_count=true' : ''}`);
 
+/** GET /api/correspondents/{id}/profile – Kennzahlen inkl. zugeordneter Personen */
+export const getCorrespondentProfile = (correspondentId) =>
+  apiGet(`/api/correspondents/${correspondentId}/profile`);
+
 /** GET /api/correspondents/unresolved */
 export const listUnresolvedCorrespondents = ({ limit = 200, excerptChars = 300 } = {}) =>
   apiGet(`/api/correspondents/unresolved?limit=${limit}&excerpt_chars=${excerptChars}`);
@@ -20,6 +24,10 @@ export const createCorrespondent = (payload) =>
 export const updateCorrespondent = (correspondentId, payload) =>
   apiPatch(`/api/correspondents/${correspondentId}`, payload);
 
+/** POST /api/correspondents/{id}/merge – source geht in id auf und wird gelöscht */
+export const mergeCorrespondents = (targetId, sourceId) =>
+  apiPost(`/api/correspondents/${targetId}/merge`, { source_id: sourceId });
+
 /** DELETE /api/correspondents/{id} */
 export const deleteCorrespondent = (correspondentId) =>
   apiDelete(`/api/correspondents/${correspondentId}`);
@@ -35,3 +43,11 @@ export const addCorrespondentAlias = (correspondentId, alias) =>
 /** DELETE /api/correspondents/{id}/aliases/{alias_id} */
 export const deleteCorrespondentAlias = (correspondentId, aliasId) =>
   apiDelete(`/api/correspondents/${correspondentId}/aliases/${aliasId}`);
+
+/** POST /api/correspondents/{id}/relations – role: predecessor | successor | acts_for | agent */
+export const addCorrespondentRelation = (correspondentId, payload) =>
+  apiPost(`/api/correspondents/${correspondentId}/relations`, payload);
+
+/** DELETE /api/correspondents/{id}/relations/{relation_id} */
+export const deleteCorrespondentRelation = (correspondentId, relationId) =>
+  apiDelete(`/api/correspondents/${correspondentId}/relations/${relationId}`);

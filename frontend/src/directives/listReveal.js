@@ -57,12 +57,13 @@ function reveal(el, state) {
   if (getComputedStyle(el).visibility === 'hidden') return;
   const bounds = visibleBounds(el);
   if (bounds.bottom <= bounds.top || bounds.right <= bounds.left) return;
+  const maxItems = state.options.maxItems ?? 10;
   const visible = [];
   for (const item of el.querySelectorAll(state.options.selector || ':scope > li')) {
     if (item.matches(EXCLUDED) || item.closest('[contenteditable="true"]')) continue;
     const rect = item.getBoundingClientRect();
     if (rect.width && rect.height && rect.bottom > bounds.top && rect.top < bounds.bottom && rect.right > bounds.left && rect.left < bounds.right) visible.push(item);
-    if (visible.length === 10) break;
+    if (visible.length >= maxItems) break;
   }
   if (!visible.length) return;
   state.armed = false;

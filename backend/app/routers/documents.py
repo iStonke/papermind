@@ -68,6 +68,10 @@ def list_documents(
         default=None,
         description="Filter by correspondent UUID",
     ),
+    correspondent_members: bool = Query(
+        default=False,
+        description="With correspondent_id: include documents of persons assigned to this organization",
+    ),
     status_filter: DocumentStatus | None = Query(
         default=None,
         alias="status",
@@ -110,6 +114,7 @@ def list_documents(
         untagged=untagged,
         document_type=document_type,
         correspondent_id=correspondent_id,
+        correspondent_members=correspondent_members,
         status=status_filter,
         date_from=date_from,
         date_to=date_to,

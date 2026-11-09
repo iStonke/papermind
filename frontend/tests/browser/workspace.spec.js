@@ -102,13 +102,21 @@ async function login(page) {
 test('Wissen displays stored AI results beside OCR without changing fields or starting analysis', async ({ page }) => {
   const { document, patches } = await mockApi(page);
   Object.assign(document, { ocr_status: 'done', text_source: 'ocr', ai_status: 'done', ai_summary: 'Kurzfassung des Prüfbelegs.',
-    page_count: 1,
+    page_count: 1, document_type: 'Beitragsrechnung',
     ai_document_type: 'Rechnung', ai_document_date: '2026-10-30', ai_sender: 'KMTV', ai_amount: 0, ai_currency: 'EUR', ai_processed_at: '2026-10-30T10:00:00Z' });
   let analyses = 0;
   await page.route(`**/api/documents/${docId}/ai-metadata`, route => { analyses++; return route.fulfill({ json: {} }); });
   await login(page);
   await page.locator(`[data-document-id="${docId}"]`).click();
   const chip = page.getByRole('button', { name: 'Wissen zum Dokument anzeigen', exact: true });
+  const ocr = page.getByRole('button', { name: 'OCR-Details anzeigen', exact: true });
+  const meta = page.locator('.details-drawer__meta-line');
+  const type = meta.locator(':scope > :first-child');
+  await expect(type).toHaveText('Beitragsrechnung');
+  await expect(type.locator(':scope > .v-icon:first-child')).toBeVisible();
+  const fontWeight = await meta.getByText('1 Seite', { exact: true }).evaluate(el => getComputedStyle(el).fontWeight);
+  await expect(chip).toHaveCSS('font-weight', fontWeight);
+  await expect(ocr).toHaveCSS('font-weight', fontWeight);
   await chip.click();
   const dialog = page.getByRole('dialog', { name: 'Wissen', exact: true });
   await expect(dialog).toContainText('Kurzfassung des Prüfbelegs.');

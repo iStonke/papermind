@@ -1,0 +1,165 @@
+/* Standard-Kopfzeile der Listenbereiche (PmListHeader.vue) und der gemeinsame
+   Ansichtsumschalter (PmViewModeMenu.vue). Global, weil die Menüs teleportiert
+   werden und jeder Bereich dieselbe Kopfzeile ohne eigene Kopie nutzen soll.
+   Maßstab ist die Kopfzeile der Dokumentenliste (.panel-middle__header). */
+.pm-list-header {
+  flex: none;
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 57px;
+  padding: 10px 14px;
+  background: rgba(var(--v-theme-surface), 0.68);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--pm-divider);
+}
+
+/* Titel nimmt nur, was er braucht (max. 40 %), das Suchfeld den Rest.
+   Beim Fokus der Suche weicht der Titel ganz. */
+.pm-list-header__title {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+  max-width: 40%;
+  margin-right: 14px;
+  transition:
+    max-width var(--pm-duration-base, 220ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    opacity var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    margin var(--pm-duration-base, 220ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.pm-list-header--search-focused .pm-list-header__title {
+  max-width: 0 !important;
+  opacity: 0;
+  margin-right: -12px;
+  pointer-events: none;
+}
+
+.pm-no-animations .pm-list-header__title {
+  transition-duration: 0ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pm-list-header__title {
+    transition-duration: 0ms !important;
+  }
+}
+
+.pm-list-header__heading {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pm-text);
+  font-size: 0.98rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pm-list-header__sub {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pm-muted);
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pm-list-header__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Der kleine Ansichtsumschalter in der Listenkopfzeile folgt bewusst der
+   ruhigen Karten- und Akzentsprache der umgebenden PaperMind-Oberfläche. */
+.document-viewmode-menu.pm-menu {
+  padding: 6px;
+  border-color: color-mix(in srgb, var(--pm-divider) 86%, transparent);
+  border-radius: 14px;
+  background: var(--pm-app-surface-raised);
+  box-shadow: var(--pm-shadow);
+}
+
+.document-viewmode-menu__label {
+  padding: 4px 9px 6px;
+  color: var(--pm-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.document-viewmode-menu.pm-menu .document-viewmode-menu__item {
+  min-height: 38px;
+  margin: 1px 0;
+  padding-inline: 7px 8px !important;
+  border-radius: 9px;
+  color: color-mix(in srgb, var(--pm-text) 84%, var(--pm-muted));
+  transition: none;
+}
+
+.document-viewmode-menu__item .v-list-item__overlay {
+  transition: none !important;
+}
+
+.document-viewmode-menu__item .v-list-item__prepend > .v-list-item__spacer {
+  width: 8px;
+}
+
+.document-viewmode-menu__item .v-list-item__append > .v-list-item__spacer {
+  width: 6px;
+}
+
+.document-viewmode-menu__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: var(--pm-muted);
+  background: color-mix(in srgb, var(--pm-divider) 34%, transparent);
+  transition: none;
+}
+
+.document-viewmode-menu__check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: rgb(var(--v-theme-primary));
+}
+
+.document-viewmode-menu.pm-menu .document-viewmode-menu__item:hover {
+  color: var(--pm-text);
+  background: color-mix(in srgb, var(--pm-accent) 6%, transparent);
+}
+
+.document-viewmode-menu.pm-menu .document-viewmode-menu__item--active {
+  color: rgb(var(--v-theme-primary));
+  background: color-mix(in srgb, rgb(var(--v-theme-primary)) 10%, transparent);
+}
+
+.document-viewmode-menu__item--active .v-list-item-title {
+  font-weight: 650;
+}
+
+.document-viewmode-menu__item--active .document-viewmode-menu__icon {
+  color: rgb(var(--v-theme-primary));
+  background: color-mix(in srgb, rgb(var(--v-theme-primary)) 12%, transparent);
+}
+
+.document-viewmode-menu.pm-menu .document-viewmode-menu__item--active:hover {
+  background: color-mix(in srgb, rgb(var(--v-theme-primary)) 14%, transparent);
+}

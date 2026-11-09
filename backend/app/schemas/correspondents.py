@@ -1,5 +1,6 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -27,10 +28,12 @@ def _normalize_kind(value: str | None) -> str | None:
 
 class CorrespondentCreateRequest(BaseModel):
     name: str = Field(min_length=CORRESPONDENT_NAME_MIN_LENGTH, max_length=CORRESPONDENT_NAME_MAX_LENGTH)
+    first_name: str | None = Field(default=None, max_length=CORRESPONDENT_NAME_MAX_LENGTH)
+    last_name: str | None = Field(default=None, max_length=CORRESPONDENT_NAME_MAX_LENGTH)
     short_name: str | None = Field(default=None, max_length=60)
     notes: str | None = Field(default=None, max_length=2000)
     kind: str | None = Field(default=None, description="organization | person | collection")
-    parent_id: uuid.UUID | None = Field(default=None, description="Organisation einer Person")
+    parent_id: uuid.UUID | None = Field(default=None, description="Übergeordneter Eintrag: Organisation/Sammlung einer Person, Sammlung einer Organisation")
 
     @field_validator("name")
     @classmethod
@@ -42,7 +45,7 @@ class CorrespondentCreateRequest(BaseModel):
     def normalize_kind(cls, value: str | None) -> str | None:
         return _normalize_kind(value)
 
-    @field_validator("short_name", "notes")
+    @field_validator("first_name", "last_name", "short_name", "notes")
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -62,10 +65,12 @@ class CorrespondentAliasCreateRequest(BaseModel):
 
 class CorrespondentUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=CORRESPONDENT_NAME_MIN_LENGTH, max_length=CORRESPONDENT_NAME_MAX_LENGTH)
+    first_name: str | None = Field(default=None, max_length=CORRESPONDENT_NAME_MAX_LENGTH)
+    last_name: str | None = Field(default=None, max_length=CORRESPONDENT_NAME_MAX_LENGTH)
     short_name: str | None = Field(default=None, max_length=60)
     notes: str | None = Field(default=None, max_length=2000)
     kind: str | None = Field(default=None, description="organization | person | collection")
-    parent_id: uuid.UUID | None = Field(default=None, description="Organisation einer Person (null löst die Zuordnung)")
+    parent_id: uuid.UUID | None = Field(default=None, description="Übergeordneter Eintrag (null löst die Zuordnung)")
 
     @field_validator("name")
     @classmethod
@@ -79,7 +84,7 @@ class CorrespondentUpdateRequest(BaseModel):
     def normalize_kind(cls, value: str | None) -> str | None:
         return _normalize_kind(value)
 
-    @field_validator("short_name", "notes")
+    @field_validator("first_name", "last_name", "short_name", "notes")
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -135,6 +140,8 @@ class CorrespondentMatcherRead(ORMModel):
 class CorrespondentRead(ORMModel):
     id: uuid.UUID
     name: str
+    first_name: str | None = None
+    last_name: str | None = None
     short_name: str | None = None
     notes: str | None = None
     kind: str | None = None
@@ -144,10 +151,97 @@ class CorrespondentRead(ORMModel):
     aliases: list[CorrespondentAliasRead] = Field(default_factory=list)
     matchers: list[CorrespondentMatcherRead] = Field(default_factory=list)
     usage_count: int | None = None
+    last_document_date: date | None = None
+
+
+class CorrespondentMergeRequest(BaseModel):
+    source_id: uuid.UUID = Field(description="Eintrag, der im Ziel aufgeht und danach gelöscht wird")
+
+
+class CorrespondentMergeResponse(BaseModel):
+    correspondent: CorrespondentRead
+    documents: int
+    aliases: int
+    matchers: int
+    relations: int
+    members: int
+    notes: int
 
 
 class CorrespondentListResponse(BaseModel):
     items: list[CorrespondentRead]
+
+
+class CorrespondentProfileMember(BaseModel):
+    id: uuid.UUID
+    name: str
+    kind: str | None = None
+    document_count: int = 0
+    last_document_date: date | None = None
+
+
+class CorrespondentAmountSummary(BaseModel):
+    currency: str | None = None
+    total: Decimal
+    count: int
+
+
+class CorrespondentProfileActivity(BaseModel):
+    """Ein Dokument als Datenpunkt der Profilgrafiken (ohne Inhalte)."""
+
+    document_date: date
+    correspondent_id: uuid.UUID
+    document_type: str | None = None
+
+
+# Rolle des *anderen* Korrespondenten aus Sicht des Profils.
+CORRESPONDENT_RELATION_ROLES = ("predecessor", "successor", "acts_for", "agent")
+
+
+class CorrespondentRelationCreateRequest(BaseModel):
+    """predecessor/successor: der andere ist Vorgänger/Nachfolger; acts_for:
+    dieser Korrespondent handelt für den anderen; agent: der andere handelt
+    für diesen."""
+
+    role: str
+    other_id: uuid.UUID
+
+    @field_validator("role")
+    @classmethod
+    def _validate_role(cls, value: str) -> str:
+        role = str(value or "").strip()
+        if role not in CORRESPONDENT_RELATION_ROLES:
+            raise ValueError(f"Unbekannte Verbindung: {role}")
+        return role
+
+
+class CorrespondentRelationRead(BaseModel):
+    """Eine Verbindung aus Sicht des Profils inkl. Kennzahlen des Gegenübers."""
+
+    id: uuid.UUID
+    role: str
+    other_id: uuid.UUID
+    other_name: str
+    other_kind: str | None = None
+    document_count: int = 0
+    first_document_date: date | None = None
+    last_document_date: date | None = None
+
+
+class CorrespondentProfileRead(BaseModel):
+    """Kennzahlen der Profilseite; bei Organisationen inkl. zugeordneter Personen."""
+
+    correspondent: CorrespondentRead
+    document_count: int = 0
+    own_document_count: int = 0
+    first_document_date: date | None = None
+    last_document_date: date | None = None
+    members: list[CorrespondentProfileMember] = Field(default_factory=list)
+    amount_year: int
+    amounts: list[CorrespondentAmountSummary] = Field(default_factory=list)
+    # Alle Dokumente (aufsteigend nach Datum) für Jahres-/Monats-/Typverteilung.
+    activity: list[CorrespondentProfileActivity] = Field(default_factory=list)
+    relations: list[CorrespondentRelationRead] = Field(default_factory=list)
 
 
 class UnresolvedCorrespondentItemRead(BaseModel):

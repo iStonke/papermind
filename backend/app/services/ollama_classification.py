@@ -255,7 +255,7 @@ def build_ollama_classification_payload(
     schema = {
         "document_type": f"{doc_type_hint} oder null",
         "document_date": "YYYY-MM-DD oder null",
-        "sender": "Absender/Aussteller als String oder null",
+        "sender": "Absender/Aussteller (Firma, Behörde oder Person aus Briefkopf oder Absenderzeile) oder null – nie eine Überschrift, ein Titel oder ein Thema",
         "recipient": "Empfänger als String oder null",
         "amount": "Zahl ohne Währung oder null",
         "currency": "ISO-Währungscode, z.B. EUR, oder null",
