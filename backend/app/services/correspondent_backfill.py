@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models.correspondent import Correspondent
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.services.import_metadata_heuristics import is_plausible_sender
@@ -61,6 +62,9 @@ class UnresolvedCorrespondentItem:
     ocr_status: str
     text_available: bool
     text_excerpt: str | None
+    # Nur bei Dokumenten, die direkt an einer Sammlung hängen.
+    correspondent_id: str | None = None
+    correspondent_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -239,6 +243,45 @@ class CorrespondentBackfillService:
             include_deleted=include_deleted,
             items=items,
         )
+
+    def collection_report(self, *, limit: int = 200, excerpt_chars: int = 0) -> UnresolvedCorrespondentReport:
+        """Dokumente, die direkt einer Sammlung zugeordnet sind – Kandidaten für eine
+        genauere Zuordnung. Bewusst bei der Sammlung belassene fallen heraus."""
+        stmt = (
+            select(Document, Correspondent.name)
+            .join(Correspondent, Correspondent.id == Document.correspondent_id)
+            .where(
+                Correspondent.kind == "collection",
+                Document.is_deleted.is_(False),
+                Document.flags["collection_review"].astext.is_distinct_from("kept"),
+            )
+            .order_by(Document.created_at.asc())
+            .limit(limit)
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(Document.owner_id == self.owner_id, Correspondent.owner_id == self.owner_id)
+
+        rows = self.db.execute(stmt).all()
+        items: list[UnresolvedCorrespondentItem] = []
+        for document, collection_name in rows:
+            text = self._text_for_matching(document, max_chars=excerpt_chars) if excerpt_chars else ""
+            items.append(
+                UnresolvedCorrespondentItem(
+                    document_id=str(document.id),
+                    title=(document.display_name or document.original_filename or "").strip(),
+                    original_filename=document.original_filename,
+                    sender=document.ai_sender if is_plausible_sender(document.ai_sender) else None,
+                    document_type=document.document_type,
+                    document_date=document.document_date.isoformat() if document.document_date else None,
+                    ai_status=document.ai_status,
+                    ocr_status=document.ocr_status,
+                    text_available=bool(text.strip()),
+                    text_excerpt=self._compact_excerpt(text, max_chars=excerpt_chars),
+                    correspondent_id=str(document.correspondent_id),
+                    correspondent_name=collection_name,
+                )
+            )
+        return UnresolvedCorrespondentReport(scanned=len(rows), unresolved=len(items), include_deleted=False, items=items)
 
     def _text_for_matching(self, document: Document, *, max_chars: int) -> str:
         text = str(document.text_content or "").strip()

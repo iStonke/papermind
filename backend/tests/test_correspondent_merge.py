@@ -246,3 +246,51 @@ class CollectionDocumentGroupsIntegrationTest(unittest.TestCase):
         self.assertEqual(groups["Sparkasse"], (2, 0))
         listed = query.list_documents(**common, limit=50, include_total=True, correspondent_id=bank.id, correspondent_members=True)
         self.assertEqual(listed.total, 4)
+
+
+@unittest.skipUnless(_schema_ready(), "Isolated PostgreSQL schema required")
+class CollectionDocumentsReviewIntegrationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.db = SessionLocal()
+        self.user = User(username=f"collection-review-{uuid.uuid4().hex}", password_hash="test", is_active=True, is_admin=False)
+        self.db.add(self.user)
+        self.db.commit()
+
+    def tearDown(self) -> None:
+        self.db.rollback()
+        self.db.execute(delete(Document).where(Document.owner_id == self.user.id))
+        self.db.execute(delete(Correspondent).where(Correspondent.owner_id == self.user.id))
+        self.db.execute(delete(User).where(User.id == self.user.id))
+        self.db.commit()
+        self.db.close()
+
+    def test_collection_documents_can_be_listed_kept_and_return_after_reassignment(self) -> None:
+        from types import SimpleNamespace
+
+        from app.routers.correspondents import keep_collection_document
+        from app.schemas.documents import DocumentUpdateRequest
+        from app.services.correspondent_backfill import CorrespondentBackfillService
+        from app.services.documents import DocumentService
+
+        bank = Correspondent(owner_id=self.user.id, name="Bank", kind="collection")
+        sparkasse = Correspondent(owner_id=self.user.id, name="Sparkasse", kind="organization")
+        self.db.add_all([bank, sparkasse])
+        self.db.flush()
+        on_bank = Document(owner_id=self.user.id, original_filename="konto.pdf", display_name="Kontoauszug", correspondent_id=bank.id)
+        on_org = Document(owner_id=self.user.id, original_filename="org.pdf", correspondent_id=sparkasse.id)
+        self.db.add_all([on_bank, on_org])
+        self.db.commit()
+
+        report = CorrespondentBackfillService(self.db, self.user.id).collection_report()
+        self.assertEqual([(item.title, item.correspondent_name) for item in report.items], [("Kontoauszug", "Bank")])
+
+        keep_collection_document(on_bank.id, db=self.db, user=SimpleNamespace(id=self.user.id))
+        self.assertEqual(CorrespondentBackfillService(self.db, self.user.id).collection_report().items, [])
+
+        # Moving it elsewhere and back resets "keep": it is a new decision.
+        service = DocumentService(self.db, self.user.id)
+        service.update_document(on_bank.id, DocumentUpdateRequest(correspondent_id=sparkasse.id))
+        self.db.commit()
+        service.update_document(on_bank.id, DocumentUpdateRequest(correspondent_id=bank.id))
+        self.db.commit()
+        self.assertEqual(len(CorrespondentBackfillService(self.db, self.user.id).collection_report().items), 1)

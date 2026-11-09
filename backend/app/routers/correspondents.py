@@ -105,6 +105,36 @@ def ignore_unresolved_correspondent(
 
 
 @router.get(
+    "/collection-documents",
+    response_model=UnresolvedCorrespondentReportResponse,
+    summary="Documents assigned directly to a collection (candidates for a more specific correspondent)",
+)
+def report_collection_documents(
+    limit: int = Query(default=200, ge=1, le=1000),
+    excerpt_chars: int = Query(default=0, ge=0, le=2000),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
+) -> UnresolvedCorrespondentReportResponse:
+    report = CorrespondentBackfillService(db, user.id).collection_report(limit=limit, excerpt_chars=excerpt_chars)
+    return UnresolvedCorrespondentReportResponse.model_validate(report.to_dict())
+
+
+@router.post(
+    "/collection-documents/{document_id}/keep",
+    response_model=OkResponse,
+    summary="Keep a document deliberately with its collection",
+    responses={404: {"model": ErrorResponse}},
+)
+def keep_collection_document(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
+) -> OkResponse:
+    document = DocumentService(db, user.id).get_document_or_404(document_id)
+    document.flags = {**(document.flags or {}), "collection_review": "kept"}
+    db.commit()
+    return OkResponse()
+
+
+@router.get(
     "/{correspondent_id}/profile",
     response_model=CorrespondentProfileRead,
     summary="Profile figures of a correspondent (organizations include their persons)",

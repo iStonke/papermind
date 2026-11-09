@@ -269,6 +269,8 @@ class UnresolvedCorrespondentItemRead(BaseModel):
     ocr_status: str
     text_available: bool
     text_excerpt: str | None = None
+    correspondent_id: uuid.UUID | None = None
+    correspondent_name: str | None = None
 
 
 class UnresolvedCorrespondentReportResponse(BaseModel):

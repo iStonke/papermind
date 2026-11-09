@@ -1,8 +1,8 @@
 <template>
-  <section class="unassigned" aria-label="Dokumente ohne Korrespondenten" :aria-busy="isLoading" @keydown="onShortcut">
+  <section class="unassigned" :aria-label="texts.region" :aria-busy="isLoading" @keydown="onShortcut">
     <slot name="back" />
     <div v-if="loadError" class="unassigned-state" role="alert">
-      Offene Zuordnungen konnten nicht geladen werden.
+      {{ texts.loadError }}
       <button type="button" class="unassigned-link" @click="emit('reload')">Erneut versuchen</button>
     </div>
 
@@ -30,8 +30,11 @@
           :page-count-label="pageCountLabel"
           @toggle="drawerOpen = !drawerOpen"
         >
-          <template v-if="documentDate" #meta>
-            <span class="details-drawer__meta-part">{{ documentDate }}</span>
+          <template v-if="documentDate || collectionName" #meta>
+            <span v-if="collectionName" class="details-drawer__meta-part unassigned-collection">
+              <v-icon size="13" aria-hidden="true">mdi-shape-outline</v-icon>{{ collectionName }}
+            </span>
+            <span v-if="documentDate" class="details-drawer__meta-part">{{ documentDate }}</span>
           </template>
           <template #actions>
             <div v-if="items.length > 1" class="unassigned-strip">
@@ -94,7 +97,7 @@
               <v-list class="pm-menu" density="compact">
                 <v-list-item v-if="detectedSender" title="Absender als Alias übernehmen" prepend-icon="mdi-tag-plus" @click="openAssignmentEditor('alias')" />
                 <v-list-item title="Korrespondent anlegen" prepend-icon="mdi-account-plus" @click="openAssignmentEditor('create')" />
-                <v-list-item title="Bewusst ohne Korrespondent" prepend-icon="mdi-close" @click="resolveDocument('ignore')" />
+                <v-list-item :title="texts.ignore" :prepend-icon="isCollectionMode ? 'mdi-shape-outline' : 'mdi-close'" @click="resolveDocument('ignore')" />
               </v-list>
             </v-menu>
           </template>
@@ -170,9 +173,9 @@
 
     <div v-else-if="isLoading && !loadError" class="unassigned-state" role="status">
       <v-progress-circular indeterminate size="20" width="2" />
-      Offene Zuordnungen werden geladen …
+      {{ texts.loading }}
     </div>
-    <PmEmptyState v-else-if="!loadError" icon="mdi-file-document-outline" title="Keine offenen Zuordnungen." size="md" role="status" />
+    <PmEmptyState v-else-if="!loadError" icon="mdi-file-document-outline" :title="texts.empty" size="md" role="status" />
   </section>
 </template>
 
@@ -183,7 +186,7 @@ import DocumentMetadataFields from './DocumentMetadataFields.vue';
 import CorrespondentRefineHint from './CorrespondentRefineHint.vue';
 import DocumentPreviewLayout from './DocumentPreviewLayout.vue';
 import PmEmptyState from './PmEmptyState.vue';
-import { ignoreUnresolvedCorrespondent } from '../api/correspondents.js';
+import { getCorrespondentRefinements, ignoreUnresolvedCorrespondent, keepCollectionDocument } from '../api/correspondents.js';
 import { documentFileUrl, documentThumbnailUrl, patchDocument } from '../api/documents.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { useCorrespondentStore } from '../stores/correspondents.js';
@@ -197,6 +200,8 @@ const props = defineProps({
   documentId: { type: String, default: null },
   isLoading: Boolean,
   loadError: Boolean,
+  // 'unassigned' = ohne Korrespondent; 'collection' = direkt an einer Sammlung → genauer zuordnen.
+  mode: { type: String, default: 'unassigned' },
 });
 const emit = defineEmits(['reload', 'resolved', 'select']);
 const store = useCorrespondentStore();
@@ -227,7 +232,40 @@ const checkedIds = ref(new Set());
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 const shortcutLabel = isMac ? '⌘↵' : 'Strg+↵';
 
+const isCollectionMode = computed(() => props.mode === 'collection');
+const texts = computed(() => (isCollectionMode.value
+  ? {
+    region: 'Dokumente an Sammlungen',
+    loadError: 'Dokumente an Sammlungen konnten nicht geladen werden.',
+    loading: 'Dokumente an Sammlungen werden geladen …',
+    empty: 'Alle Dokumente sind genauer zugeordnet.',
+    ignore: 'Bei der Sammlung lassen',
+  }
+  : {
+    region: 'Dokumente ohne Korrespondenten',
+    loadError: 'Offene Zuordnungen konnten nicht geladen werden.',
+    loading: 'Offene Zuordnungen werden geladen …',
+    empty: 'Keine offenen Zuordnungen.',
+    ignore: 'Bewusst ohne Korrespondent',
+  }));
 const selectedDocument = computed(() => props.items.find(item => item.document_id === props.documentId));
+// Sammlungsmodus: die Sammlung des Dokuments und das im Text genannte Mitglied als Vorschlag.
+const collectionId = computed(() => (isCollectionMode.value ? selectedDocument.value?.correspondent_id || null : null));
+const collectionName = computed(() => (isCollectionMode.value ? selectedDocument.value?.correspondent_name || store.findById(collectionId.value)?.name || '' : ''));
+const mentionedMemberId = ref(null);
+let refinementRequest = 0;
+watch([collectionId, () => props.documentId], async ([collection, documentId]) => {
+  const current = ++refinementRequest;
+  mentionedMemberId.value = null;
+  if (!collection || !documentId) return;
+  try {
+    const result = await getCorrespondentRefinements(collection, documentId);
+    const mentioned = (result?.items || []).filter(item => item.mentioned);
+    if (current === refinementRequest && mentioned.length === 1) mentionedMemberId.value = mentioned[0].id;
+  } catch {
+    // Ohne Vorschlag bleibt die Sammlung ausgewählt; die Mitglieder-Chips helfen weiter.
+  }
+}, { immediate: true });
 const documentTitle = computed(() => selectedDocument.value?.title || selectedDocument.value?.original_filename || 'Ohne Titel');
 const documentDate = computed(() => formatDocumentDateInputFromIso(selectedDocument.value?.document_date));
 const pageCountLabel = computed(() => {
@@ -246,6 +284,10 @@ function senderKey(name) {
 const detectedSender = computed(() => selectedDocument.value?.sender?.trim().replace(/\s+/g, ' ') ?? '');
 const suggestedCorrespondent = computed(() => {
   if (!showSuggestions.value) return null;
+  if (isCollectionMode.value) {
+    const mentioned = store.findById(mentionedMemberId.value);
+    if (mentioned) return mentioned;
+  }
   const sender = detectedSender.value;
   const key = senderKey(sender);
   if (!key) return null;
@@ -268,7 +310,7 @@ const correspondentOptions = computed(() => newSenderOption.value
   : store.correspondentOptions);
 const correspondentSelection = computed({
   get: () => selectedCorrespondentId.value === undefined
-    ? suggestedCorrespondent.value?.id ?? newSenderOption.value?.value ?? null
+    ? suggestedCorrespondent.value?.id ?? newSenderOption.value?.value ?? collectionId.value ?? null
     : selectedCorrespondentId.value,
   set: value => { selectedCorrespondentId.value = value; },
 });
@@ -286,7 +328,10 @@ const submitLabel = computed(() => {
 });
 const nameToCreate = computed(() => action.value === 'create' ? newName.value.trim() : detectedSender.value);
 const canSubmit = computed(() => Boolean(selectedDocument.value && !pending.value && !props.isLoading
-  && (submitAction.value === 'create' ? nameToCreate.value.length >= 2 && nameToCreate.value.length <= 120 : correspondentSelection.value)));
+  && (submitAction.value === 'create'
+    ? nameToCreate.value.length >= 2 && nameToCreate.value.length <= 120
+    // Im Sammlungsmodus nur, wenn es wirklich genauer wird.
+    : correspondentSelection.value && correspondentSelection.value !== collectionId.value)));
 
 function setAction(nextAction) {
   action.value = nextAction;
@@ -408,14 +453,17 @@ async function resolveDocument(key) {
   try {
     if (key === 'ignore') {
       for (const documentId of batch) {
-        await ignoreUnresolvedCorrespondent(documentId, 'Bewusst ohne Korrespondent');
+        if (isCollectionMode.value) await keepCollectionDocument(documentId);
+        else await ignoreUnresolvedCorrespondent(documentId, 'Bewusst ohne Korrespondent');
         done.push(documentId);
       }
     } else {
       if (key === 'create') {
-        const result = await store.createCorrespondentByName(nameToCreate.value);
+        // Im Sammlungsmodus entsteht eine Organisation, die gleich zur Sammlung gehört.
+        const result = await store.createCorrespondentByName(nameToCreate.value, isCollectionMode.value ? { kind: 'organization' } : {});
         if (!result?.id) return;
         correspondentId = result.id;
+        if (collectionId.value) await store.updateCorrespondent(correspondentId, { parent_id: collectionId.value }, { silent: true });
         if (props.documentId === id && action.value === 'assign') selectedCorrespondentId.value = correspondentId;
       }
       if (key === 'alias') {
@@ -458,9 +506,10 @@ function aliasOffer(correspondentId, documentIds) {
 
 function notifyResolved(key, count, offer) {
   const subject = count === 1 ? 'Dokument' : `${count} Dokumente`;
+  const stays = count === 1 ? 'bleibt' : 'bleiben';
   const base = key === 'ignore'
-    ? `${subject} ${count === 1 ? 'bleibt' : 'bleiben'} ohne Korrespondenten.`
-    : `${subject} zugeordnet.`;
+    ? `${subject} ${stays} ${isCollectionMode.value ? 'bei der Sammlung' : 'ohne Korrespondenten'}.`
+    : `${subject} ${isCollectionMode.value ? 'genauer ' : ''}zugeordnet.`;
   if (!offer) {
     notify({ type: 'success', title: 'Korrespondent', message: base });
     return;
@@ -479,6 +528,7 @@ function notifyResolved(key, count, offer) {
   min-height: 0;
 }
 .unassigned-layout { flex: 1; min-height: 0; }
+.unassigned-collection { display: inline-flex; align-items: center; gap: 4px; }
 .unassigned-multi {
   display: flex;
   flex-wrap: wrap;

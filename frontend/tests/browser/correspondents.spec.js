@@ -1276,3 +1276,64 @@ test('correspondent pickers find entries by their short name', async ({ page }) 
   await dialog.getByRole('combobox', { name: 'Zusammenführen mit' }).fill('aok');
   await expect(page.getByRole('option').filter({ hasText: 'Allgemeine Ortskrankenkasse Nordwest' })).toBeVisible();
 });
+
+test('documents assigned to a collection can be refined to a member or kept', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await prepareWorkspace(page);
+  const items = [
+    { id: 'bank', name: 'Bank', kind: 'collection', usage_count: 2, aliases: [] },
+    { id: 'sparkasse', name: 'Förde Sparkasse', kind: 'organization', parent_id: 'bank', usage_count: 0, aliases: [] },
+    { id: 'volksbank', name: 'Volksbank', kind: 'organization', parent_id: 'bank', usage_count: 0, aliases: [] },
+  ];
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items } }));
+  let collectionDocs = [
+    { document_id: 'coll1', title: 'Kontoauszug März', correspondent_id: 'bank', correspondent_name: 'Bank' },
+    { document_id: 'coll2', title: 'Allgemeine Bedingungen', correspondent_id: 'bank', correspondent_name: 'Bank' },
+  ];
+  await page.route('**/api/correspondents/collection-documents?*', route => route.fulfill({ json: { scanned: collectionDocs.length, unresolved: collectionDocs.length, include_deleted: false, items: collectionDocs } }));
+  await page.route('**/api/documents/coll*/file?*', route => route.fulfill({ contentType: 'application/pdf', body: syntheticDocumentPdf() }));
+  await page.route('**/api/correspondents/*/refinements?*', route => {
+    const documentId = new URL(route.request().url()).searchParams.get('document_id');
+    const mentioned = documentId === 'coll1';
+    return route.fulfill({ json: { items: [{ ...items[1], mentioned }, { ...items[2], mentioned: false }] } });
+  });
+  const patched = [];
+  await page.route('**/api/documents/coll*', route => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    const id = new URL(route.request().url()).pathname.split('/').at(-1);
+    patched.push([id, route.request().postDataJSON().correspondent_id]);
+    collectionDocs = collectionDocs.filter(doc => doc.document_id !== id);
+    return route.fulfill({ json: {} });
+  });
+  const kept = [];
+  await page.route('**/api/correspondents/collection-documents/*/keep', route => {
+    const id = new URL(route.request().url()).pathname.split('/').at(-2);
+    kept.push(id);
+    collectionDocs = collectionDocs.filter(doc => doc.document_id !== id);
+    return route.fulfill({ json: { ok: true } });
+  });
+
+  await page.locator('.sidebar-item--correspondents').click();
+  const workspace = page.locator('.panel-correspondents');
+  const tile = workspace.getByRole('treeitem', { name: 'Genauer zuordnen', exact: true });
+  await expect(tile.locator('.corr-inbox__count')).toHaveText('2');
+  await tile.click();
+  const review = workspace.getByRole('region', { name: 'Dokumente an Sammlungen', exact: true });
+  const drawer = review.getByRole('region', { name: 'Dokumentdetails', exact: true });
+  await expect(review.getByRole('heading', { name: 'Kontoauszug März', exact: true })).toBeVisible();
+  await expect(drawer.locator('.unassigned-collection')).toHaveText('Bank');
+  // The member named in the document is preselected as suggestion.
+  await expect(drawer.locator('.pm-metadata-value')).toContainText('Förde Sparkasse');
+  await expect(drawer.getByText('Vorschlag', { exact: true })).toBeVisible();
+  await drawer.getByRole('button', { name: 'Zuordnen', exact: true }).click();
+  await expect.poll(() => patched).toEqual([['coll1', 'sparkasse']]);
+
+  // Without a mentioned member the collection stays selected and cannot be "assigned" again.
+  await expect(review.getByRole('heading', { name: 'Allgemeine Bedingungen', exact: true })).toBeVisible();
+  await expect(drawer.getByRole('button', { name: 'Zuordnen', exact: true })).toBeDisabled();
+  await expect(drawer.getByRole('group', { name: 'Sammlung – genauer:' }).getByRole('button')).toHaveCount(2);
+  await drawer.locator('.details-drawer__header').getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await page.getByText('Bei der Sammlung lassen', { exact: true }).click();
+  await expect.poll(() => kept).toEqual(['coll2']);
+  await expect(review.getByText('Alle Dokumente sind genauer zugeordnet.')).toBeVisible();
+});

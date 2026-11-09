@@ -34,7 +34,7 @@
       <div v-if="isDirectoryLoading" class="corr-state">
         <v-progress-circular indeterminate size="22" width="2" color="primary" />
       </div>
-      <div v-else-if="visibleTree.length || visibleUnassignedDocuments.length || visibleDuplicatePairs.length" class="corr-tree" role="tree" aria-label="Korrespondenten">
+      <div v-else-if="visibleTree.length || visibleUnassignedDocuments.length || visibleCollectionDocuments.length || visibleDuplicatePairs.length" class="corr-tree" role="tree" aria-label="Korrespondenten">
         <div v-if="visibleUnassignedDocuments.length" class="corr-inbox" role="group" aria-label="Ohne Korrespondent">
           <div
             class="corr-inbox__row"
@@ -54,6 +54,28 @@
               <span class="corr-inbox__subtitle">Dokumente zum Zuordnen</span>
             </span>
             <span class="corr-inbox__count" aria-hidden="true">{{ unassignedCountText }}</span>
+            <v-icon class="corr-inbox__chevron" size="18" aria-hidden="true">mdi-chevron-right</v-icon>
+          </div>
+        </div>
+        <div v-if="visibleCollectionDocuments.length" class="corr-inbox" role="group" aria-label="Genauer zuordnen">
+          <div
+            class="corr-inbox__row corr-inbox__row--collection"
+            :class="{ 'is-selected': isCollectionReviewOpen }"
+            role="treeitem"
+            :aria-selected="isCollectionReviewOpen"
+            aria-label="Genauer zuordnen"
+            :aria-description="collectionCountLabel"
+            tabindex="0"
+            @click="openCollectionReview"
+            @keydown.enter.prevent="openCollectionReview"
+            @keydown.space.prevent="openCollectionReview"
+          >
+            <v-icon class="corr-inbox__icon" size="20" aria-hidden="true">mdi-shape-outline</v-icon>
+            <span class="corr-inbox__text">
+              <span class="corr-inbox__title">Genauer zuordnen</span>
+              <span class="corr-inbox__subtitle">Dokumente an Sammlungen</span>
+            </span>
+            <span class="corr-inbox__count" aria-hidden="true">{{ collectionCountText }}</span>
             <v-icon class="corr-inbox__chevron" size="18" aria-hidden="true">mdi-chevron-right</v-icon>
           </div>
         </div>
@@ -235,6 +257,27 @@
         @reload="loadUnassignedDocuments"
         @resolved="onUnassignedResolved"
         @select="openUnassignedDocument"
+      >
+        <template #back>
+          <button type="button" class="corr-profile__back corr-unassigned-back corr-link" @click="backToDirectory">
+            <v-icon size="16" aria-hidden="true">mdi-arrow-left</v-icon>
+            Korrespondenten
+          </button>
+        </template>
+      </UnassignedCorrespondentDocuments>
+    </div>
+
+    <div v-if="hasOpenedCollectionReview" v-show="isCollectionReviewOpen" class="corr-profile">
+      <UnassignedCorrespondentDocuments
+        mode="collection"
+        :document-id="collectionDocumentId"
+        :active="isCollectionReviewOpen"
+        :items="collectionDocuments"
+        :is-loading="isLoadingCollectionDocuments"
+        :load-error="collectionDocumentsLoadError"
+        @reload="loadCollectionDocuments"
+        @resolved="onCollectionDocumentsResolved"
+        @select="openCollectionDocument"
       >
         <template #back>
           <button type="button" class="corr-profile__back corr-unassigned-back corr-link" @click="backToDirectory">
@@ -835,7 +878,7 @@ import PmInfoHeading from '../components/PmInfoHeading.vue';
 import PmListHeader from '../components/PmListHeader.vue';
 import UnassignedCorrespondentDocuments from '../components/UnassignedCorrespondentDocuments.vue';
 import { listDocuments } from '../api/documents.js';
-import { addCorrespondentRelation, deleteCorrespondentRelation, getCorrespondentProfile, listUnresolvedCorrespondents } from '../api/correspondents.js';
+import { addCorrespondentRelation, deleteCorrespondentRelation, getCorrespondentProfile, listCollectionDocuments, listUnresolvedCorrespondents } from '../api/correspondents.js';
 import { vListReveal } from '../directives/listReveal.js';
 import { useCorrespondentStore } from '../stores/correspondents.js';
 import { mapApiError, notifyError } from '../stores/notifications.js';
@@ -987,6 +1030,7 @@ let lastUnassignedDocumentId = null;
 
 function openUnassignedDocument(id) {
   isDuplicatesOpen.value = false;
+  isCollectionReviewOpen.value = false;
   hasOpenedUnassigned.value = true;
   isUnassignedOpen.value = true;
   unassignedDocumentId.value = id;
@@ -1025,10 +1069,84 @@ function replaceUnassignedDocuments(documents) {
   }
 }
 
+// ── Genauer zuordnen: Dokumente direkt an Sammlungen (wie „Ohne Korrespondent“) ──
+const isCollectionReviewOpen = ref(false);
+const hasOpenedCollectionReview = ref(false);
+const collectionDocuments = ref([]);
+const isLoadingCollectionDocuments = ref(false);
+const collectionDocumentsLoadError = ref(false);
+const collectionDocumentId = ref(null);
+let lastCollectionDocumentId = null;
+const visibleCollectionDocuments = computed(() => {
+  const term = query.value.trim().toLocaleLowerCase('de-DE');
+  return term ? collectionDocuments.value.filter(doc => [doc.title, doc.original_filename, doc.sender, doc.correspondent_name]
+    .some(value => value?.toLocaleLowerCase('de-DE').includes(term))) : collectionDocuments.value;
+});
+const collectionCountText = computed(() => {
+  const count = visibleCollectionDocuments.value.length;
+  return count === UNASSIGNED_LIMIT ? `${count}+` : String(count);
+});
+const collectionCountLabel = computed(() => {
+  const count = visibleCollectionDocuments.value.length;
+  return `${collectionCountText.value} ${count === 1 ? 'Dokument' : 'Dokumente'} direkt an Sammlungen`;
+});
+watch(collectionDocumentId, id => { if (id) lastCollectionDocumentId = id; });
+
+function openCollectionDocument(id) {
+  isUnassignedOpen.value = false;
+  isDuplicatesOpen.value = false;
+  hasOpenedCollectionReview.value = true;
+  isCollectionReviewOpen.value = true;
+  collectionDocumentId.value = id;
+}
+
+function openCollectionReview() {
+  const visible = visibleCollectionDocuments.value;
+  const target = visible.find(doc => doc.document_id === lastCollectionDocumentId) ?? visible[0];
+  if (target) openCollectionDocument(target.document_id);
+}
+
+async function loadCollectionDocuments() {
+  if (isLoadingCollectionDocuments.value) return;
+  isLoadingCollectionDocuments.value = true;
+  collectionDocumentsLoadError.value = false;
+  try {
+    const result = await listCollectionDocuments({ limit: UNASSIGNED_LIMIT });
+    replaceCollectionDocuments(result.items ?? []);
+  } catch {
+    collectionDocumentsLoadError.value = true;
+  } finally {
+    isLoadingCollectionDocuments.value = false;
+  }
+}
+
+function replaceCollectionDocuments(documents) {
+  const id = collectionDocumentId.value;
+  const previousIndex = collectionDocuments.value.findIndex(doc => doc.document_id === id);
+  collectionDocuments.value = documents;
+  if (isCollectionReviewOpen.value && !documents.some(doc => doc.document_id === id)) {
+    const nextIndex = Math.max(0, Math.min(previousIndex, documents.length - 1));
+    collectionDocumentId.value = documents[nextIndex]?.document_id ?? null;
+  }
+}
+
+function onCollectionDocumentsResolved(ids, assigned) {
+  const resolved = new Set(Array.isArray(ids) ? ids : [ids]);
+  replaceCollectionDocuments(collectionDocuments.value.filter(doc => !resolved.has(doc.document_id)));
+  void loadCollectionDocuments();
+  if (assigned) {
+    emit('documents-changed');
+    void correspondentStore.fetchCorrespondents();
+    if (props.selectedId) void reloadSelected();
+  }
+}
+
 function onUnassignedResolved(ids, assigned) {
   const resolved = new Set(Array.isArray(ids) ? ids : [ids]);
   replaceUnassignedDocuments(unassignedDocuments.value.filter(doc => !resolved.has(doc.document_id)));
   void loadUnassignedDocuments();
+  // Wer einer Sammlung zugeordnet wurde, erscheint unter „Genauer zuordnen“.
+  void loadCollectionDocuments();
   if (assigned) {
     emit('documents-changed');
     void correspondentStore.fetchCorrespondents();
@@ -1107,7 +1225,7 @@ let mergeCompleted = false;
 // Mögliche Doppelte: eigene Kachel wie „Ohne Korrespondent“; „Kein Doppel“ merkt sich das Paar je Benutzer.
 const settingsStore = useSettingsStore();
 const isDuplicatesOpen = ref(false);
-const isSpecialViewOpen = computed(() => isUnassignedOpen.value || isDuplicatesOpen.value);
+const isSpecialViewOpen = computed(() => isUnassignedOpen.value || isDuplicatesOpen.value || isCollectionReviewOpen.value);
 const duplicatesPanelRef = ref(null);
 const dismissingDuplicateKey = ref('');
 const duplicateDismissals = computed(() => settingsStore.settings?.ui?.correspondent_duplicate_dismissals || []);
@@ -1126,6 +1244,7 @@ const duplicateCountLabel = computed(() => {
 });
 async function openDuplicates() {
   isUnassignedOpen.value = false;
+  isCollectionReviewOpen.value = false;
   isDuplicatesOpen.value = true;
   await nextTick();
   duplicatesPanelRef.value?.focusTitle();
@@ -1343,6 +1462,7 @@ function rowTitle(c, lastDate) {
 async function select(id, focusProfile = false) {
   isUnassignedOpen.value = false;
   isDuplicatesOpen.value = false;
+  isCollectionReviewOpen.value = false;
   unassignedDocumentId.value = null;
   focusNameAfterSwitch = focusProfile;
   emit('update:selectedId', id);
@@ -1363,7 +1483,9 @@ async function backToDirectory() {
   const row = directoryRef.value?.querySelector('[aria-selected="true"]');
   isUnassignedOpen.value = false;
   isDuplicatesOpen.value = false;
+  isCollectionReviewOpen.value = false;
   unassignedDocumentId.value = null;
+  collectionDocumentId.value = null;
   emit('update:selectedId', null);
   await nextTick();
   const target = row?.isConnected ? row : directoryRef.value?.querySelector('input');
@@ -1900,6 +2022,7 @@ async function onDrop(event, target) {
 onMounted(() => {
   void correspondentStore.fetchCorrespondents();
   void loadUnassignedDocuments();
+  void loadCollectionDocuments();
 });
 </script>
 
@@ -2051,6 +2174,7 @@ onMounted(() => {
 .corr-inbox__chevron { flex: none; color: var(--pm-muted); }
 .corr-inbox + .corr-inbox { padding-top: 0; }
 .corr-inbox__row--dupes .corr-inbox__icon { color: var(--pm-warning); }
+.corr-inbox__row--collection .corr-inbox__icon { color: var(--pm-accent-text, var(--pm-accent)); }
 .corr-inbox + .corr-section { margin-top: 6px; border-top: 1px solid var(--pm-divider); }
 .corr-section + .corr-section {
   margin-top: 6px;

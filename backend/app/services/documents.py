@@ -1510,6 +1510,10 @@ class DocumentService:
                         "Correspondent not found",
                         details={"correspondent_id": str(correspondent_id)},
                     )
+            current_flags = getattr(document, "flags", None) or {}
+            if correspondent_id != getattr(document, "correspondent_id", None) and current_flags.get("collection_review"):
+                # Neue Zuordnung: ein früheres „bei der Sammlung lassen“ gilt nicht mehr.
+                document.flags = {key: value for key, value in current_flags.items() if key != "collection_review"}
             document.correspondent_id = correspondent_id
         if "status" in data and data["status"] is not None:
             document.status = data["status"].value

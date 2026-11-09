@@ -16,6 +16,14 @@ export const listUnresolvedCorrespondents = ({ limit = 200, excerptChars = 300 }
 export const ignoreUnresolvedCorrespondent = (documentId, reason = null) =>
   apiPost(`/api/correspondents/unresolved/${documentId}/ignore`, { reason });
 
+/** GET /api/correspondents/collection-documents – Dokumente direkt an Sammlungen */
+export const listCollectionDocuments = ({ limit = 200 } = {}) =>
+  apiGet(`/api/correspondents/collection-documents?limit=${limit}`);
+
+/** POST /api/correspondents/collection-documents/{document_id}/keep */
+export const keepCollectionDocument = (documentId) =>
+  apiPost(`/api/correspondents/collection-documents/${documentId}/keep`, {});
+
 /** POST /api/correspondents */
 export const createCorrespondent = (payload) =>
   apiPost('/api/correspondents', payload);
