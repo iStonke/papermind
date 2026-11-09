@@ -113,9 +113,11 @@ validate_db_revision_is_known() {
   fi
 
   if [[ "${db_revision}" == [0-9][0-9][0-9]_* ]]; then
-    revision_file="backend/alembic/versions/${db_revision}.py"
-    if [[ ! -f "${revision_file}" ]]; then
-      echo "Error: database is stamped at Alembic revision '${db_revision}', but ${revision_file} is missing in branch '${BRANCH}'." >&2
+    # Dateiname und Revisions-ID müssen nicht übereinstimmen (z. B. 115_document_knowledge_corrections.py
+    # trägt revision = "115_knowledge_corrections"); maßgeblich ist die ID im Dateiinhalt.
+    revision_file="$(grep -lE "^revision[^=]*=[[:space:]]*[\"']${db_revision}[\"']" backend/alembic/versions/*.py 2>/dev/null | head -n 1)"
+    if [[ -z "${revision_file}" ]]; then
+      echo "Error: database is stamped at Alembic revision '${db_revision}', but no migration with that revision exists in branch '${BRANCH}'." >&2
       echo "Switch to the branch containing that migration or restore the migration before deploying." >&2
       exit 1
     fi
