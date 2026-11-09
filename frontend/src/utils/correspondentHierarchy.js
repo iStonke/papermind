@@ -130,10 +130,10 @@ export function matchesCorrespondentActivity(correspondent, activity = 'all', no
  * activity siehe matchesCorrespondentActivity. Organisationen, die nur über
  * passende Personen erscheinen, bleiben als Kontext (context_only) stehen.
  */
-export function filterCorrespondentTree(tree, { kind = 'all', query = '', activity = 'all', now = Date.now() } = {}) {
+export function filterCorrespondentTree(tree, { kind = 'all', query = '', activity = 'all', now = Date.now(), searchAliases = true } = {}) {
   const normalize = (value) => String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('de-DE');
   const needle = normalize(query);
-  const matchesQuery = (c) => !needle || [c.name, c.kind === 'collection' ? null : c.short_name, ...(c.aliases || []).map(alias => alias.alias)]
+  const matchesQuery = (c) => !needle || [c.name, c.kind === 'collection' ? null : c.short_name, ...(searchAliases ? (c.aliases || []).map(alias => alias.alias) : [])]
     .some(value => normalize(value).includes(needle));
   const matchesKind = (c) => {
     if (kind === 'all') return true;

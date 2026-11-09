@@ -461,7 +461,11 @@ test('recent documents scroll horizontally and load the next page', async ({ pag
   await expect(documentCard).not.toContainText('42,00');
   expect(await rail.evaluate(list => list.scrollLeft)).toBe(0);
   const recent = workspace.getByRole('region', { name: 'Neuste Dokumente' });
-  expect((await documentCard.boundingBox()).width).toBeCloseTo((await recent.boundingBox()).width / 2, 0);
+  // A single document uses the same thumbnail card as two or three: a third of the rail, preview above the text.
+  const railWidth = (await rail.boundingBox()).width;
+  expect((await rail.getByRole('listitem').first().boundingBox()).width).toBeCloseTo((railWidth - 24) / 3, 0);
+  const pageBox = await documentCard.locator('.pm-recent-docs__page').boundingBox();
+  expect(pageBox.y + pageBox.height).toBeLessThanOrEqual((await documentCard.locator('.pm-recent-docs__copy').boundingBox()).y + 1);
 
   await tree.getByText('Energie', { exact: true }).click();
   const emptyCard = recent.locator('.pm-recent-docs__empty');

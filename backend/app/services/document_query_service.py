@@ -184,21 +184,7 @@ class DocumentQueryService:
             stmt = stmt.where(func.lower(func.trim(Document.document_type)) == normalized_type.lower())
         if correspondent_id is not None:
             if correspondent_members:
-                # Roll-up: Sammlung/Organisation + zugeordnete Einträge (zwei Stufen:
-                # Sammlung → Organisation → Person).
-                member_ids = select(Correspondent.id).where(Correspondent.parent_id == correspondent_id)
-                if self.owner_id is not None:
-                    member_ids = member_ids.where(Correspondent.owner_id == self.owner_id)
-                grand_ids = select(Correspondent.id).where(Correspondent.parent_id.in_(member_ids))
-                if self.owner_id is not None:
-                    grand_ids = grand_ids.where(Correspondent.owner_id == self.owner_id)
-                stmt = stmt.where(
-                    or_(
-                        Document.correspondent_id == correspondent_id,
-                        Document.correspondent_id.in_(member_ids),
-                        Document.correspondent_id.in_(grand_ids),
-                    )
-                )
+                stmt = stmt.where(self.correspondent_rollup_condition(correspondent_id))
             else:
                 stmt = stmt.where(Document.correspondent_id == correspondent_id)
         if recent_imports:
@@ -257,8 +243,28 @@ class DocumentQueryService:
             if item.correspondent_id is not None:
                 item.correspondent_name = names.get(item.correspondent_id)
 
+    def correspondent_rollup_condition(self, correspondent_id: uuid.UUID):
+        """Dokumente des Eintrags und seiner zugeordneten Einträge (zwei Stufen:
+        Sammlung → Organisation → Person)."""
+        member_ids = select(Correspondent.id).where(Correspondent.parent_id == correspondent_id)
+        if self.owner_id is not None:
+            member_ids = member_ids.where(Correspondent.owner_id == self.owner_id)
+        grand_ids = select(Correspondent.id).where(Correspondent.parent_id.in_(member_ids))
+        if self.owner_id is not None:
+            grand_ids = grand_ids.where(Correspondent.owner_id == self.owner_id)
+        return or_(
+            Document.correspondent_id == correspondent_id,
+            Document.correspondent_id.in_(member_ids),
+            Document.correspondent_id.in_(grand_ids),
+        )
+
     def correspondent_groups(self, filtered_stmt) -> list[CorrespondentDocumentGroup]:
-        """Count the complete authorized selection before document pagination."""
+        """Count the complete authorized selection before document pagination.
+
+        Sammlungen zählen zusätzlich die Dokumente ihrer Mitglieder (zwei Stufen)
+        und erscheinen auch, wenn ihnen selbst kein Dokument direkt zugeordnet ist.
+        Ein Dokument hat genau einen Korrespondenten, die Summe ist also exakt.
+        """
         source = filtered_stmt.with_only_columns(Document.correspondent_id).order_by(None).subquery()
         join_condition = Correspondent.id == source.c.correspondent_id
         if self.owner_id is not None:
@@ -269,10 +275,43 @@ class DocumentQueryService:
             .outerjoin(Correspondent, join_condition)
             .group_by(source.c.correspondent_id, Correspondent.name, Correspondent.short_name, Correspondent.kind)
         )
-        return [
+        groups = [
             CorrespondentDocumentGroup(correspondent_id=correspondent_id, name=name, short_name=short_name, kind=kind, count=count)
             for correspondent_id, name, short_name, kind, count in self.db.execute(stmt).all()
         ]
+        return self._roll_up_collection_groups(groups)
+
+    def _roll_up_collection_groups(self, groups: list[CorrespondentDocumentGroup]) -> list[CorrespondentDocumentGroup]:
+        direct = {group.correspondent_id: group.count for group in groups if group.correspondent_id}
+        if not direct:
+            return groups
+        hierarchy = select(Correspondent.id, Correspondent.parent_id, Correspondent.kind, Correspondent.name, Correspondent.short_name)
+        if self.owner_id is not None:
+            hierarchy = hierarchy.where(Correspondent.owner_id == self.owner_id)
+        rows = self.db.execute(hierarchy).all()
+        children: dict[uuid.UUID, list[uuid.UUID]] = {}
+        for row in rows:
+            if row.parent_id is not None:
+                children.setdefault(row.parent_id, []).append(row.id)
+        by_id = {group.correspondent_id: group for group in groups}
+        result = list(groups)
+        for row in rows:
+            if row.kind != "collection":
+                continue
+            members = children.get(row.id, [])
+            descendants = [*members, *(grand for member in members for grand in children.get(member, []))]
+            member_count = sum(direct.get(member_id, 0) for member_id in descendants)
+            if not member_count:
+                continue
+            group = by_id.get(row.id)
+            if group is None:
+                group = CorrespondentDocumentGroup(
+                    correspondent_id=row.id, name=row.name, short_name=row.short_name, kind=row.kind, count=0
+                )
+                result.append(group)
+            group.count += member_count
+            group.member_count = member_count
+        return result
 
     def document_type_groups(self, filtered_stmt) -> list[DocumentTypeDocumentGroup]:
         """Count types over the complete scoped selection, including untyped documents."""

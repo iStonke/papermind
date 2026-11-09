@@ -150,6 +150,7 @@ class SmartFolderService:
         q: str | None = None,
         search_scope: DocumentSearchScope = DocumentSearchScope.all,
         correspondent_id: uuid.UUID | None = None,
+        correspondent_members: bool = False,
         without_correspondent: bool = False,
         include_correspondent_groups: bool = False,
         document_type: str | None = None,
@@ -159,7 +160,12 @@ class SmartFolderService:
         folder = self.get_smart_folder_or_404(smart_folder_id)
         filter_expr = self.compiler.compile(folder.query_json)
         if correspondent_id is not None:
-            filter_expr = and_(filter_expr, Document.correspondent_id == correspondent_id)
+            filter_expr = and_(
+                filter_expr,
+                DocumentService(self.db, self.owner_id).query.correspondent_rollup_condition(correspondent_id)
+                if correspondent_members
+                else Document.correspondent_id == correspondent_id,
+            )
         if without_correspondent:
             filter_expr = and_(filter_expr, Document.correspondent_id.is_(None))
         if document_type is not None:

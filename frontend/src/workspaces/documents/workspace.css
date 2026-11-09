@@ -1899,6 +1899,12 @@
   padding: 14px 0;
 }
 
+/* The switch keeps its intrinsic width even when the description wraps. */
+.pm-setting-row:not(.pm-setting-row--column) > .v-switch {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+}
+
 .pm-setting-row + .pm-setting-row {
   border-top: 1px solid rgba(var(--v-theme-on-surface), 0.04);
 }

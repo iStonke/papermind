@@ -18,10 +18,14 @@ class DocumentCorrespondentGroupsTest(unittest.TestCase):
 
     def test_counts_use_complete_filtered_owner_selection_without_pagination(self):
         correspondent_id = uuid.uuid4()
-        self.db.execute.return_value.all.return_value = [
+        group_rows = MagicMock()
+        group_rows.all.return_value = [
             (correspondent_id, "Kieler Männer-Turnverein", "KMTV", "organization", 120),
             (None, None, None, None, 3),
         ]
+        hierarchy_rows = MagicMock()
+        hierarchy_rows.all.return_value = []  # keine Sammlungen → nichts hochzurechnen
+        self.db.execute.side_effect = [group_rows, hierarchy_rows]
         source = self.query._scope(select(Document)).where(Document.document_type == "Rechnung")
         groups = self.query.correspondent_groups(source)
         self.assertEqual([group.count for group in groups], [120, 3])
@@ -29,8 +33,9 @@ class DocumentCorrespondentGroupsTest(unittest.TestCase):
         self.assertEqual(groups[0].kind, "organization")
         self.assertIsNone(groups[1].kind)
         self.assertIsNone(groups[1].correspondent_id)
-        stmt = self.db.execute.call_args.args[0]
+        stmt = self.db.execute.call_args_list[0].args[0]
         sql = str(stmt)
+        self.assertIn("correspondents.owner_id", str(self.db.execute.call_args_list[1].args[0]))
         self.assertIn("documents.owner_id", sql)
         self.assertIn("correspondents.owner_id", sql)
         self.assertIn("documents.document_type", sql)

@@ -198,3 +198,51 @@ class CorrespondentRefinementIntegrationTest(unittest.TestCase):
     def test_without_members_or_mentions_nothing_is_suggested(self) -> None:
         single = self._add("Techem", kind="organization")
         self.assertEqual(self.service.refinement_suggestions(single.id, self._document("Techem Abrechnung").id), [])
+
+
+@unittest.skipUnless(_schema_ready(), "Isolated PostgreSQL schema required")
+class CollectionDocumentGroupsIntegrationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.db = SessionLocal()
+        self.user = User(username=f"groups-test-{uuid.uuid4().hex}", password_hash="test", is_active=True, is_admin=False)
+        self.db.add(self.user)
+        self.db.commit()
+
+    def tearDown(self) -> None:
+        self.db.rollback()
+        self.db.execute(delete(Document).where(Document.owner_id == self.user.id))
+        self.db.execute(delete(Correspondent).where(Correspondent.owner_id == self.user.id))
+        self.db.execute(delete(User).where(User.id == self.user.id))
+        self.db.commit()
+        self.db.close()
+
+    def test_collections_count_and_list_documents_of_their_members(self) -> None:
+        from app.schemas.documents import DocumentSortField, SortOrder
+        from app.services.document_query_service import DocumentQueryService
+
+        def add(name, **fields):
+            entry = Correspondent(owner_id=self.user.id, name=name, **fields)
+            self.db.add(entry)
+            self.db.flush()
+            return entry
+
+        bank = add("Bank", kind="collection")
+        sparkasse = add("Sparkasse", kind="organization", parent_id=bank.id)
+        advisor = add("Anna Berger", kind="person", parent_id=sparkasse.id)
+        gym = add("Fitnessstudio", kind="collection")
+        studio = add("Kieser", kind="organization", parent_id=gym.id)
+        for correspondent in (bank, sparkasse, sparkasse, advisor, studio):
+            self.db.add(Document(owner_id=self.user.id, original_filename=f"{uuid.uuid4().hex}.pdf", correspondent_id=correspondent.id))
+        self.db.commit()
+
+        query = DocumentQueryService(self.db, self.user.id)
+        common = dict(q=None, tag=None, tag_ids=None, untagged=False, status=None, date_from=None, date_to=None,
+                      recent_imports=False, sort=DocumentSortField.correspondent_date, order=SortOrder.desc, offset=0)
+        result = query.list_documents(**common, limit=1, include_total=False, include_correspondent_groups=True)
+        groups = {group.name: (group.count, group.member_count) for group in result.correspondent_groups}
+        self.assertEqual(groups["Bank"], (4, 3))
+        # Ohne eigenes Dokument erscheint die Sammlung trotzdem mit den Dokumenten ihrer Mitglieder.
+        self.assertEqual(groups["Fitnessstudio"], (1, 1))
+        self.assertEqual(groups["Sparkasse"], (2, 0))
+        listed = query.list_documents(**common, limit=50, include_total=True, correspondent_id=bank.id, correspondent_members=True)
+        self.assertEqual(listed.total, 4)

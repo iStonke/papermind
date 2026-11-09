@@ -50,11 +50,11 @@
             </span>
             <span class="doc-groups__identity">
               <span class="doc-groups__name">{{ group.label }}</span>
-              <span v-if="group.name && group.name !== group.label" class="doc-groups__full-name">{{ group.name }}</span>
+              <span v-if="group.name && group.short_name && settingsStore.settings.ui.correspondent_prefer_short_name && group.name !== group.label" class="doc-groups__full-name">{{ group.name }}</span>
               <span v-else-if="group.unassigned" class="doc-groups__full-name">{{ isDocumentTypeGrouping ? 'Typ noch nicht zugeordnet' : 'Absender noch nicht zugeordnet' }}</span>
               <span v-if="group.kindLabel" class="doc-groups__kind">
                 <v-icon size="14" aria-hidden="true">{{ group.kindIcon }}</v-icon>
-                {{ group.kindLabel }}
+                {{ group.kindLabel }}<template v-if="group.memberCount"> · {{ group.memberCount }} über Mitglieder</template>
               </span>
             </span>
             <span class="doc-groups__count">
@@ -144,6 +144,9 @@ import { importLayoutReady } from '../utils/importLanding.js';
 import { apiSessionOwner, onApiSessionReset } from '../api/session.js';
 import { loadGroupExpansion, saveGroupExpansion } from '../workspaces/documents/groupExpansion.js';
 import { documentTypeGroupKey, documentTypeRequestPath, prepareDocumentTypeGroups } from '../workspaces/documents/documentTypeView.js';
+import { useSettingsStore } from '../stores/settings.js';
+import { useCorrespondentStore } from '../stores/correspondents.js';
+import { resolveDocumentCorrespondent } from '../workspaces/documents/documentListMeta.js';
 import { correspondentInitials, correspondentRequestPath, prepareCorrespondentGroups, visibleDocumentTags } from '../workspaces/documents/correspondentView.js';
 import ListActionToolbar from './ListActionToolbar.vue';
 import PmEmptyState from './PmEmptyState.vue';
@@ -168,8 +171,24 @@ const groupingLabel = computed(() => isDocumentTypeGrouping.value ? 'Dokumenttyp
 const requestPath = (options) => isDocumentTypeGrouping.value
   ? documentTypeRequestPath(props.queryPath, options) : correspondentRequestPath(props.queryPath, options);
 const documentMetaLabel = doc => isDocumentTypeGrouping.value
-  ? doc.correspondent_name : doc.document_type || doc.category;
-const groups = ref([]);
+  ? correspondentLabel(doc) : doc.document_type || doc.category;
+const rawGroups = ref([]);
+const settingsStore = useSettingsStore();
+const correspondentStore = useCorrespondentStore();
+const correspondentLabel = document => resolveDocumentCorrespondent(document, correspondentStore.findById, {
+  preferShort: settingsStore.settings.ui.correspondent_prefer_short_name,
+  showParent: settingsStore.settings.ui.correspondent_show_parent ?? false,
+});
+const groups = computed(() => isDocumentTypeGrouping.value
+  ? prepareDocumentTypeGroups(rawGroups.value)
+  : prepareCorrespondentGroups(rawGroups.value, group => correspondentLabel({
+    correspondent_id: group.correspondent_id,
+    correspondent_name: group.name,
+    correspondent_short_name: group.short_name,
+  })));
+watch([isDocumentTypeGrouping, () => settingsStore.settings.ui.correspondent_show_parent], ([byType, showParent]) => {
+  if (byType || showParent) void correspondentStore.ensureLoaded();
+}, { immediate: true });
 const root = ref(null);
 const scroller = ref(null);
 const landing = useDocumentImportLanding({ root, scroller, thumbnailSelector: '.doc-groups__thumbnail', beforeLocate: revealImportedDocument });
@@ -232,7 +251,7 @@ async function refreshGroups() {
   controller = new AbortController();
   const signal = controller.signal;
   if (reset) {
-    groups.value = [];
+    rawGroups.value = [];
     for (const key of Object.keys(pages)) delete pages[key];
   } else {
     for (const page of Object.values(pages)) page.loading = false;
@@ -242,10 +261,10 @@ async function refreshGroups() {
   try {
     const payload = await apiGet(requestPath(), { signal });
     if (requestGeneration !== generation) return;
-    const rawGroups = isDocumentTypeGrouping.value ? payload?.document_type_groups : payload?.correspondent_groups;
-    if (!Array.isArray(rawGroups)) throw new Error('Gruppen fehlen');
+    const fetchedGroups = isDocumentTypeGrouping.value ? payload?.document_type_groups : payload?.correspondent_groups;
+    if (!Array.isArray(fetchedGroups)) throw new Error('Gruppen fehlen');
     const previousCounts = new Map(groups.value.map(group => [group.key, group.count]));
-    groups.value = isDocumentTypeGrouping.value ? prepareDocumentTypeGroups(rawGroups) : prepareCorrespondentGroups(rawGroups);
+    rawGroups.value = fetchedGroups;
     const keys = new Set(groups.value.map(group => group.key));
     for (const key of Object.keys(pages)) {
       if (!keys.has(key)) delete pages[key];
@@ -364,7 +383,7 @@ const stopSessionReset = onApiSessionReset(() => {
   generation += 1;
   controller.abort();
   currentQueryPath = '';
-  groups.value = [];
+  rawGroups.value = [];
   for (const key of Object.keys(pages)) delete pages[key];
   for (const key of Object.keys(thumbnailErrors)) delete thumbnailErrors[key];
   thumbnailUrls.clear();

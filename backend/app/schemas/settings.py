@@ -383,6 +383,10 @@ class UISettingsRead(BaseModel):
     # Übersicht-Board-Layout (leer = Frontend-Standard).
     dashboard_layout: list[DashboardWidgetLayout] = Field(default_factory=list)
     # Korrespondenten-Paare, die als „Kein Doppel“ markiert wurden.
+    correspondent_prefer_short_name: bool = True
+    correspondent_show_parent: bool = False
+    correspondent_search_aliases: bool = True
+    correspondent_show_suggestions: bool = True
     correspondent_duplicate_dismissals: list[str] = Field(default_factory=list)
     dashboard_show_import_action: bool = True
     dashboard_show_note_action: bool = True
@@ -608,6 +612,10 @@ class UISettingsPatch(BaseModel):
     sidebar_primary_order: Literal["notes_first", "documents_first"] | None = None
     sidebar_sections: list[SidebarSectionConfig] | None = None
     dashboard_layout: list[DashboardWidgetLayout] | None = None
+    correspondent_prefer_short_name: bool | None = None
+    correspondent_show_parent: bool | None = None
+    correspondent_search_aliases: bool | None = None
+    correspondent_show_suggestions: bool | None = None
     correspondent_duplicate_dismissals: list[str] | None = Field(default=None, max_length=2000)
     dashboard_show_import_action: bool | None = None
     dashboard_show_note_action: bool | None = None

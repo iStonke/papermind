@@ -5,15 +5,17 @@ const CORRESPONDENT_TYPES = {
   collection: { label: 'Sammlung', icon: 'mdi-shape-outline' },
 };
 
-export function prepareCorrespondentGroups(groups) {
+export function prepareCorrespondentGroups(groups, labelFor = group => group.short_name || group.name) {
   return (Array.isArray(groups) ? groups : []).map(group => ({
     ...group,
     key: group.correspondent_id || 'unassigned',
     unassigned: !group.correspondent_id,
-    label: String(group.short_name || group.name || '').trim()
+    label: String(labelFor(group) || '').trim()
       || (group.correspondent_id ? 'Unbenannter Korrespondent' : 'Ohne Korrespondent'),
     kindLabel: group.correspondent_id ? CORRESPONDENT_TYPES[group.kind]?.label || '' : '',
     kindIcon: group.correspondent_id ? CORRESPONDENT_TYPES[group.kind]?.icon || '' : '',
+    // Sammlungen enthalten auch die Dokumente ihrer Mitglieder.
+    memberCount: Number(group.member_count || 0),
   })).sort((left, right) => {
     if (!left.correspondent_id) return right.correspondent_id ? 1 : 0;
     if (!right.correspondent_id) return -1;
@@ -47,6 +49,9 @@ export function correspondentRequestPath(queryPath, { group, offset = 0 } = {}) 
     params.delete('include_correspondent_groups');
     if (group.correspondent_id) params.set('correspondent_id', group.correspondent_id);
     else params.set('without_correspondent', 'true');
+    // Wie die Gruppenzählung: nur Sammlungen schließen ihre Mitglieder ein.
+    if (group.correspondent_id && group.kind === 'collection') params.set('correspondent_members', 'true');
+    else params.delete('correspondent_members');
     params.set('sort', path.startsWith('/api/smart-folders/') ? 'doc_date_desc' : 'correspondent_date');
     params.set('order', 'desc');
   }

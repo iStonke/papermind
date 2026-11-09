@@ -300,6 +300,8 @@ class CorrespondentDocumentGroup(BaseModel):
     short_name: str | None = None
     kind: str | None = None
     count: int
+    # Davon über zugeordnete Einträge (nur bei Sammlungen > 0).
+    member_count: int = 0
 
 
 class DocumentTypeDocumentGroup(BaseModel):

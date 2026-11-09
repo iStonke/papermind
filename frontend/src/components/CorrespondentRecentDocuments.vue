@@ -2,7 +2,7 @@
   <ul
     v-if="documents.length"
     class="pm-recent-docs"
-    :class="{ 'pm-recent-docs--single': isSingle, 'pm-recent-docs--peek': documents.length > 3 }"
+    :class="{ 'pm-recent-docs--peek': documents.length > 3 }"
     :tabindex="documents.length > 1 ? 0 : undefined"
     :aria-busy="loadingMore || undefined"
     aria-label="Neuste Dokumente"
@@ -12,7 +12,6 @@
       <button
         type="button"
         class="pm-recent-docs__card"
-        :class="{ 'pm-recent-docs__card--compact': isSingle }"
         @click="emit('open', doc.id)"
       >
         <span class="pm-recent-docs__page" aria-hidden="true">
@@ -49,7 +48,6 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
 import { documentThumbnailUrl } from '../api/documents.js';
 
 const props = defineProps({
@@ -60,7 +58,6 @@ const props = defineProps({
   loadMoreFailed: Boolean,
 });
 const emit = defineEmits(['open', 'load-more']);
-const isSingle = computed(() => props.documents.length === 1 && !props.hasMore);
 
 function loadMoreNearEnd({ currentTarget: list }) {
   if (!props.hasMore || props.loadingMore || props.loadMoreFailed) return;
@@ -173,7 +170,6 @@ button.pm-recent-docs__card:focus-visible { outline: 2px solid var(--pm-accent);
 }
 .pm-recent-docs__date small { margin-inline-start: 4px; font-size: inherit; }
 
-.pm-recent-docs--single { grid-auto-columns: minmax(0, 50%); }
 .pm-recent-docs__card--compact { flex-direction: row; }
 .pm-recent-docs__card--compact .pm-recent-docs__page { width: 76px; height: auto; min-height: 88px; }
 .pm-recent-docs__card--compact .pm-recent-docs__copy { min-width: 0; width: auto; justify-content: center; padding: 10px 14px; }

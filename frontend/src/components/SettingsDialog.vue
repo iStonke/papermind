@@ -47,111 +47,6 @@
           <DevSettingsPanel />
         </section>
 
-        <section v-if="activeCategory === 'general'" class="pm-settings-section">
-          <div class="pm-settings-content">
-            <SettingsInfoCard
-              icon="mdi-tune-variant"
-              title="Allgemein"
-              subtitle="Allgemeine Einstellungen für PaperMind."
-            />
-
-            <div class="pm-setting-row pm-setting-row--column">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Papierkorb automatisch leeren</div>
-                <div class="pm-setting-description">
-                  Dokumente und Notizen werden nach der gewählten Zeit im Papierkorb endgültig gelöscht.
-                  Bei „Nie“ bleiben sie erhalten.
-                </div>
-              </div>
-              <v-select
-                :model-value="settingsDraft.documents.trash_retention_days"
-                :items="trashRetentionOptions"
-                item-title="label"
-                item-value="value"
-                density="comfortable"
-                hide-details
-                variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Automatisch löschen"
-                aria-label="Papierkorb automatisch leeren"
-                :loading="isSettingSaving.trash_retention_days"
-                :disabled="isSettingSaving.trash_retention_days"
-                @update:model-value="onTrashRetentionChange"
-              />
-            </div>
-
-            <div class="pm-setting-row pm-setting-row--column">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">„Zuletzt hinzugefügt" anzeigen für</div>
-                <div class="pm-setting-description">
-                  Bestimmt, wie lange neue Dokumente in der Seitenleiste unter „Zuletzt hinzugefügt" auftauchen.
-                  In „Dokumente" bleiben sie dauerhaft sichtbar.
-                </div>
-              </div>
-              <v-select
-                :model-value="settingsDraft.documents.recent_import_window_hours"
-                :items="recentImportWindowOptions"
-                item-title="label"
-                item-value="value"
-                density="comfortable"
-                hide-details
-                variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Anzeigen für"
-                :loading="isSettingSaving.recent_import_window_hours"
-                :disabled="isSettingSaving.recent_import_window_hours"
-                @update:model-value="onRecentImportWindowChange"
-              />
-            </div>
-
-            <div class="pm-setting-row pm-setting-row--column">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Leere Tags entfernen</div>
-                <div class="pm-setting-description">
-                  Sucht Tags, die an keinem Dokument hängen. Es werden nur diese leeren Tags gelöscht,
-                  keine Dokumente und keine verwendeten Tags.
-                </div>
-              </div>
-
-              <div v-if="!unusedTagsPreview">
-                <v-btn
-                  variant="tonal"
-                  class="pm-tag-cleanup__button"
-                  :loading="tagCleanupLoading"
-                  @click="loadUnusedTagsPreview"
-                >
-                  Leere Tags suchen
-                </v-btn>
-              </div>
-
-              <div v-else class="pm-tag-cleanup">
-                <div v-if="unusedTagsPreview.count === 0" class="pm-setting-description">
-                  Keine leeren Tags gefunden.
-                </div>
-                <div v-else class="pm-setting-description">
-                  <strong>{{ unusedTagsPreview.count }}</strong> leere{{ unusedTagsPreview.count === 1 ? 'r Tag wird' : ' Tags werden' }} gelöscht:
-                  <span class="pm-tag-cleanup__names">{{ unusedTagsPreview.tags.map(t => t.name).join(', ') }}</span>
-                </div>
-                <div class="pm-tag-cleanup__actions">
-                  <v-btn variant="text" size="small" :disabled="tagCleanupLoading" @click="unusedTagsPreview = null">
-                    {{ unusedTagsPreview.count === 0 ? 'Schließen' : 'Abbrechen' }}
-                  </v-btn>
-                  <v-btn
-                    v-if="unusedTagsPreview.count > 0"
-                    color="error"
-                    variant="flat"
-                    size="small"
-                    :loading="tagCleanupLoading"
-                    @click="confirmTagCleanup"
-                  >
-                    {{ unusedTagsPreview.count }} entfernen
-                  </v-btn>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
         <section v-if="activeCategory === 'appearance'" class="pm-settings-section">
           <div class="pm-settings-content">
             <SettingsInfoCard
@@ -333,10 +228,31 @@
           </div>
         </section>
 
+        <section v-if="activeCategory === 'document_correspondents'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <SettingsInfoCard icon="mdi-account-outline" title="Korrespondenten" subtitle="Anzeige, Suche und Zuordnung anpassen." />
+            <div v-for="option in correspondentSettings" :key="option.key" class="pm-setting-row">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">{{ option.label }}</div>
+                <div class="pm-setting-description">{{ option.description }}</div>
+              </div>
+              <v-switch
+                :model-value="settingsStore.settings.ui[option.key]"
+                :aria-label="option.label"
+                :loading="isSettingSaving[option.key]"
+                :disabled="isSettingSaving[option.key]"
+                color="primary"
+                density="comfortable"
+                hide-details
+                @update:model-value="patchSettingsWithRevert({ patch: { ui: { [option.key]: $event } }, controlKey: option.key })"
+              />
+            </div>
+          </div>
+        </section>
         <section v-if="activeCategory === 'document_details'" class="pm-settings-section">
           <div class="pm-settings-content">
             <SettingsInfoCard icon="mdi-file-document-outline" title="Allgemein"
-              subtitle="Vorschau, Detailleiste und verwandte Dokumente anpassen." />
+              subtitle="Anzeige, Aufbewahrung und Pflege der Dokumentbibliothek anpassen." />
             <div
               class="pm-setting-row"
               role="button"
@@ -384,6 +300,101 @@
                 @click.stop
                 @update:model-value="onDrawerAutoMinimizeChange"
               />
+            </div>
+
+            <div v-if="auth.isAdmin" class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Papierkorb automatisch leeren</div>
+                <div class="pm-setting-description">
+                  Dokumente und Notizen werden nach der gewählten Zeit im Papierkorb endgültig gelöscht.
+                  Bei „Nie“ bleiben sie erhalten.
+                </div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.documents.trash_retention_days"
+                :items="trashRetentionOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Automatisch löschen"
+                aria-label="Papierkorb automatisch leeren"
+                :loading="isSettingSaving.trash_retention_days"
+                :disabled="isSettingSaving.trash_retention_days"
+                @update:model-value="onTrashRetentionChange"
+              />
+            </div>
+
+            <div v-if="auth.isAdmin" class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">„Zuletzt hinzugefügt" anzeigen für</div>
+                <div class="pm-setting-description">
+                  Bestimmt, wie lange neue Dokumente in der Seitenleiste unter „Zuletzt hinzugefügt" auftauchen.
+                  In „Dokumente" bleiben sie dauerhaft sichtbar.
+                </div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.documents.recent_import_window_hours"
+                :items="recentImportWindowOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Anzeigen für"
+                :loading="isSettingSaving.recent_import_window_hours"
+                :disabled="isSettingSaving.recent_import_window_hours"
+                @update:model-value="onRecentImportWindowChange"
+              />
+            </div>
+
+            <div v-if="auth.isAdmin" class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Leere Tags entfernen</div>
+                <div class="pm-setting-description">
+                  Sucht Tags, die an keinem Dokument hängen. Es werden nur diese leeren Tags gelöscht,
+                  keine Dokumente und keine verwendeten Tags.
+                </div>
+              </div>
+
+              <div v-if="!unusedTagsPreview">
+                <v-btn
+                  variant="tonal"
+                  class="pm-tag-cleanup__button"
+                  :loading="tagCleanupLoading"
+                  @click="loadUnusedTagsPreview"
+                >
+                  Leere Tags suchen
+                </v-btn>
+              </div>
+
+              <div v-else class="pm-tag-cleanup">
+                <div v-if="unusedTagsPreview.count === 0" class="pm-setting-description">
+                  Keine leeren Tags gefunden.
+                </div>
+                <div v-else class="pm-setting-description">
+                  <strong>{{ unusedTagsPreview.count }}</strong> leere{{ unusedTagsPreview.count === 1 ? 'r Tag wird' : ' Tags werden' }} gelöscht:
+                  <span class="pm-tag-cleanup__names">{{ unusedTagsPreview.tags.map(t => t.name).join(', ') }}</span>
+                </div>
+                <div class="pm-tag-cleanup__actions">
+                  <v-btn variant="text" size="small" :disabled="tagCleanupLoading" @click="unusedTagsPreview = null">
+                    {{ unusedTagsPreview.count === 0 ? 'Schließen' : 'Abbrechen' }}
+                  </v-btn>
+                  <v-btn
+                    v-if="unusedTagsPreview.count > 0"
+                    color="error"
+                    variant="flat"
+                    size="small"
+                    :loading="tagCleanupLoading"
+                    @click="confirmTagCleanup"
+                  >
+                    {{ unusedTagsPreview.count }} entfernen
+                  </v-btn>
+                </div>
+              </div>
             </div>
 
             <RelatedDocumentSettings />
@@ -2737,7 +2748,6 @@ function requestOnboarding() {
 // ── Einstellungsnavigation ───────────────────────────────────────────────────
 
 const settingsCategories = [
-  { value: 'general', label: 'Allgemein', icon: 'mdi-tune-variant', group: 'surface', adminOnly: true },
   { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline', group: 'surface' },
   { value: 'sidebar', label: 'Seitenleiste', icon: 'mdi-page-layout-sidebar-left', group: 'surface' },
   { value: 'notes_general', label: 'Allgemein', icon: 'mdi-tune-variant', group: 'notes' },
@@ -2751,6 +2761,7 @@ const settingsCategories = [
   { value: 'local_ai', label: 'KI-Anbieter', icon: 'mdi-robot-outline', group: 'ai', adminOnly: true },
   { value: 'wiki', label: 'Wissen', icon: 'mdi-source-merge', group: 'ai', adminOnly: true },
   { value: 'document_details', label: 'Allgemein', icon: 'mdi-file-document-outline', group: 'documents' },
+  { value: 'document_correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline', group: 'documents' },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline', group: 'documents' },
   { value: 'retention', label: 'Aufbewahrung', icon: 'mdi-folder-clock-outline', group: 'documents', adminOnly: true },
   { value: 'backup', label: 'Backup', icon: 'mdi-cloud-upload-outline', group: 'system', adminOnly: true },
@@ -2821,7 +2832,7 @@ function isVisibleCategory(categoryValue) {
 }
 
 function normalizeSettingsCategory(categoryValue) {
-  if (categoryValue === 'documents') return 'general';
+  if (['documents', 'general'].includes(categoryValue)) return 'document_details';
   return ['notes', 'notes_writing'].includes(categoryValue) ? 'notes_general' : categoryValue;
 }
 
@@ -3395,6 +3406,13 @@ function resolveThemeName(mode) {
 function applyTheme(mode) {
   theme.global.name.value = resolveThemeName(mode);
 }
+
+const correspondentSettings = [
+  { key: 'correspondent_prefer_short_name', label: 'Kurznamen bevorzugen', description: 'Zeigt in Dokumentlisten den Kurznamen, wenn einer hinterlegt ist. Sonst erscheint der vollständige Name.' },
+  { key: 'correspondent_show_parent', label: 'Zugehörigkeit in Listen anzeigen', description: 'Zeigt die übergeordnete Organisation oder Sammlung vor dem Namen.' },
+  { key: 'correspondent_search_aliases', label: 'Aliase in der Korrespondentensuche berücksichtigen', description: 'Findet Korrespondenten auch über hinterlegte alternative Schreibweisen.' },
+  { key: 'correspondent_show_suggestions', label: 'Vorschläge bei der Zuordnung anzeigen', description: 'Schlägt bei Dokumenten ohne Korrespondenten eine Zuordnung anhand des erkannten Absenders vor.' },
+];
 
 // ── Shared save helper ───────────────────────────────────────────────────────
 

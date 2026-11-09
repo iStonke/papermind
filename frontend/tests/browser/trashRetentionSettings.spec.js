@@ -43,8 +43,8 @@ const retentionSelect = page => page.locator('.pm-setting-select').filter({
 
 test('general settings save every trash retention period including never across a fresh settings session', async ({ page }, testInfo) => {
   const { persisted, patches } = await mount(page);
-  const surface = page.locator('.pm-settings-nav__group').filter({ hasText: 'Oberfläche' });
-  await expect(surface.getByRole('tab', { name: 'Allgemein', exact: true })).toHaveAttribute('aria-selected', 'true');
+  const documents = page.locator('.pm-settings-nav__group').filter({ hasText: 'Dokumente' });
+  await expect(documents.getByRole('tab', { name: 'Allgemein', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tab', { name: 'Bibliothek', exact: true })).toHaveCount(0);
   await expect(page.locator('.pm-settings-panel')).toContainText('Dokumente und Notizen');
   await expect(page.getByRole('combobox', { name: 'Anzeigen für', exact: true })).toBeVisible();
@@ -83,5 +83,7 @@ test('non-admins cannot change the global trash retention policy', async ({ page
   const surface = page.locator('.pm-settings-nav__group').filter({ hasText: 'Oberfläche' });
   await expect(surface.getByRole('tab', { name: 'Allgemein', exact: true })).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: 'Automatisch löschen', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('combobox', { name: 'Anzeigen für', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Leere Tags suchen', exact: true })).toHaveCount(0);
   expect(patches).toEqual([]);
 });

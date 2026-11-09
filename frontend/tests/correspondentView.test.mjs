@@ -88,3 +88,14 @@ test('visible tags reflect actual edits and use a stable order for equivalent na
   assert.deepEqual(visibleDocumentTags({ tags: tags.toReversed() }).map(tag => tag.id), ['1', '2']);
   assert.deepEqual(visibleDocumentTags({ tags: [{ id: 't', name: 'Geänderter Tag' }] }).map(tag => tag.name), ['Geänderter Tag']);
 });
+
+test('collection groups load the documents of their members as well', () => {
+  const [group] = prepareCorrespondentGroups([{ correspondent_id: 'bank', name: 'Bank', kind: 'collection', count: 4, member_count: 2 }]);
+  assert.equal(group.memberCount, 2);
+  const collection = new URLSearchParams(correspondentRequestPath('/api/documents?q=Konto', { group }).split('?')[1]);
+  assert.equal(collection.get('correspondent_id'), 'bank');
+  assert.equal(collection.get('correspondent_members'), 'true');
+  // Organisation groups count only their own documents, even if the base query asked for members.
+  const organisation = new URLSearchParams(correspondentRequestPath('/api/documents?correspondent_members=true', { group: { correspondent_id: 'org', kind: 'organization' } }).split('?')[1]);
+  assert.equal(organisation.has('correspondent_members'), false);
+});

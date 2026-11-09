@@ -1040,6 +1040,7 @@ const visibleTree = computed(() =>
     filterCorrespondentTree(correspondentStore.tree, {
       kind: kindFilter.value,
       query: query.value,
+      searchAliases: settingsStore.settings.ui.correspondent_search_aliases,
       activity: activityFilter.value,
     }),
     sortBy.value,

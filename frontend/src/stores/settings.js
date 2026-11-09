@@ -144,6 +144,10 @@ function createDefaultSettings() {
       sidebar_primary_order: 'notes_first',
       sidebar_sections: normalizeSidebarSections(null),
       dashboard_layout: normalizeDashboardLayout(null),
+      correspondent_prefer_short_name: true,
+      correspondent_show_parent: false,
+      correspondent_search_aliases: true,
+      correspondent_show_suggestions: true,
       correspondent_duplicate_dismissals: [],
       dashboard_show_import_action: true,
       dashboard_show_note_action: true,
@@ -602,6 +606,10 @@ export const useSettingsStore = defineStore('settings', {
           sidebar_primary_order: normalizeSidebarPrimaryOrder(payload?.ui?.sidebar_primary_order),
           sidebar_sections: normalizeSidebarSections(payload?.ui?.sidebar_sections),
           dashboard_layout: normalizeDashboardLayout(payload?.ui?.dashboard_layout),
+          correspondent_prefer_short_name: payload?.ui?.correspondent_prefer_short_name ?? defaults.ui.correspondent_prefer_short_name,
+          correspondent_show_parent: payload?.ui?.correspondent_show_parent ?? defaults.ui.correspondent_show_parent,
+          correspondent_search_aliases: payload?.ui?.correspondent_search_aliases ?? defaults.ui.correspondent_search_aliases,
+          correspondent_show_suggestions: payload?.ui?.correspondent_show_suggestions ?? defaults.ui.correspondent_show_suggestions,
           correspondent_duplicate_dismissals: Array.isArray(payload?.ui?.correspondent_duplicate_dismissals)
             ? payload.ui.correspondent_duplicate_dismissals.filter(value => typeof value === 'string')
             : [],

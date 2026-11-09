@@ -185,6 +185,7 @@ import DocumentPreviewLayout from './DocumentPreviewLayout.vue';
 import PmEmptyState from './PmEmptyState.vue';
 import { ignoreUnresolvedCorrespondent } from '../api/correspondents.js';
 import { documentFileUrl, documentThumbnailUrl, patchDocument } from '../api/documents.js';
+import { useSettingsStore } from '../stores/settings.js';
 import { useCorrespondentStore } from '../stores/correspondents.js';
 import { notifyError, useNotifications } from '../stores/notifications.js';
 import { formatDocumentDateInputFromIso } from '../utils/dates.js';
@@ -199,6 +200,8 @@ const props = defineProps({
 });
 const emit = defineEmits(['reload', 'resolved', 'select']);
 const store = useCorrespondentStore();
+const settingsStore = useSettingsStore();
+const showSuggestions = computed(() => settingsStore.settings.ui.correspondent_show_suggestions !== false);
 const { notify } = useNotifications();
 const instanceId = useId();
 const drawerBodyId = `unassigned-details-${instanceId}`;
@@ -242,6 +245,7 @@ function senderKey(name) {
 
 const detectedSender = computed(() => selectedDocument.value?.sender?.trim().replace(/\s+/g, ' ') ?? '');
 const suggestedCorrespondent = computed(() => {
+  if (!showSuggestions.value) return null;
   const sender = detectedSender.value;
   const key = senderKey(sender);
   if (!key) return null;
@@ -252,7 +256,7 @@ const suggestedCorrespondent = computed(() => {
   return matches.length === 1 ? matches[0] : null;
 });
 const newSenderOption = computed(() => {
-  if (action.value !== 'assign' || !detectedSender.value || suggestedCorrespondent.value) return null;
+  if (!showSuggestions.value || action.value !== 'assign' || !detectedSender.value || suggestedCorrespondent.value) return null;
   return {
     title: detectedSender.value,
     value: newSenderValue,

@@ -1495,7 +1495,10 @@ function displayDocumentType(document) {
 }
 
 function displayCorrespondent(document) {
-  return resolveDocumentCorrespondent(document, correspondentStore.findById);
+  return resolveDocumentCorrespondent(document, correspondentStore.findById, {
+    preferShort: settingsStore.settings.ui.correspondent_prefer_short_name,
+    showParent: settingsStore.settings.ui.correspondent_show_parent ?? false,
+  });
 }
 
 // ── Drag & Drop ────────────────────────────────────────────────────────────
