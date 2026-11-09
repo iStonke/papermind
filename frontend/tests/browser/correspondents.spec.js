@@ -1241,3 +1241,38 @@ test('choosing a collection or organisation offers the more specific members of 
   await expect(drawer.locator('.pm-metadata-value')).toContainText('Anna Berger');
   expect(requests).toEqual([['bank', 'refine1'], ['praxis', 'refine1']]);
 });
+
+test('correspondent pickers find entries by their short name', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await prepareWorkspace(page);
+  const items = [
+    { id: 'aok', name: 'Allgemeine Ortskrankenkasse Nordwest', short_name: 'AOK', kind: 'organization', usage_count: 2, aliases: [] },
+    { id: 'tk', name: 'Techniker Krankenkasse', short_name: 'TK', kind: 'organization', usage_count: 3, aliases: [] },
+  ];
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items } }));
+  await page.route('**/api/correspondents/unresolved?*', route => route.fulfill({ json: { items: [{ document_id: 'short1', title: 'Beitragsbescheid' }] } }));
+  await page.route('**/api/documents/short1/file?*', route => route.fulfill({ contentType: 'application/pdf', body: syntheticDocumentPdf() }));
+  for (const entry of items) {
+    await page.route(`**/api/correspondents/${entry.id}/profile`, route => route.fulfill({ json: { correspondent: entry, document_count: entry.usage_count, own_document_count: entry.usage_count, members: [], activity: [], relations: [] } }));
+  }
+
+  await page.locator('.sidebar-item--correspondents').click();
+  const workspace = page.locator('.panel-correspondents');
+  await workspace.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true }).click();
+  const drawer = workspace.getByRole('region', { name: 'Dokumentdetails', exact: true });
+  await drawer.getByRole('combobox', { name: 'Korrespondent', exact: true }).fill('AOK');
+  await expect(page.getByRole('option').filter({ hasText: 'Allgemeine Ortskrankenkasse Nordwest' })).toBeVisible();
+  await expect(page.getByRole('option').filter({ hasText: 'Techniker Krankenkasse' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  // With "Kurznamen bevorzugen" (default) the list shows the short name, the full name as tooltip.
+  const tkRow = workspace.getByRole('tree').getByText('TK', { exact: true });
+  await expect(tkRow).toHaveAttribute('title', 'Techniker Krankenkasse');
+  await expect(workspace.getByRole('tree').getByText('Techniker Krankenkasse', { exact: true })).toHaveCount(0);
+  // The merge dialog searches the same way.
+  await tkRow.click();
+  await workspace.getByRole('button', { name: 'Zusammenführen …', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('combobox', { name: 'Zusammenführen mit' }).fill('aok');
+  await expect(page.getByRole('option').filter({ hasText: 'Allgemeine Ortskrankenkasse Nordwest' })).toBeVisible();
+});

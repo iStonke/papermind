@@ -122,7 +122,7 @@
                 </button>
                 <span v-else class="corr-row__toggle" aria-hidden="true" />
                 <v-icon class="corr-row__type" size="18" aria-hidden="true">{{ kindIcon(node.kind) }}</v-icon>
-                <span class="corr-row__name">{{ node.name }}</span>
+                <span class="corr-row__name" :title="rowFullName(node)">{{ rowLabel(node) }}</span>
                 <span
                   v-if="node.members.length && !isExpanded(node.id)"
                   class="corr-row__chip"
@@ -173,7 +173,7 @@
                         </button>
                         <span v-else-if="hasNestedMembers(node)" class="corr-row__toggle" aria-hidden="true" />
                         <v-icon class="corr-row__type" size="18" aria-hidden="true">{{ kindIcon(member.kind) }}</v-icon>
-                        <span class="corr-row__name">{{ member.name }}</span>
+                        <span class="corr-row__name" :title="rowFullName(member)">{{ rowLabel(member) }}</span>
                         <span
                           v-if="member.members.length && !isExpanded(member.id)"
                           class="corr-row__chip"
@@ -208,7 +208,7 @@
                               <span class="corr-row__rail" aria-hidden="true" />
                               <span class="corr-row__branch" aria-hidden="true" />
                               <v-icon class="corr-row__type" size="18" aria-hidden="true">{{ kindIcon(person.kind) }}</v-icon>
-                              <span class="corr-row__name">{{ person.name }}</span>
+                              <span class="corr-row__name" :title="rowFullName(person)">{{ rowLabel(person) }}</span>
                               <span class="corr-row__count">{{ person.total_count }}</span>
                             </li>
                           </ul>
@@ -861,6 +861,7 @@ import {
   groupCorrespondentTree,
   memberSummaryLabel,
   sortCorrespondentTree,
+  correspondentDisplayName,
 } from '../utils/correspondentHierarchy.js';
 import { memberTimelines } from '../utils/correspondentProfileStats.js';
 
@@ -1044,8 +1045,16 @@ const visibleTree = computed(() =>
       activity: activityFilter.value,
     }),
     sortBy.value,
+    { preferShort: preferShortNames.value },
   )
 );
+// „Kurznamen bevorzugen“ gilt auch hier: Kurzname in der Zeile, voller Name als Tooltip.
+const preferShortNames = computed(() => settingsStore.settings?.ui?.correspondent_prefer_short_name !== false);
+const rowLabel = (correspondent) => correspondentDisplayName(correspondent, { preferShort: preferShortNames.value });
+const rowFullName = (correspondent) => {
+  const label = rowLabel(correspondent);
+  return label !== correspondent.name ? correspondent.name : undefined;
+};
 const isDirectoryLoading = computed(() => !correspondentStore.isLoaded && correspondentStore.isLoading);
 const directoryEmptyState = computed(() => correspondentStore.correspondents.length
   ? { icon: 'mdi-magnify', title: 'Keine Korrespondenten gefunden', subtitle: 'Passe die Suche oder die Filter an.' }

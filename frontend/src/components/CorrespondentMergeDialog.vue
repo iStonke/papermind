@@ -21,6 +21,7 @@
         :items="options"
         item-title="name"
         item-value="id"
+        :custom-filter="correspondentFilter"
         label="Zusammenführen mit"
         density="comfortable"
         variant="outlined"
@@ -76,6 +77,8 @@ import { useCorrespondentStore } from '../stores/correspondents.js';
 import { correspondentKindIcon, correspondentKindLabel } from '../utils/correspondentHierarchy.js';
 import { canMergeCorrespondents, findDuplicateCandidates, preferredMergeTarget } from '../utils/correspondentDuplicates.js';
 import { mapApiError } from '../stores/notifications.js';
+import { useSettingsStore } from '../stores/settings.js';
+import { createCorrespondentItemFilter } from '../utils/correspondentFilter.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -84,6 +87,8 @@ const props = defineProps({
 });
 const emit = defineEmits(['update:modelValue', 'merged']);
 const store = useCorrespondentStore();
+const settingsStore = useSettingsStore();
+const correspondentFilter = createCorrespondentItemFilter(() => settingsStore.settings?.ui?.correspondent_search_aliases !== false);
 
 const otherRef = ref(null);
 const otherId = ref(null);

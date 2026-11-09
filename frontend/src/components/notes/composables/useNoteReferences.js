@@ -16,7 +16,8 @@ export function useNoteReferences({
     const q = picker.query.trim().toLowerCase();
     if (!q) return picker.items;
     return picker.items.filter(it =>
-      it.label.toLowerCase().includes(q) || (it.hint || '').toLowerCase().includes(q));
+      it.label.toLowerCase().includes(q) || (it.hint || '').toLowerCase().includes(q)
+      || (it.keywords || []).some(keyword => String(keyword).toLowerCase().includes(q)));
   });
 
   function pickerHint() { return picker.mode === 'target' ? 'Verweisen auf' : 'Beleg wählen'; }

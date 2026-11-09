@@ -99,6 +99,10 @@
                 <v-combobox
                   :model-value="rule.values"
                   :items="listValueOptions(rule.field)"
+                  item-title="title"
+                  item-value="value"
+                  :return-object="false"
+                  :custom-filter="correspondentFilter"
                   multiple
                   chips
                   closable-chips
@@ -166,6 +170,10 @@
                 <v-combobox
                   :model-value="rule.value"
                   :items="correspondentOptions"
+                  item-title="title"
+                  item-value="value"
+                  :return-object="false"
+                  :custom-filter="correspondentFilter"
                   density="comfortable"
                   variant="outlined"
                   hide-details
@@ -244,6 +252,8 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { authHeaders } from '../api/client.js';
 import BaseDialog from './BaseDialog.vue';
+import { useSettingsStore } from '../stores/settings.js';
+import { createCorrespondentItemFilter } from '../utils/correspondentFilter.js';
 
 const FIELD_OPTIONS = [
   { value: 'title', label: 'Titel' },
@@ -400,6 +410,7 @@ const NO_VALUE_OPS = new Set(['is_empty', 'is_not_empty']);
 const LIST_OPS = new Set(['in', 'not_in']);
 const DATE_FIELDS = new Set(['doc_date', 'created_at', 'updated_at']);
 
+const settingsStore = useSettingsStore();
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
@@ -466,17 +477,17 @@ const categoryOptions = computed(() => {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b, 'de-DE', { sensitivity: 'base' }));
 });
 
+// Die Regel vergleicht den Namen; gesucht werden kann auch über Kurzname/Aliase.
 const correspondentOptions = computed(() => {
-  const values = (props.correspondents || [])
-    .map((correspondent) => {
-      if (typeof correspondent === 'string') {
-        return correspondent.trim();
-      }
-      return String(correspondent?.name || correspondent?.title || '').trim();
-    })
-    .filter(Boolean);
-  return [...new Set(values)].sort((a, b) => a.localeCompare(b, 'de-DE', { sensitivity: 'base' }));
+  const byName = new Map();
+  for (const correspondent of props.correspondents || []) {
+    const entry = typeof correspondent === 'string' ? { name: correspondent } : correspondent;
+    const name = String(entry?.name || entry?.title || '').trim();
+    if (name && !byName.has(name)) byName.set(name, { ...entry, name, title: name, value: name });
+  }
+  return [...byName.values()].sort((a, b) => a.title.localeCompare(b.title, 'de-DE', { sensitivity: 'base' }));
 });
+const correspondentFilter = createCorrespondentItemFilter(() => settingsStore.settings?.ui?.correspondent_search_aliases !== false);
 
 let previewTimer = null;
 

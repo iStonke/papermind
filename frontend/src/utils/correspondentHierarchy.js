@@ -29,6 +29,15 @@ const collator = new Intl.Collator('de-DE', { sensitivity: 'base', numeric: true
 const sortName = (c) => stripLegalForm(c?.name || '');
 const byName = (a, b) => collator.compare(sortName(a), sortName(b)) || collator.compare(String(a?.name || ''), String(b?.name || ''));
 
+/**
+ * Angezeigter Name: mit „Kurznamen bevorzugen“ der Kurzname, sofern vorhanden
+ * (Sammlungen haben keinen), sonst der vollständige Name.
+ */
+export function correspondentDisplayName(correspondent, { preferShort = false } = {}) {
+  const shortName = correspondent?.kind === 'collection' ? '' : String(correspondent?.short_name || '').trim();
+  return (preferShort && shortName) || String(correspondent?.name || '').trim();
+}
+
 /** Organisationsname einer Person (aus parent_name oder per Lookup), sonst ''. */
 export function correspondentParentName(correspondent, findById = null) {
   if (!correspondent?.parent_id) return '';
@@ -130,11 +139,31 @@ export function matchesCorrespondentActivity(correspondent, activity = 'all', no
  * activity siehe matchesCorrespondentActivity. Organisationen, die nur über
  * passende Personen erscheinen, bleiben als Kontext (context_only) stehen.
  */
+const normalizeSearch = (value) => String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('de-DE');
+
+/**
+ * Alle Schreibweisen, unter denen ein Korrespondent gesucht werden kann: Name,
+ * Kurzname (Sammlungen haben keinen) und – je nach Einstellung – Aliase.
+ */
+export function correspondentSearchValues(correspondent, { aliases = true } = {}) {
+  if (!correspondent) return [];
+  return [
+    correspondent.name,
+    correspondent.kind === 'collection' ? null : correspondent.short_name,
+    ...(aliases ? (correspondent.aliases || []).map((alias) => (typeof alias === 'string' ? alias : alias?.alias)) : []),
+  ].filter(Boolean);
+}
+
+/** Eine Suche für alle Listen, Dialoge und Menüs mit Korrespondenten. */
+export function matchesCorrespondentQuery(correspondent, query, { aliases = true, extra = [] } = {}) {
+  const needle = normalizeSearch(query);
+  if (!needle) return true;
+  return [...correspondentSearchValues(correspondent, { aliases }), ...extra].some((value) => normalizeSearch(value).includes(needle));
+}
+
 export function filterCorrespondentTree(tree, { kind = 'all', query = '', activity = 'all', now = Date.now(), searchAliases = true } = {}) {
-  const normalize = (value) => String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('de-DE');
-  const needle = normalize(query);
-  const matchesQuery = (c) => !needle || [c.name, c.kind === 'collection' ? null : c.short_name, ...(searchAliases ? (c.aliases || []).map(alias => alias.alias) : [])]
-    .some(value => normalize(value).includes(needle));
+  const needle = normalizeSearch(query);
+  const matchesQuery = (c) => matchesCorrespondentQuery(c, needle, { aliases: searchAliases });
   const matchesKind = (c) => {
     if (kind === 'all') return true;
     if (kind === 'untyped') return !c?.kind;
@@ -157,12 +186,15 @@ export const CORRESPONDENT_SORT_OPTIONS = Object.freeze([
   { value: 'recent', label: 'Letzter Kontakt' },
 ]);
 
-/** Sortiert alle Ebenen nach demselben Schlüssel. */
-export function sortCorrespondentTree(tree, sort = 'name') {
+/** Sortiert alle Ebenen nach demselben Schlüssel; nach Namen so, wie er angezeigt wird. */
+export function sortCorrespondentTree(tree, sort = 'name', { preferShort = false } = {}) {
+  const byLabel = preferShort
+    ? (a, b) => collator.compare(stripLegalForm(correspondentDisplayName(a, { preferShort })), stripLegalForm(correspondentDisplayName(b, { preferShort }))) || byName(a, b)
+    : byName;
   const compare = {
-    documents: (a, b) => documentCountOf(b) - documentCountOf(a) || byName(a, b),
-    recent: (a, b) => String(lastActivityOf(b) || '').localeCompare(String(lastActivityOf(a) || '')) || byName(a, b),
-  }[sort] || byName;
+    documents: (a, b) => documentCountOf(b) - documentCountOf(a) || byLabel(a, b),
+    recent: (a, b) => String(lastActivityOf(b) || '').localeCompare(String(lastActivityOf(a) || '')) || byLabel(a, b),
+  }[sort] || byLabel;
   const sortNodes = (nodes) => nodes.map((node) => ({ ...node, members: sortNodes(node.members || []) })).sort(compare);
   return sortNodes(tree);
 }
@@ -280,6 +312,6 @@ export function connectionCandidates(correspondent, role, all = [], relations = 
       if (role === 'predecessor' || role === 'successor') return c.kind === correspondent.kind;
       return supportsSemanticConnections(c.kind);
     })
-    .filter((c) => !needle || String(c.name || '').toLocaleLowerCase('de-DE').includes(needle))
+    .filter((c) => !needle || matchesCorrespondentQuery(c, needle))
     .sort(byName);
 }

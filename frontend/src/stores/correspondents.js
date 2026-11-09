@@ -59,6 +59,7 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
         name: c.name,
         kind: c.kind,
         short_name: c.short_name,
+        aliases: c.aliases || [],
         props: {
           prependIcon: correspondentKindIcon(c.kind) || undefined,
         },

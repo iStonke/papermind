@@ -24,7 +24,7 @@
             :loading="categoryLoading" :menu-props="menuProps" @update:model-value="emit('update:category', $event)" />
           <v-autocomplete v-else-if="field.key === 'correspondent'" :id="`${id}-correspondent`" :model-value="correspondent"
             :required="requiredFields" :error="Boolean(errors.correspondent)" :aria-invalid="Boolean(errors.correspondent)" :aria-describedby="errors.correspondent ? `${id}-correspondent-error` : undefined"
-            :items="correspondents" item-title="title" item-value="value" :return-object="false" variant="plain" density="compact"
+            :items="correspondents" item-title="title" item-value="value" :return-object="false" :custom-filter="correspondentFilter" variant="plain" density="compact"
             :search="search" @update:search="search = $event || ''; emit('update:correspondent-search', search)"
             hide-details clearable :placeholder="pending.correspondent ? 'Wird ermittelt…' : 'Korrespondent wählen…'" :disabled="disabled" :loading="correspondentLoading"
             :menu-props="menuProps" :autofocus="correspondentAutofocus" @update:model-value="emit('update:correspondent', $event)" @blur="emit('correspondent-blur')" @focus="emit('correspondent-focus')">
@@ -52,6 +52,8 @@
 </template>
 <script setup>
 import { computed, nextTick, ref, useId, watch } from 'vue';
+import { useSettingsStore } from '../stores/settings.js';
+import { createCorrespondentItemFilter } from '../utils/correspondentFilter.js';
 const props = defineProps({ fieldKeys: { type: Array, default: null }, name: String, date: String, category: String, correspondent: [String, Object], note: String,
   categories: { type: Array, default: () => [] }, correspondents: { type: Array, default: () => [] },
   errors: { type: Object, default: () => ({}) }, sources: { type: Object, default: () => ({}) },
@@ -63,6 +65,9 @@ const props = defineProps({ fieldKeys: { type: Array, default: null }, name: Str
 const emit = defineEmits(['update:name', 'update:date', 'update:category', 'update:correspondent', 'update:note',
   'text-blur', 'date-blur', 'date-keydown', 'correspondent-blur', 'correspondent-focus', 'manage-category', 'manage-correspondent', 'field-focus', 'field-blur', 'update:correspondent-search']);
 const id = useId();
+const settingsStore = useSettingsStore();
+// Auch Kurzname und (je nach Einstellung) Aliase finden den Korrespondenten.
+const correspondentFilter = createCorrespondentItemFilter(() => settingsStore.settings?.ui?.correspondent_search_aliases !== false);
 const search = ref('');
 watch(() => props.correspondentSearch, value => { if (value !== undefined) search.value = value; }, { immediate:true });
 const allFields = [{ key: 'name', label: 'Dokumentname' }, { key: 'date', label: 'Dokumentdatum' },

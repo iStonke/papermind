@@ -739,6 +739,7 @@ import { authedUrl, getBaseUrl } from '../../api/client.js';
 import { getAICredentialStatus } from '../../api/aiCredentials.js';
 import { createNoteAudioExport } from '../../api/jobs.js';
 import { useSettingsStore } from '../../stores/settings.js';
+import { correspondentSearchValues } from '../../utils/correspondentHierarchy.js';
 import { buildNotesPreferencesPatch } from '../../utils/settingsApi.js';
 import { useUiStore } from '../../stores/ui.js';
 import { isNoteEmpty, useNotesStore } from '../../stores/notes.js';
@@ -906,6 +907,7 @@ const linkTargets = computed(() => ([
     label: c.name,
     type: 'correspondent',
     hint: c.kind === 'person' ? 'Person' : 'Organisation',
+    keywords: correspondentSearchValues(c, { aliases: settingsStore.settings?.ui?.correspondent_search_aliases !== false }),
   })),
   ...(dossierStore.dossiers || []).map((d) => ({
     id: d.id,

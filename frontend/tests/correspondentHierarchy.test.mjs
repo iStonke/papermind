@@ -183,3 +183,31 @@ test('name sorting ignores a trailing legal form', () => {
   const tree = ['Vodafone GmbH', 'Volksbank eG', 'Vodafone Kabel', 'Vodafone', 'Allianz SE'].map((name, index) => ({ id: String(index), name, members: [] }));
   assert.deepEqual(sortCorrespondentTree(tree, 'name').map((n) => n.name), ['Allianz SE', 'Vodafone', 'Vodafone GmbH', 'Vodafone Kabel', 'Volksbank eG']);
 });
+
+test('correspondent search finds short names and, if enabled, aliases', async () => {
+  const { matchesCorrespondentQuery } = await import('../src/utils/correspondentHierarchy.js');
+  const { createCorrespondentItemFilter } = await import('../src/utils/correspondentFilter.js');
+  const org = { name: 'Allgemeine Ortskrankenkasse Nordwest', short_name: 'AOK', kind: 'organization', aliases: [{ alias: 'Gesundheitskasse' }] };
+  assert.equal(matchesCorrespondentQuery(org, 'aok'), true);
+  assert.equal(matchesCorrespondentQuery(org, 'gesundheits'), true);
+  assert.equal(matchesCorrespondentQuery(org, 'gesundheits', { aliases: false }), false);
+  assert.equal(matchesCorrespondentQuery({ name: 'Energie', short_name: 'Altbestand', kind: 'collection' }, 'altbe'), false);
+  const filter = createCorrespondentItemFilter(() => true);
+  assert.equal(filter('Nordwest · Erika Muster', 'aok', { raw: org }), true);
+  assert.equal(filter('Neuen Korrespondenten anlegen', 'neuen', { raw: { title: 'Neuen Korrespondenten anlegen', value: 'new' } }), true);
+  assert.equal(filter('Neuen Korrespondenten anlegen', 'aok', { raw: { title: 'Neuen', value: 'new' } }), false);
+});
+
+test('preferring short names changes the label and the name order, not collections', async () => {
+  const { correspondentDisplayName } = await import('../src/utils/correspondentHierarchy.js');
+  const schufa = { id: 's', name: 'Schutzgemeinschaft für allgemeine Kreditsicherung', short_name: 'SCHUFA', kind: 'organization', members: [] };
+  const aok = { id: 'a', name: 'Allgemeine Ortskrankenkasse', short_name: 'AOK', kind: 'organization', members: [] };
+  const bmw = { id: 'b', name: 'Bayerische Motoren Werke AG', kind: 'organization', members: [] };
+  assert.equal(correspondentDisplayName(schufa, { preferShort: true }), 'SCHUFA');
+  assert.equal(correspondentDisplayName(schufa), schufa.name);
+  assert.equal(correspondentDisplayName({ name: 'Energie', short_name: 'Alt', kind: 'collection' }, { preferShort: true }), 'Energie');
+  assert.deepEqual(sortCorrespondentTree([schufa, bmw, aok], 'name', { preferShort: true }).map((n) => n.id), ['a', 'b', 's']);
+  assert.deepEqual(sortCorrespondentTree([schufa, bmw, aok], 'name').map((n) => n.id), ['a', 'b', 's']);
+  const zebra = { id: 'z', name: 'Zentralverband', short_name: 'ADAC', kind: 'organization', members: [] };
+  assert.deepEqual(sortCorrespondentTree([bmw, zebra], 'name', { preferShort: true }).map((n) => n.id), ['z', 'b']);
+});
