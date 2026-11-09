@@ -24,6 +24,10 @@ export const createCorrespondent = (payload) =>
 export const updateCorrespondent = (correspondentId, payload) =>
   apiPatch(`/api/correspondents/${correspondentId}`, payload);
 
+/** GET /api/correspondents/{id}/refinements – genauere Mitglieder für ein Dokument */
+export const getCorrespondentRefinements = (correspondentId, documentId) =>
+  apiGet(`/api/correspondents/${correspondentId}/refinements?document_id=${encodeURIComponent(documentId)}`);
+
 /** POST /api/correspondents/{id}/merge – source geht in id auf und wird gelöscht */
 export const mergeCorrespondents = (targetId, sourceId) =>
   apiPost(`/api/correspondents/${targetId}/merge`, { source_id: sourceId });

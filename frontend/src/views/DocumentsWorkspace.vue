@@ -1592,6 +1592,14 @@
                             @keydown="handleMetadataTagShortcut"
                           />
                       </template>
+                      <template #after-correspondent>
+                        <CorrespondentRefineHint
+                          :document-id="selectedDocumentDetail?.id"
+                          :correspondent-id="selectedDocumentDetail?.correspondent_id || null"
+                          :disabled="isSavingCorrespondent"
+                          @apply="onMetadataCorrespondentInput"
+                        />
+                      </template>
                     </DocumentMetadataFields>
                   </section>
                   <section v-show="activeDetailsTab === 'notes'" :id="`${detailsBodyId}-notes`" role="tabpanel"
@@ -1691,6 +1699,7 @@ import DocumentFlipPreview from '../components/DocumentFlipPreview.vue';
 import DocumentConnections from '../components/DocumentConnections.vue';
 import { vListReveal } from '../directives/listReveal.js';
 import DocumentMetadataFields from '../components/DocumentMetadataFields.vue';
+import CorrespondentRefineHint from '../components/CorrespondentRefineHint.vue';
 import { rememberBootTheme } from '../utils/bootTheme.js';
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue';
 import { storeToRefs } from 'pinia';

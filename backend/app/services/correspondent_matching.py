@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.correspondent import Correspondent
-from app.services.legal_forms import names_equivalent
+from app.services.legal_forms import names_equivalent, strip_legal_form
 
 logger = logging.getLogger("papermind.correspondent_matching")
 
@@ -49,6 +49,8 @@ class CorrespondentCandidate:
     short_name: str | None = None
     aliases: tuple[str, ...] = ()
     matchers: tuple[MatcherSpec, ...] = ()
+    kind: str | None = None
+    parent_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -56,7 +58,7 @@ class CorrespondentMatch:
     correspondent_id: uuid.UUID
     name: str
     short_name: str | None
-    matched_by: str  # 'name' | 'alias' | 'matcher'
+    matched_by: str  # 'name' | 'alias' | 'matcher' | 'member' (Sammlung → Organisation verfeinert)
     matched_value: str
     score: int
 
@@ -75,6 +77,44 @@ def _normalize(value: str | None) -> str:
     # schlägt der Vergleich bei Umlauten fehl.
     normalized = unicodedata.normalize("NFC", str(value or ""))
     return _WHITESPACE_RE.sub(" ", normalized).strip()
+
+
+def correspondent_names(name: str | None, short_name: str | None = None, aliases=()) -> list[str]:
+    """Alle Schreibweisen, unter denen ein Korrespondent im Text auftauchen kann."""
+    values = [name, strip_legal_form(name or ""), short_name, *aliases]
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        normalized = _normalize(value)
+        if len(normalized) >= _MIN_CONTAINS_LEN and normalized.casefold() not in seen:
+            seen.add(normalized.casefold())
+            result.append(normalized)
+    return result
+
+
+def mentions_any(text: str | None, names) -> bool:
+    """Steht einer der Namen als eigenes Wort im Text (Groß-/Kleinschreibung egal)?"""
+    haystack = _normalize(text)
+    if not haystack:
+        return False
+    return any(
+        re.search(rf"(?<![\wÄÖÜäöüß]){re.escape(name)}(?![\wÄÖÜäöüß])", haystack, re.IGNORECASE)
+        for name in names
+    )
+
+
+def _refine_collection(
+    best: "_ScoredMatch", candidates: list["CorrespondentCandidate"], corpus: str
+) -> "CorrespondentCandidate | None":
+    """Sammlung → genau die eine im Text genannte Organisation dieser Sammlung."""
+    members = [
+        candidate
+        for candidate in candidates
+        if candidate.parent_id == best.candidate.correspondent_id
+        and candidate.kind == "organization"
+        and mentions_any(corpus, correspondent_names(candidate.name, candidate.short_name, candidate.aliases))
+    ]
+    return members[0] if len(members) == 1 else None
 
 
 def _matcher_hits(spec: MatcherSpec, text: str) -> bool:
@@ -175,6 +215,19 @@ def match_correspondent(
 
     if best is None:
         return None
+    # So spezifisch wie belegt: eine Sammlung ist kein Absender. Nennt der Text
+    # genau eine ihrer Organisationen, wird diese zugeordnet.
+    if best.candidate.kind == "collection":
+        member = _refine_collection(best, candidates, "\n".join(filter(None, (sender_norm, filename_norm, ocr_norm))))
+        if member is not None:
+            return CorrespondentMatch(
+                correspondent_id=member.correspondent_id,
+                name=member.name,
+                short_name=member.short_name,
+                matched_by="member",
+                matched_value=member.name,
+                score=best.score,
+            )
     return CorrespondentMatch(
         correspondent_id=best.candidate.correspondent_id,
         name=best.candidate.name,
@@ -206,6 +259,8 @@ class CorrespondentMatchingService:
                     name=correspondent.name,
                     short_name=correspondent.short_name,
                     aliases=tuple(alias.alias for alias in correspondent.aliases),
+                    kind=correspondent.kind,
+                    parent_id=correspondent.parent_id,
                     matchers=tuple(
                         MatcherSpec(
                             kind=matcher.kind,

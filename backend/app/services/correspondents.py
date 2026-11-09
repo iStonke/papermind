@@ -1,4 +1,5 @@
 import logging
+import re
 import uuid
 from datetime import date
 
@@ -343,6 +344,67 @@ class CorrespondentService:
             count,
         )
         return count
+
+    # Personen stellen über den Briefkopf aus (Ärztin, Steuerberater) – unterschreibende
+    # Sachbearbeiter am Ende des Briefs zählen nicht. Daher nur der Kopfbereich.
+    _PERSON_REGION_CHARS = 1200
+    _PERSON_TITLE_RE = r"(?:Dr\.?(?:\s*med\.)?|Prof\.?|Frau|Herr|RA|RAin|StB)"
+
+    def refinement_suggestions(self, correspondent_id: uuid.UUID, document_id: uuid.UUID) -> list[dict]:
+        """Mitglieder von ``correspondent_id``, die zu ``document_id`` genauer passen.
+
+        Sammlung: alle Organisationen/Personen, im Dokument genannte zuerst.
+        Organisation: nur Personen, die im Kopfbereich bzw. Absender genannt sind.
+        """
+        from app.services.correspondent_backfill import CorrespondentBackfillService
+        from app.services.correspondent_matching import correspondent_names, mentions_any
+
+        correspondent = self.get_correspondent_or_404(correspondent_id)
+        stmt = select(Document).where(Document.id == document_id)
+        if self.owner_id is not None:
+            stmt = stmt.where(Document.owner_id == self.owner_id)
+        document = self.db.execute(stmt).scalar_one_or_none()
+        if document is None:
+            raise NotFoundError("Dokument wurde nicht gefunden.", details={"document_id": str(document_id)})
+        members_stmt = (
+            select(Correspondent)
+            .options(selectinload(Correspondent.aliases))
+            .where(Correspondent.parent_id == correspondent.id)
+        )
+        if self.owner_id is not None:
+            members_stmt = members_stmt.where(Correspondent.owner_id == self.owner_id)
+        members = self.db.execute(members_stmt).scalars().all()
+        if not members:
+            return []
+
+        text = CorrespondentBackfillService(self.db, self.owner_id)._text_for_matching(document, max_chars=8000)
+        sender = str(document.ai_sender or "")
+        whole = "\n".join(filter(None, (sender, document.original_filename, document.display_name, text)))
+        head = "\n".join(filter(None, (sender, text[: self._PERSON_REGION_CHARS])))
+
+        items: list[dict] = []
+        for member in members:
+            names = correspondent_names(member.name, member.short_name, [alias.alias for alias in member.aliases])
+            if member.kind == "person":
+                mentioned = mentions_any(head, names)
+                last_name = (member.last_name or "").strip()
+                if not mentioned and len(last_name) >= 3:
+                    mentioned = re.search(
+                        rf"{self._PERSON_TITLE_RE}\s+(?:[A-ZÄÖÜ][\wäöüß.-]*\s+)?{re.escape(last_name)}(?![\wÄÖÜäöüß])",
+                        head,
+                    ) is not None
+            else:
+                mentioned = mentions_any(whole, names)
+            if correspondent.kind == "collection" or mentioned:
+                items.append({
+                    "id": member.id,
+                    "name": member.name,
+                    "short_name": member.short_name,
+                    "kind": member.kind,
+                    "mentioned": mentioned,
+                })
+        items.sort(key=lambda item: (not item["mentioned"], item["name"].casefold()))
+        return items
 
     def merge_correspondents(self, target_id: uuid.UUID, source_id: uuid.UUID):
         """``source_id`` geht in ``target_id`` auf; liefert Ziel und Zähler der Übernahmen."""

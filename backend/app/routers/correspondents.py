@@ -16,6 +16,7 @@ from app.schemas.correspondents import (
     CorrespondentMergeResponse,
     CorrespondentProfileRead,
     CorrespondentRead,
+    CorrespondentRefinementResponse,
     CorrespondentRelationCreateRequest,
     CorrespondentRelationRead,
     CorrespondentReviewIgnoreRequest,
@@ -141,6 +142,22 @@ def delete_correspondent(correspondent_id: uuid.UUID, db: Session = Depends(get_
     service = CorrespondentService(db, user.id)
     service.delete_correspondent(correspondent_id)
     return OkResponse()
+
+
+@router.get(
+    "/{correspondent_id}/refinements",
+    response_model=CorrespondentRefinementResponse,
+    summary="More specific members of a correspondent for one document",
+    responses={404: {"model": ErrorResponse}},
+)
+def get_correspondent_refinements(
+    correspondent_id: uuid.UUID,
+    document_id: uuid.UUID = Query(...),
+    db: Session = Depends(get_db, scope="function"),
+    user: User = Depends(get_current_user),
+) -> CorrespondentRefinementResponse:
+    items = CorrespondentService(db, user.id).refinement_suggestions(correspondent_id, document_id)
+    return CorrespondentRefinementResponse(items=items)
 
 
 @router.post(

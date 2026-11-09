@@ -154,6 +154,20 @@ class CorrespondentRead(ORMModel):
     last_document_date: date | None = None
 
 
+class CorrespondentRefinementItem(BaseModel):
+    id: uuid.UUID
+    name: str
+    short_name: str | None = None
+    kind: str | None = None
+    mentioned: bool = False
+
+
+class CorrespondentRefinementResponse(BaseModel):
+    """Genauere Einträge (Mitglieder) für ein Dokument; ``mentioned`` = im Dokument genannt."""
+
+    items: list[CorrespondentRefinementItem]
+
+
 class CorrespondentMergeRequest(BaseModel):
     source_id: uuid.UUID = Field(description="Eintrag, der im Ziel aufgeht und danach gelöscht wird")
 

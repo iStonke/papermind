@@ -139,6 +139,14 @@
                     rounded="pill"
                   >Vorschlag</v-chip>
                 </template>
+                <template #after-correspondent>
+                  <CorrespondentRefineHint
+                    :document-id="selectedDocument.document_id"
+                    :correspondent-id="correspondentSelection === newSenderValue ? null : correspondentSelection"
+                    :disabled="isLoading || Boolean(pending)"
+                    @apply="correspondentSelection = $event"
+                  />
+                </template>
               </DocumentMetadataFields>
               <div class="unassigned-editor__actions">
                 <button v-if="action !== 'assign'" type="button" class="unassigned-link" :disabled="Boolean(pending)" @click="setAction('assign')">Abbrechen</button>
@@ -172,6 +180,7 @@
 import { computed, defineAsyncComponent, nextTick, ref, useId, watch } from 'vue';
 import DocumentDrawerHeader from './DocumentDrawerHeader.vue';
 import DocumentMetadataFields from './DocumentMetadataFields.vue';
+import CorrespondentRefineHint from './CorrespondentRefineHint.vue';
 import DocumentPreviewLayout from './DocumentPreviewLayout.vue';
 import PmEmptyState from './PmEmptyState.vue';
 import { ignoreUnresolvedCorrespondent } from '../api/correspondents.js';

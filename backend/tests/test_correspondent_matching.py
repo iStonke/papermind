@@ -132,6 +132,22 @@ class CorrespondentMatchingTest(unittest.TestCase):
         self.assertEqual(match_correspondent(candidates, sender="Muster GmbH").correspondent_id, HUK_ID)
         self.assertEqual(match_correspondent(candidates, sender="Muster").correspondent_id, TECHEM_ID)
 
+    def test_collection_match_is_refined_to_the_one_mentioned_organization(self) -> None:
+        bank_id, sparkasse_id, volksbank_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        candidates = [
+            CorrespondentCandidate(correspondent_id=bank_id, name="Bank", kind="collection",
+                                   matchers=_contains_matchers("Kontoauszug")),
+            CorrespondentCandidate(correspondent_id=sparkasse_id, name="Förde Sparkasse AöR", kind="organization", parent_id=bank_id),
+            CorrespondentCandidate(correspondent_id=volksbank_id, name="Volksbank", kind="organization", parent_id=bank_id),
+        ]
+        match = match_correspondent(candidates, ocr_text="Förde Sparkasse · Kontoauszug Nr. 3")
+        self.assertEqual((match.correspondent_id, match.matched_by), (sparkasse_id, "member"))
+        # Zwei genannte Organisationen: unklar, die Sammlung bleibt.
+        both = match_correspondent(candidates, ocr_text="Kontoauszug – Überweisung von Volksbank an Förde Sparkasse")
+        self.assertEqual(both.correspondent_id, bank_id)
+        # Keine genannt: die Sammlung bleibt.
+        self.assertEqual(match_correspondent(candidates, ocr_text="Kontoauszug").correspondent_id, bank_id)
+
     def test_empty_input_returns_none(self) -> None:
         self.assertIsNone(match_correspondent(_seed_candidates(), sender="   "))
 

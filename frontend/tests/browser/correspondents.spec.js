@@ -1190,3 +1190,50 @@ test('cleanup fills in short names and deletes empty entries', async ({ page }) 
   await expect(dialog).toBeHidden();
   await expect(cleanupButton).toHaveCount(0);
 });
+
+test('choosing a collection or organisation offers the more specific members of the document', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await prepareWorkspace(page);
+  const items = [
+    { id: 'bank', name: 'Bank', kind: 'collection', aliases: [] },
+    { id: 'sparkasse', name: 'Förde Sparkasse AöR', short_name: 'Förde Sparkasse', kind: 'organization', parent_id: 'bank', aliases: [] },
+    { id: 'volksbank', name: 'Volksbank', kind: 'organization', parent_id: 'bank', aliases: [] },
+    { id: 'praxis', name: 'Praxis am Markt', kind: 'organization', aliases: [] },
+    { id: 'berger', name: 'Anna Berger', kind: 'person', parent_id: 'praxis', aliases: [] },
+  ];
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items } }));
+  await page.route('**/api/correspondents/unresolved?*', route => route.fulfill({ json: { items: [{ document_id: 'refine1', title: 'Kontoauszug März' }] } }));
+  await page.route('**/api/documents/refine1/file?*', route => route.fulfill({ contentType: 'application/pdf', body: syntheticDocumentPdf() }));
+  const requests = [];
+  await page.route('**/api/correspondents/*/refinements?*', route => {
+    const url = new URL(route.request().url());
+    const id = url.pathname.split('/').at(-2);
+    requests.push([id, url.searchParams.get('document_id')]);
+    const byId = {
+      bank: [{ ...items[1], mentioned: true }, { ...items[2], mentioned: false }],
+      praxis: [{ ...items[4], mentioned: true }],
+    };
+    return route.fulfill({ json: { items: byId[id] || [] } });
+  });
+
+  await page.locator('.sidebar-item--correspondents').click();
+  const workspace = page.locator('.panel-correspondents');
+  await workspace.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true }).click();
+  const drawer = workspace.getByRole('region', { name: 'Dokumentdetails', exact: true });
+  const correspondent = drawer.getByRole('combobox', { name: 'Korrespondent', exact: true });
+  await correspondent.fill('Bank');
+  await page.getByRole('option').filter({ hasText: 'Bank · Sammlung' }).click();
+  const hint = drawer.getByRole('group', { name: 'Sammlung – genauer:' });
+  await expect(hint.getByRole('button')).toHaveCount(2);
+  await expect(hint.getByRole('button').first()).toHaveAccessibleName('Genauer zuordnen: Förde Sparkasse AöR (im Dokument genannt)');
+  await hint.getByRole('button').first().click();
+  await expect(drawer.locator('.pm-metadata-value')).toContainText('Förde Sparkasse');
+  await expect(hint).toHaveCount(0);
+
+  await correspondent.fill('Praxis');
+  await page.getByRole('option').filter({ hasText: 'Praxis am Markt' }).click();
+  const personHint = drawer.getByRole('group', { name: 'Genauer:' });
+  await personHint.getByRole('button', { name: 'Genauer zuordnen: Anna Berger (im Dokument genannt)' }).click();
+  await expect(drawer.locator('.pm-metadata-value')).toContainText('Anna Berger');
+  expect(requests).toEqual([['bank', 'refine1'], ['praxis', 'refine1']]);
+});

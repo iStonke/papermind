@@ -146,3 +146,55 @@ class CorrespondentMergeIntegrationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(_schema_ready(), "Isolated PostgreSQL schema required")
+class CorrespondentRefinementIntegrationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.db = SessionLocal()
+        self.user = User(username=f"refine-test-{uuid.uuid4().hex}", password_hash="test", is_active=True, is_admin=False)
+        self.db.add(self.user)
+        self.db.commit()
+        self.service = CorrespondentService(self.db, self.user.id)
+
+    def tearDown(self) -> None:
+        self.db.rollback()
+        self.db.execute(delete(Document).where(Document.owner_id == self.user.id))
+        self.db.execute(delete(Correspondent).where(Correspondent.owner_id == self.user.id))
+        self.db.execute(delete(User).where(User.id == self.user.id))
+        self.db.commit()
+        self.db.close()
+
+    def _add(self, name: str, **fields) -> Correspondent:
+        correspondent = Correspondent(owner_id=self.user.id, name=name, **fields)
+        self.db.add(correspondent)
+        self.db.flush()
+        return correspondent
+
+    def _document(self, text: str, **fields) -> Document:
+        document = Document(owner_id=self.user.id, original_filename=f"{uuid.uuid4().hex}.pdf", text_content=text, **fields)
+        self.db.add(document)
+        self.db.commit()
+        return document
+
+    def test_collection_lists_all_members_with_mentioned_first(self) -> None:
+        bank = self._add("Bank", kind="collection")
+        sparkasse = self._add("Förde Sparkasse AöR", kind="organization", parent_id=bank.id)
+        self._add("Volksbank", kind="organization", parent_id=bank.id)
+        document = self._document("Förde Sparkasse\nKontoauszug Nr. 3")
+        items = self.service.refinement_suggestions(bank.id, document.id)
+        self.assertEqual([(item["name"], item["mentioned"]) for item in items], [("Förde Sparkasse AöR", True), ("Volksbank", False)])
+        self.assertEqual(items[0]["id"], sparkasse.id)
+
+    def test_organization_suggests_only_persons_named_in_the_letterhead(self) -> None:
+        practice = self._add("Praxis am Markt", kind="organization")
+        doctor = self._add("Anna Berger", kind="person", parent_id=practice.id, first_name="Anna", last_name="Berger")
+        self._add("Tom Kühn", kind="person", parent_id=practice.id, first_name="Tom", last_name="Kühn")
+        body = "Praxis am Markt\nDr. med. Berger\nRechnung\n" + "Leistungen " * 200 + "\nMit freundlichen Grüßen\nTom Kühn"
+        items = self.service.refinement_suggestions(practice.id, self._document(body).id)
+        self.assertEqual([item["id"] for item in items], [doctor.id])
+        self.assertTrue(items[0]["mentioned"])
+
+    def test_without_members_or_mentions_nothing_is_suggested(self) -> None:
+        single = self._add("Techem", kind="organization")
+        self.assertEqual(self.service.refinement_suggestions(single.id, self._document("Techem Abrechnung").id), [])
