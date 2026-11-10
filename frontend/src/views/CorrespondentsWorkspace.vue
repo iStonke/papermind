@@ -456,7 +456,7 @@
                 info-label="Was sind Mitglieder?"
               >
                 <p>Eine Sammlung bündelt Organisationen und Personen zu einem Thema. Die Dokumente ihrer Mitglieder erscheinen auch in der Sammlung.</p>
-                <p>Das Band zeigt, wie viele Dokumente von welchem Mitglied stammen. Eine Kachel klappt die Dokumente des Mitglieds hier auf, ein Dokument darin vergrößert sich zur Vorschau.</p>
+                <p>Das Band zeigt, wie viele Dokumente von welchem Mitglied stammen. Eine Kachel klappt die Dokumente des Mitglieds hier auf; ein Klick auf ein Dokument öffnet es in der Vorschau.</p>
               </PmInfoHeading>
               <p v-if="documentsFailed && !profile" class="corr-muted corr-empty" role="status">
                 Mitglieder konnten nicht geladen werden.
@@ -480,6 +480,7 @@
                   :disabled="isSaving"
                   @open-change="openMemberId = $event"
                   @open-profile="selectFromProfile"
+                  @open-document="$emit('open-document', $event)"
                   @remove="detachMemberById"
                 >
                   <template #add>
@@ -507,20 +508,6 @@
               </template>
             </section>
 
-            <section v-if="isCollection && timelineHasData" aria-labelledby="corr-lifeline-title">
-              <div class="corr-section-head">
-                <h2 id="corr-lifeline-title">Lebenslauf</h2>
-              </div>
-              <CorrespondentMemberTimeline
-                :key="selected.id"
-                :rows="timeline.rows"
-                :direct="timeline.direct"
-                :start-year="timelineRange.start"
-                :end-year="timelineRange.end"
-                @select="toggleCollectionMember"
-              />
-            </section>
-
             <section v-if="!isCollection" aria-labelledby="corr-docs-title">
               <div class="corr-section-head">
                 <h2 id="corr-docs-title">Dokumente</h2>
@@ -533,7 +520,7 @@
                 Dokumente konnten nicht geladen werden.
                 <button type="button" class="corr-link" :disabled="isLoadingProfile" @click="reloadSelected">Erneut versuchen</button>
               </p>
-              <!-- Eine waagerecht scrollende Reihe; ein Dokument klappt darunter auf (wie in Sammlungen), statt in den Dokumentbereich zu springen. -->
+              <!-- Eine waagerecht scrollende Reihe; ein Klick öffnet das Dokument in der Vorschau des Dokumentbereichs. -->
               <CorrespondentDocumentGrid
                 v-else
                 :key="selected.id"
@@ -542,10 +529,10 @@
                 :total="documentsResultTotal"
                 :loading-more="isLoadingMoreDocuments"
                 :load-more-failed="moreDocumentsFailed"
-                :owner-name="selected.name"
                 :label="`Dokumente von ${selected.name}`"
                 empty-text="Zugeordnete Dokumente erscheinen hier."
                 show-type
+                @open="$emit('open-document', $event)"
                 @load-more="loadMoreDocuments"
               />
             </section>
@@ -935,7 +922,6 @@ import CorrespondentSuggestions from '../components/CorrespondentSuggestions.vue
 import { findCorrespondentSuggestions } from '../utils/correspondentSuggestions.js';
 import { splitLegalForm } from '../utils/legalForms.js';
 import CorrespondentConnectionMenu from '../components/CorrespondentConnectionMenu.vue';
-import CorrespondentMemberTimeline from '../components/CorrespondentMemberTimeline.vue';
 import CorrespondentPersonNameFields from '../components/CorrespondentPersonNameFields.vue';
 import CorrespondentProfileIllustration from '../components/CorrespondentProfileIllustration.vue';
 import CorrespondentProfileRow from '../components/CorrespondentProfileRow.vue';
@@ -975,7 +961,7 @@ import {
   sortCorrespondentTree,
   correspondentDisplayName,
 } from '../utils/correspondentHierarchy.js';
-import { collectionMemberSummaries, memberTimelines } from '../utils/correspondentProfileStats.js';
+import { collectionMemberSummaries } from '../utils/correspondentProfileStats.js';
 import CollectionMemberTiles from '../components/CollectionMemberTiles.vue';
 import CollectionShareBand from '../components/CollectionShareBand.vue';
 
@@ -1686,23 +1672,9 @@ const inheritedDocumentCount = computed(() =>
 );
 const periodRange = computed(() => yearSpan(profile.value?.first_document_date, profile.value?.last_document_date));
 const activity = computed(() => profile.value?.activity || []);
-const timeline = computed(() =>
-  memberTimelines(activity.value, profile.value?.members || [], {
-    ownId: profile.value?.correspondent?.id,
-    parentOf: (id) => correspondentStore.findById(id)?.parent_id || null,
-  })
-);
-const timelineRange = computed(() => ({
-  start: yearOf(profile.value?.first_document_date),
-  end: yearOf(profile.value?.last_document_date),
-}));
-const timelineHasData = computed(() =>
-  Boolean(timelineRange.value.start && timelineRange.value.end && timeline.value.rows.filter((row) => row.count > 0).length > 1)
-);
-
 const documentTotal = computed(() => profile.value?.document_count ?? documentsResultTotal.value);
 
-// Sammlung: Kacheln je Mitglied, Anteilsband und Lebenslauf teilen dieselbe Auswertung.
+// Sammlung: Kacheln je Mitglied und Anteilsband teilen dieselbe Auswertung.
 const collectionSummaries = computed(() =>
   // Mitglieder aus dem Store: neu zugeordnete erscheinen sofort, auch ohne Dokumente.
   collectionMemberSummaries(activity.value, selectedMembers.value, {
@@ -2712,11 +2684,6 @@ onMounted(() => {
 .corr-structure--tiles > .corr-structure__add-action { grid-column: 1 / -1; }
 .corr-collection { container-type: inline-size; }
 .corr-collection__band { margin-bottom: 14px; }
-.corr-disclosure > summary:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: -2px; }
-.corr-disclosure > summary { cursor: pointer; }
-.corr-disclosure--timeline { margin-top: 7px; }
-.corr-disclosure--timeline > summary { padding: 10px 4px; color: var(--pm-text); font-size: 0.85rem; font-weight: 600; }
-.corr-disclosure--timeline > summary:hover { color: var(--pm-accent-text); }
 
 /* Notiz: Text mit einem Klick bearbeiten. */
 .corr-note, .corr-placeholder {

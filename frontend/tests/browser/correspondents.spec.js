@@ -408,7 +408,7 @@ test('the document search shows and clears the exact filter opened from a corres
   await expect(groups).toHaveCount(3);
 });
 
-test('profile documents scroll horizontally, load the next page and expand in place', async ({ page }) => {
+test('profile documents scroll horizontally, load the next page and open in the document preview', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const { requests, utility } = await prepareWorkspace(page);
   Object.assign(utility, { amount: '42.00', currency: 'EUR' });
@@ -466,24 +466,18 @@ test('profile documents scroll horizontally, load the next page and expand in pl
   const railWidth = (await grid.boundingBox()).width;
   expect((await grid.getByRole('listitem').first().boundingBox()).width).toBeCloseTo((railWidth - 24) / 3, 0);
 
-  // Ein Klick klappt die Vorschau unter der Kachel auf, statt in den Dokumentbereich zu wechseln.
-  await documentCard.click();
-  const detail = workspace.getByRole('region', { name: 'Jahresabrechnung Strom' });
-  await expect(detail).toBeVisible();
-  await expect(documentCard).toHaveAttribute('aria-expanded', 'true');
-  await expect(detail.getByRole('button', { name: 'Seiten blättern' })).toBeVisible();
-  expect((await detail.boundingBox()).y).toBeGreaterThan((await documentCard.boundingBox()).y);
-  await expect(page.locator('.details-drawer__subtitle')).toHaveCount(0);
-  await page.keyboard.press('Escape');
-  await expect(detail).toHaveCount(0);
-  await expect(documentCard).toBeFocused();
-
   // Sammlungen zeigen statt des Dokumentrasters Mitglieder-Kacheln.
   await tree.getByText('Energie', { exact: true }).click();
   await expect(workspace.getByRole('heading', { name: 'Energie', exact: true })).toBeVisible();
   await expect(workspace.getByRole('region', { name: 'Dokumente', exact: true })).toHaveCount(0);
   await expect(workspace.getByRole('list', { name: 'Mitglieder von Energie' })).toBeVisible();
   await expect(workspace.getByRole('button', { name: 'Mitglied hinzufügen', exact: true })).toBeVisible();
+
+  // Ein Klick auf eine Dokumentkachel öffnet das Dokument in der Vorschau des Dokumentbereichs.
+  await tree.getByText('Stadtwerke Leipzig', { exact: true }).click();
+  await grid.getByRole('button', { name: /^Jahresabrechnung Strom/ }).click();
+  await expect(page.locator('.details-drawer__subtitle')).toContainText('Jahresabrechnung Strom');
+  await expect(page.getByRole('region', { name: 'Jahresabrechnung Strom' })).toHaveCount(0);
 });
 
 test('alias and note placeholders expand to solid borders, and saved notes keep their border', async ({ page }) => {

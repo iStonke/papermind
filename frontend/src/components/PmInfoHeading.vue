@@ -129,6 +129,14 @@ watch(() => props.resetKey, () => { open.value = false; });
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+/* Ganz dezent durchscheinend; die Unschärfe hält den Text gut lesbar. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .pm-info-heading__note {
+    background: color-mix(in srgb, var(--pm-app-surface-raised) 86%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+  }
+}
 .pm-info-heading__note :deep(p) { margin: 0; }
 .pm-info-heading__note :deep(p + p) { margin-top: 6px; }
 .pm-info-heading__note :deep(strong) { color: var(--pm-text); font-weight: 600; }

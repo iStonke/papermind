@@ -145,50 +145,6 @@ export function typeBreakdown(activity, { limit = 6 } = {}) {
   return [...rows.slice(0, limit - 1), { label: 'Weitere', count: rest, isRest: true }];
 }
 
-const ACTIVE_WINDOW_DAYS = 365;
-
-/**
- * Zeitverlauf der Mitglieder einer Sammlung: je direktem Mitglied Anzahl,
- * erstes/letztes Dokument und alle Daten (Personen einer Organisation zählen
- * bei ihr). `parentOf(id)` liefert den übergeordneten Eintrag eines
- * Korrespondenten. Dokumente der Sammlung selbst landen in `direct`.
- */
-export function memberTimelines(activity, members, { ownId, parentOf = () => null, now = new Date() } = {}) {
-  const memberIds = new Set((members || []).map((m) => m.id));
-  const byMember = new Map((members || []).map((m) => [m.id, []]));
-  const direct = [];
-  for (const entry of activity || []) {
-    const d = toDate(entry?.document_date);
-    if (!d) continue;
-    const cid = entry.correspondent_id;
-    if (cid === ownId) { direct.push(d); continue; }
-    const memberId = memberIds.has(cid) ? cid : parentOf(cid);
-    if (byMember.has(memberId)) byMember.get(memberId).push(d);
-  }
-  const rows = (members || []).map((m) => {
-    const dates = byMember.get(m.id).sort((a, b) => a - b);
-    const last = dates.at(-1) || null;
-    return {
-      id: m.id,
-      name: m.name,
-      kind: m.kind,
-      count: dates.length,
-      dates,
-      first: dates[0] || null,
-      last,
-      active: Boolean(last && (now - last) / DAY_MS <= ACTIVE_WINDOW_DAYS),
-    };
-  });
-  rows.sort((a, b) => (a.first && b.first ? a.first - b.first : a.first ? -1 : b.first ? 1 : a.name.localeCompare(b.name, 'de-DE')));
-  const current = rows.filter((r) => r.active).sort((a, b) => b.last - a.last)[0] || null;
-  return {
-    rows,
-    direct: { count: direct.length, dates: direct.sort((a, b) => a - b) },
-    activeCount: rows.filter((r) => r.active).length,
-    current,
-  };
-}
-
 /**
  * Dokumente je Jahr, gestapelt nach Gruppen. `keyOf(entry)` ordnet jedem
  * Dokument eine Gruppe zu; `keys` legt Reihenfolge (unten → oben) fest.

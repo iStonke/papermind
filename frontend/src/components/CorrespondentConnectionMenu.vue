@@ -143,6 +143,14 @@ async function submitConnection(candidate) {
   background: var(--pm-v-card, var(--pm-app-surface-raised));
   box-shadow: var(--pm-shadow);
 }
+/* Ganz dezent durchscheinend wie die i-Popover; die Unschärfe hält alles lesbar. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .corr-connect {
+    background: color-mix(in srgb, var(--pm-v-card, var(--pm-app-surface-raised)) 86%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+  }
+}
 .corr-connect__roles { display: flex; flex-wrap: wrap; gap: 6px; }
 .corr-connect__hint { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; margin: 8px 2px 6px; font-size: 0.8rem; }
 .corr-connect__swap:hover:not(:disabled) { color: var(--pm-accent-text); }

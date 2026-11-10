@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import {
   collectionMemberSummaries,
   documentRhythm,
-  memberTimelines,
   monthlyCounts,
   seasonLabel,
   stackedYearlyCounts,
@@ -75,31 +74,6 @@ test('types are counted and a long tail is folded into "Weitere"', () => {
   assert.equal(typeBreakdown([entry('2026-01-01', 'org', null)])[0].label, 'Ohne Typ');
 });
 
-test('member timelines group documents by direct member, persons count for their organization', () => {
-  const members = [
-    { id: 'ff', name: 'Fitness Factory', kind: 'organization' },
-    { id: 'fitx', name: 'FitX', kind: 'organization' },
-    { id: 'usc', name: 'Urban Sports Club', kind: 'organization' },
-    { id: 'max', name: 'Max Petersen', kind: 'person' },
-  ];
-  const parents = { trainer: 'fitx' };
-  const docs = [
-    entry('2019-02-01', 'ff'), entry('2021-12-01', 'ff'),
-    entry('2022-03-01', 'fitx'), entry('2024-06-01', 'trainer'),
-    entry('2025-02-01', 'usc'), entry('2026-09-01', 'usc'),
-    entry('2023-05-01', 'fitness'),
-  ];
-  const result = memberTimelines(docs, members, { ownId: 'fitness', parentOf: (id) => parents[id] || null, now: new Date('2026-11-03T12:00:00') });
-  assert.deepEqual(result.rows.map((r) => [r.name, r.count, r.active]), [
-    ['Fitness Factory', 2, false],
-    ['FitX', 2, false],
-    ['Urban Sports Club', 2, true],
-    ['Max Petersen', 0, false],
-  ]);
-  assert.equal(result.direct.count, 1);
-  assert.equal(result.activeCount, 1);
-  assert.equal(result.current.name, 'Urban Sports Club');
-});
 
 test('stacked years keep the given group order and fill empty years', () => {
   const docs = [entry('2024-01-01', 'a'), entry('2024-02-01', 'b'), entry('2026-01-01', 'a'), entry('2026-01-02', 'x')];

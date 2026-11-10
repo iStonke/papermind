@@ -3,9 +3,8 @@
   zeigt einen Stapel der neuesten Deckblätter, Anzahl, Zeitraum, häufigste
   Dokumenttypen. Ein Klick öffnet direkt unter der Kachelzeile ein Panel mit
   den Dokumenten des Mitglieds (die Kacheln bleiben an ihrem Platz, das Panel
-  wächst in der Höhe auf); ein Klick auf ein Dokument öffnet nach demselben
-  Muster darunter die Vorschau mit Blättern. Nichts führt in den
-  Dokumentbereich.
+  wächst in der Höhe auf); ein Klick auf ein Dokument öffnet es in der
+  Vorschau des Dokumentbereichs.
 
   Daten: utils/correspondentProfileStats.js → collectionMemberSummaries().
 -->
@@ -116,8 +115,8 @@
               :failed="docs.failed && !docs.items.length"
               :load-more-failed="docs.failed && docs.items.length > 0"
               :skeleton-count="skeletonCount"
-              :owner-name="openTile.name"
               :label="`Dokumente von ${openTile.name}`"
+              @open="emit('open-document', $event)"
               @retry="loadDocs(openTile)"
               @load-more="loadDocs(openTile, true)"
             />
@@ -154,7 +153,7 @@ const props = defineProps({
   summaries: { type: Object, required: true },
   disabled: Boolean,
 });
-const emit = defineEmits(['open-profile', 'remove', 'open-change']);
+const emit = defineEmits(['open-profile', 'open-document', 'remove', 'open-change']);
 
 const panelId = `cmt-panel-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -254,7 +253,7 @@ function toggle(key) {
   else open(key);
 }
 
-/** Von außen (Anteilsband, Lebenslauf): Mitglied aufklappen bzw. zuklappen. */
+/** Von außen (Anteilsband): Mitglied aufklappen bzw. zuklappen. */
 function toggleMember(id) {
   toggle(id === props.collectionId ? DIRECT_KEY : id);
 }
@@ -415,7 +414,6 @@ defineExpose({ toggleMember, openKey });
 }
 .cmt__face:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: -2px; }
 .cmt.is-empty .cmt__face { cursor: default; }
-.cmt.is-empty .cmt__stack { opacity: 0.45; }
 
 .cmt__stack { position: relative; display: block; height: 96px; margin-bottom: 8px; }
 .cmt__sheet {

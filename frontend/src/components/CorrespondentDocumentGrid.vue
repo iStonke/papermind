@@ -1,15 +1,14 @@
 <!--
-  CorrespondentDocumentGrid — Dokumente eines Korrespondenten als Kachelraster.
-  Ein Klick auf eine Kachel öffnet direkt unter ihrer Zeile die Vorschau
-  (Vorschaubild oder „Seiten blättern“ mit PdfPreview); die Kacheln bleiben
-  stehen, das Panel wächst in der Höhe auf. Nichts führt in den Dokumentbereich.
+  CorrespondentDocumentGrid — Dokumente eines Korrespondenten als Kacheln.
+  Ein Klick auf eine Kachel öffnet das Dokument in der Vorschau des
+  Dokumentbereichs (Ereignis `open`); hier klappt nichts weiter auf.
 
-  Genutzt im Profil von Organisation/Person und in den aufgeklappten
-  Mitglieder-Kacheln einer Sammlung (CollectionMemberTiles). Das Laden der
-  Dokumente bleibt beim Aufrufer; hier wird nur dargestellt.
+  layout="grid": mehrzeiliges Raster (aufgeklappte Mitglieder einer Sammlung).
+  layout="row":  eine waagerecht scrollende Reihe (Organisation/Person), lädt
+  am Ende nach. Das Laden der Dokumente bleibt beim Aufrufer.
 -->
 <template>
-  <div ref="rootEl" class="cdg" :class="[`cdg--${size}`, `cdg--${layout}`]">
+  <div class="cdg" :class="[`cdg--${size}`, `cdg--${layout}`]">
     <p v-if="failed && !documents.length" class="cdg__state" role="alert">
       Dokumente konnten nicht geladen werden.
       <button type="button" class="cdg__link" @click="emit('retry')">Erneut versuchen</button>
@@ -18,13 +17,11 @@
 
     <ul
       v-if="documents.length || loading"
-      ref="gridEl"
       class="cdg__grid"
       :class="{ 'cdg__grid--peek': layout === 'row' && documents.length > 3 }"
       :aria-label="label"
       :aria-busy="loading || loadingMore || undefined"
       :tabindex="layout === 'row' && documents.length > 1 ? 0 : undefined"
-      @keydown.esc="onEscape"
       @scroll.passive="loadMoreNearEnd"
     >
       <template v-if="loading && !documents.length">
@@ -36,79 +33,28 @@
           </span>
         </li>
       </template>
-      <template v-for="(doc, index) in documents" :key="doc.id">
-        <li
-          class="cdg-doc"
-          :class="{ 'is-active': openDocId === doc.id }"
-          :style="{ '--i': index % 12 }"
-          :data-doc="doc.id"
-        >
-          <button
-            type="button"
-            class="cdg-doc__face"
-            :aria-expanded="openDocId === doc.id"
-            :aria-controls="openDocId === doc.id ? panelId : undefined"
-            :aria-label="`${titleOf(doc)} ${openDocId === doc.id ? 'verkleinern' : 'vergrößern'}`"
-            @click="toggleDoc(doc.id)"
-          >
-            <span class="cdg-doc__page" aria-hidden="true">
-              <v-icon :size="size === 'regular' ? 28 : 24">mdi-file-document-outline</v-icon>
-              <img :key="doc.updated_at" :src="thumbnail(doc)" alt="" loading="lazy" decoding="async" @error="$event.target.hidden = true">
-            </span>
-            <span class="cdg-doc__title" :title="titleOf(doc)">{{ titleOf(doc) }}</span>
-            <span v-if="showType && doc.document_type" class="cdg-doc__type">{{ doc.document_type }}</span>
-            <span class="cdg-doc__date">{{ formatDate(doc.document_date || doc.created_at) }}</span>
-          </button>
-        </li>
-
-        <Transition :css="false" @enter="onPanelEnter" @leave="animatePanelLeave">
-          <li
-            v-if="layout === 'grid' && openDoc && panelAfter === index"
-            :id="panelId"
-            :key="`panel-${index}`"
-            class="cdg-panel"
-            role="region"
-            :aria-label="titleOf(openDoc)"
-          >
-            <CorrespondentDocumentDetail
-              :key="openDoc.id"
-              :doc="openDoc"
-              :title="titleOf(openDoc)"
-              :date="formatDate(openDoc.document_date || openDoc.created_at)"
-              :thumbnail="thumbnail(openDoc)"
-              :browsing="browsing"
-              :owner-name="ownerName"
-              @toggle-browsing="toggleBrowsing"
-              @close="closeDoc({ focus: true })"
-            />
-          </li>
-        </Transition>
-      </template>
-    </ul>
-
-    <!-- Zeile: Vorschau unter der ganzen Reihe (die Reihe scrollt waagerecht). -->
-    <Transition :css="false" @enter="onPanelEnter" @leave="animatePanelLeave">
-      <div
-        v-if="layout === 'row' && openDoc"
-        :id="panelId"
-        class="cdg-panel cdg-panel--row"
-        role="region"
-        :aria-label="titleOf(openDoc)"
-        @keydown.esc="onEscape"
+      <li
+        v-for="(doc, index) in documents"
+        :key="doc.id"
+        class="cdg-doc"
+        :style="{ '--i': index % 12 }"
       >
-        <CorrespondentDocumentDetail
-          :key="openDoc.id"
-          :doc="openDoc"
-          :title="titleOf(openDoc)"
-          :date="formatDate(openDoc.document_date || openDoc.created_at)"
-          :thumbnail="thumbnail(openDoc)"
-          :browsing="browsing"
-          :owner-name="ownerName"
-          @toggle-browsing="toggleBrowsing"
-          @close="closeDoc({ focus: true })"
-        />
-      </div>
-    </Transition>
+        <button
+          type="button"
+          class="cdg-doc__face"
+          :aria-label="`${titleOf(doc)} öffnen`"
+          @click="emit('open', doc.id)"
+        >
+          <span class="cdg-doc__page" aria-hidden="true">
+            <v-icon :size="size === 'regular' ? 28 : 24">mdi-file-document-outline</v-icon>
+            <img :key="doc.updated_at" :src="thumbnail(doc)" alt="" loading="lazy" decoding="async" @error="$event.target.hidden = true">
+          </span>
+          <span class="cdg-doc__title" :title="titleOf(doc)">{{ titleOf(doc) }}</span>
+          <span v-if="showType && doc.document_type" class="cdg-doc__type">{{ doc.document_type }}</span>
+          <span class="cdg-doc__date">{{ formatDate(doc.document_date || doc.created_at) }}</span>
+        </button>
+      </li>
+    </ul>
 
     <div v-if="layout === 'grid' && documents.length && documents.length < total && !loadMoreFailed" class="cdg__more">
       <button type="button" class="cdg__btn" :disabled="loadingMore" @click="emit('load-more')">
@@ -123,29 +69,17 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import CorrespondentDocumentDetail from './CorrespondentDocumentDetail.vue';
 import { documentThumbnailUrl } from '../api/documents.js';
-import {
-  animatePanelEnter,
-  animatePanelLeave,
-  observeColumns,
-  revealPanel,
-  rowEnd,
-  tweenHeight,
-} from '../utils/expandPanel.js';
 
 const props = defineProps({
   documents: { type: Array, required: true },
-  /** Gesamtzahl (für „Weitere N laden“). */
+  /** Gesamtzahl (für „Weitere N laden“ bzw. Nachladen am Reihenende). */
   total: { type: Number, default: 0 },
   loading: Boolean,
   loadingMore: Boolean,
   failed: Boolean,
   loadMoreFailed: Boolean,
   skeletonCount: { type: Number, default: 6 },
-  /** Name des Korrespondenten der Seite; „Von“ erscheint nur bei Abweichung. */
-  ownerName: { type: String, default: '' },
   label: { type: String, default: 'Dokumente' },
   emptyText: { type: String, default: 'Keine Dokumente.' },
   showType: Boolean,
@@ -154,96 +88,13 @@ const props = defineProps({
   /** grid = mehrzeiliges Raster, row = eine waagerecht scrollende Reihe (lädt am Ende nach). */
   layout: { type: String, default: 'grid', validator: (v) => ['grid', 'row'].includes(v) },
 });
-const emit = defineEmits(['load-more', 'retry']);
-
-const panelId = `cdg-panel-${Math.random().toString(36).slice(2, 8)}`;
-const gridEl = ref(null);
-const cols = ref(1);
-const openDocId = ref(null);
-const browsing = ref(false);
-
-const openDoc = computed(() => props.documents.find((d) => d.id === openDocId.value) || null);
-const panelAfter = computed(() => rowEnd(
-  props.documents.findIndex((d) => d.id === openDocId.value),
-  cols.value,
-  props.documents.length,
-));
-
-let stopObserving = null;
-watch(gridEl, (el) => {
-  stopObserving?.();
-  stopObserving = el ? observeColumns(el, (count) => { cols.value = count; }) : null;
-}, { flush: 'post' });
-onBeforeUnmount(() => stopObserving?.());
-
-// Verschwindet das geöffnete Dokument aus der Liste, Vorschau schließen.
-watch(() => props.documents, (list) => {
-  if (openDocId.value && !list.some((d) => d.id === openDocId.value)) {
-    openDocId.value = null;
-    browsing.value = false;
-  }
-});
-
-const rootEl = ref(null);
-function livePanel() {
-  return rootEl.value?.querySelector('.cdg-panel:not(.is-leaving)') || null;
-}
-function reveal() {
-  revealPanel(gridEl.value?.querySelector(':scope > .cdg-doc.is-active'), livePanel());
-}
+const emit = defineEmits(['open', 'load-more', 'retry']);
 
 /** Zeile: kurz vor dem Ende der Reihe die nächste Seite anfordern. */
 function loadMoreNearEnd({ currentTarget: list }) {
   if (props.layout !== 'row' || props.loadingMore || props.loadMoreFailed) return;
   if (props.documents.length >= props.total) return;
   if (list.scrollWidth - list.clientWidth - list.scrollLeft <= list.clientWidth / 2) emit('load-more');
-}
-function onPanelEnter(el, done) {
-  animatePanelEnter(el, done, reveal);
-}
-function docFace(id) {
-  return gridEl.value?.querySelector(`.cdg-doc[data-doc="${CSS.escape(id)}"] .cdg-doc__face`) || null;
-}
-
-async function openDocument(id) {
-  const index = props.documents.findIndex((d) => d.id === id);
-  const sameRow = openDocId.value
-    && (props.layout === 'row' || rowEnd(index, cols.value, props.documents.length) === panelAfter.value);
-  const apply = () => {
-    openDocId.value = id;
-    browsing.value = false;
-  };
-  if (sameRow) {
-    await tweenHeight(livePanel(), apply);
-    reveal();
-  } else {
-    apply();
-  }
-}
-
-function closeDoc({ focus = false } = {}) {
-  const id = openDocId.value;
-  if (!id) return;
-  const hadFocus = livePanel()?.contains(document.activeElement);
-  openDocId.value = null;
-  browsing.value = false;
-  if (focus || hadFocus) docFace(id)?.focus?.({ preventScroll: true });
-}
-
-function toggleDoc(id) {
-  if (openDocId.value === id) closeDoc();
-  else openDocument(id);
-}
-
-async function toggleBrowsing() {
-  await tweenHeight(livePanel(), () => { browsing.value = !browsing.value; });
-  reveal();
-}
-
-function onEscape(event) {
-  if (!openDocId.value) return;
-  closeDoc({ focus: true });
-  event.stopPropagation();
 }
 
 function thumbnail(doc) {
@@ -260,8 +111,6 @@ function formatDate(iso) {
   const d = new Date(String(iso).length <= 10 ? `${iso}T00:00:00` : iso);
   return Number.isNaN(d.getTime()) ? '–' : d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
-
-defineExpose({ closeDoc, openDocId });
 </script>
 
 <style scoped>
@@ -269,11 +118,7 @@ defineExpose({ closeDoc, openDocId });
   --cdg-gap: 10px;
   --cdg-min: 150px;
   --cdg-page: 150px;
-  --cdg-active: var(--pm-accent);
   --cdg-card-bg: var(--pm-app-surface-raised, var(--pm-app-surface));
-  --cdg-detail-bg: var(--cdg-card-bg);
-  --cdg-detail-border: var(--pm-list-divider);
-  container-type: inline-size;
 }
 .cdg--regular { --cdg-gap: 12px; --cdg-min: 220px; --cdg-page: 210px; }
 
@@ -311,41 +156,21 @@ defineExpose({ closeDoc, openDocId });
 .cdg__btn:disabled { cursor: default; opacity: 0.6; }
 .cdg__more { display: flex; justify-content: center; margin-top: 12px; }
 
-/* Zeilenabstand über margin-bottom, damit das Panel ihn mitanimieren kann. */
 .cdg__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--cdg-min)), 1fr));
-  column-gap: var(--cdg-gap);
-  row-gap: 0;
-  margin: 0 0 calc(-1 * var(--cdg-gap));
+  gap: var(--cdg-gap);
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 .cdg-doc {
   position: relative;
   min-width: 0;
-  margin-bottom: var(--cdg-gap);
   animation: cdg-in-up 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   animation-delay: calc(var(--i, 0) * 25ms);
 }
 @keyframes cdg-in-up { from { opacity: 0; transform: translateY(4px); } }
-.cdg-doc.is-active { z-index: 2; }
-/* Zeiger von der aktiven Kachel in die Vorschau darunter. */
-.cdg-doc.is-active::after {
-  content: '';
-  position: absolute;
-  bottom: calc(-1 * var(--cdg-gap) - 8px);
-  left: 50%;
-  width: 14px;
-  height: 14px;
-  margin-left: -7px;
-  border-top: 1px solid var(--cdg-detail-border);
-  border-left: 1px solid var(--cdg-detail-border);
-  background: var(--cdg-detail-bg);
-  transform: rotate(45deg);
-  animation: cdg-notch 220ms ease 140ms both;
-}
-@keyframes cdg-notch { from { opacity: 0; transform: translateY(6px) rotate(45deg); } }
 .cdg-doc--skeleton { animation: cdg-pulse 1.1s ease-in-out infinite alternate; }
 @keyframes cdg-pulse { from { opacity: 1; } to { opacity: 0.55; } }
 
@@ -367,12 +192,6 @@ defineExpose({ closeDoc, openDocId });
   transition: border-color 140ms ease, transform 160ms ease, box-shadow 160ms ease;
 }
 .cdg-doc__face:hover { border-color: color-mix(in srgb, var(--pm-text) 24%, transparent); transform: translateY(-2px); }
-.cdg-doc.is-active .cdg-doc__face {
-  border-color: var(--cdg-active);
-  background: color-mix(in srgb, var(--cdg-active) 5%, var(--cdg-card-bg));
-  box-shadow: 0 0 0 1px var(--cdg-active);
-  transform: none;
-}
 .cdg-doc__face:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: -2px; }
 .cdg-doc--skeleton .cdg-doc__face { cursor: default; }
 .cdg-doc__page {
@@ -428,13 +247,8 @@ defineExpose({ closeDoc, openDocId });
 .cdg-sk { display: inline-block; width: 85%; height: 0.8em; border-radius: 4px; background: var(--pm-list-hover); vertical-align: middle; }
 .cdg-sk--short { width: 55%; }
 
-.cdg-panel {
-  grid-column: 1 / -1;
-  min-width: 0;
-  margin-bottom: var(--cdg-gap);
-}
 /* Zeile (Organisation/Person): eine waagerecht scrollende Reihe, drei Karten
-   sichtbar; ab vier lugt die nächste an. Die Vorschau öffnet unter der Reihe. */
+   sichtbar; ab vier lugt die nächste an. */
 .cdg--row { --cdg-page: 168px; }
 .cdg--row .cdg__grid {
   --cdg-peek: 0px;
@@ -449,15 +263,11 @@ defineExpose({ closeDoc, openDocId });
 }
 .cdg--row .cdg__grid--peek { --cdg-peek: 30px; }
 .cdg--row .cdg__grid:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 2px; }
-.cdg--row .cdg-doc { margin-bottom: 0; }
-.cdg--row .cdg-doc.is-active::after { display: none; }
-.cdg-panel--row { margin-top: 4px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .cdg-doc, .cdg-doc.is-active::after { animation: none !important; }
+  .cdg-doc { animation: none !important; }
   .cdg-doc__face { transition: none; }
 }
-:global(.pm-no-animations) .cdg-doc,
-:global(.pm-no-animations) .cdg-doc.is-active::after { animation: none !important; }
+:global(.pm-no-animations) .cdg-doc { animation: none !important; }
 :global(.pm-no-animations) .cdg-doc__face { transition: none; }
 </style>
