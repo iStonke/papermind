@@ -70,8 +70,24 @@
           :class="{ 'is-throwing': throwIn, 'is-ready': pageReady }"
           @click.self="close"
         >
-          <div class="doc-overlay__placeholder" aria-hidden="true">
-            <div class="doc-overlay__placeholder-box"><span class="doc-overlay__sheet" /></div>
+          <div class="doc-overlay__placeholder">
+            <div class="doc-overlay__placeholder-box">
+              <div class="doc-overlay__sheet">
+                <!-- Ladeanimation im PaperMind-Stil: Blatt-Symbol, dessen Zeilen sich
+                     schreiben, darunter pulsierende Punkte. -->
+                <div v-if="!pageReady" class="doc-overlay__loader" role="status" aria-label="Dokument wird geladen">
+                  <span class="doc-overlay__halo" aria-hidden="true" />
+                  <svg class="doc-overlay__mark" viewBox="0 0 64 64" aria-hidden="true">
+                    <path class="doc-overlay__mark-page" d="M17 8h22l11 11v37H17z" />
+                    <path class="doc-overlay__mark-fold" d="M39 8v11h11" />
+                    <line class="doc-overlay__mark-line" x1="24" y1="30" x2="43" y2="30" />
+                    <line class="doc-overlay__mark-line" x1="24" y1="38" x2="43" y2="38" />
+                    <line class="doc-overlay__mark-line" x1="24" y1="46" x2="35" y2="46" />
+                  </svg>
+                  <span class="doc-overlay__dots" aria-hidden="true"><i /><i /><i /></span>
+                </div>
+              </div>
+            </div>
           </div>
           <PdfPreview
             ref="previewRef"
@@ -306,6 +322,76 @@ watch(() => props.modelValue, async (id, previous) => {
     14px 11px 0 0 rgb(0 0 0 / 0.09);
 }
 .doc-overlay__stage.is-ready .doc-overlay__placeholder { opacity: 0; }
+
+/* Ladeanimation auf der weißen Seite (Papier ist immer hell → feste Farben). */
+.doc-overlay__sheet { position: relative; container-type: size; }
+.doc-overlay__loader {
+  --loader-accent: #0b7a83;
+  --loader-line: #cfe3e6;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(10px, 3cqh, 18px);
+  animation: loader-in 360ms ease 180ms both;
+}
+@keyframes loader-in { from { opacity: 0; transform: translateY(6px); } }
+.doc-overlay__halo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: clamp(150px, 46cqw, 260px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--loader-accent) 14%, transparent), transparent 68%);
+  transform: translate(-50%, -62%);
+  animation: loader-halo 2.4s ease-in-out infinite;
+}
+@keyframes loader-halo {
+  0%, 100% { opacity: 0.55; transform: translate(-50%, -62%) scale(0.92); }
+  50% { opacity: 1; transform: translate(-50%, -62%) scale(1.06); }
+}
+.doc-overlay__mark {
+  position: relative;
+  width: clamp(72px, 24cqw, 132px);
+  height: auto;
+  overflow: visible;
+  animation: loader-float 2.4s ease-in-out infinite;
+}
+@keyframes loader-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+.doc-overlay__mark-page { fill: #f6fbfb; stroke: var(--loader-accent); stroke-width: 2.6; stroke-linejoin: round; }
+.doc-overlay__mark-fold { fill: #ddeef0; stroke: var(--loader-accent); stroke-width: 2.6; stroke-linejoin: round; }
+/* Zeilen „schreiben“ sich nacheinander, halten kurz und setzen neu an. */
+.doc-overlay__mark-line {
+  stroke: var(--loader-accent);
+  stroke-width: 3.6;
+  stroke-linecap: round;
+  stroke-dasharray: 20;
+  stroke-dashoffset: 20;
+  animation: loader-write 2.4s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+}
+.doc-overlay__mark-line:nth-of-type(2) { animation-delay: 0.22s; }
+.doc-overlay__mark-line:nth-of-type(3) { animation-delay: 0.44s; }
+@keyframes loader-write {
+  0% { stroke-dashoffset: 20; opacity: 1; }
+  35%, 72% { stroke-dashoffset: 0; opacity: 1; }
+  90%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+.doc-overlay__dots { position: relative; display: flex; gap: 7px; }
+.doc-overlay__dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--loader-accent);
+  opacity: 0.35;
+  animation: loader-dot 1.4s ease-in-out infinite;
+}
+.doc-overlay__dots i:nth-child(2) { animation-delay: 0.18s; }
+.doc-overlay__dots i:nth-child(3) { animation-delay: 0.36s; }
+@keyframes loader-dot { 0%, 100% { opacity: 0.3; transform: scale(0.85); } 40% { opacity: 1; transform: scale(1.1); } }
+
 /* Eigene Ladeanzeige der Vorschau ausblenden – der Platzhalter übernimmt. */
 .doc-overlay__stage :deep(.pdf-preview__state--loading) { visibility: hidden; }
 
@@ -314,9 +400,16 @@ watch(() => props.modelValue, async (id, previous) => {
 
 @media (prefers-reduced-motion: reduce) {
   .doc-overlay__stage.is-throwing { animation: none; }
+  .doc-overlay__loader, .doc-overlay__halo, .doc-overlay__mark, .doc-overlay__dots i { animation: none; }
+  .doc-overlay__mark-line { animation: none; stroke-dashoffset: 0; }
   .doc-overlay-enter-active, .doc-overlay-leave-active { transition: none; }
 }
 .doc-overlay.is-static .doc-overlay__stage.is-throwing { animation: none; }
+.doc-overlay.is-static .doc-overlay__loader,
+.doc-overlay.is-static .doc-overlay__halo,
+.doc-overlay.is-static .doc-overlay__mark,
+.doc-overlay.is-static .doc-overlay__dots i { animation: none; }
+.doc-overlay.is-static .doc-overlay__mark-line { animation: none; stroke-dashoffset: 0; }
 .doc-overlay.is-static.doc-overlay-enter-active,
 .doc-overlay.is-static.doc-overlay-leave-active { transition: none; }
 </style>

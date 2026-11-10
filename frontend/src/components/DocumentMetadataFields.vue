@@ -31,7 +31,7 @@
             <template #item="{ props: itemProps, item }"><v-list-item v-bind="itemProps" :title="undefined" :prepend-icon="undefined">
               <template #title>{{ item.raw?.name || item.title }}{{ item.raw?.kind === 'collection' ? ' · Sammlung' : '' }}</template>
             </v-list-item></template>
-            <template #selection="{ item }">{{ item.raw?.short_name || item.raw?.name || item.title }}{{ item.raw?.kind === 'collection' ? ' · Sammlung' : '' }}</template>
+            <template #selection="{ item }"><span class="pm-metadata-selection" :title="item.raw?.name || item.title">{{ item.raw?.short_name || item.raw?.name || item.title }}{{ item.raw?.kind === 'collection' ? ' · Sammlung' : '' }}</span></template>
             <template #no-data><slot name="correspondent-empty"><v-list-item title="Kein Korrespondent gefunden" subtitle="Neue Einträge im Bereich „Korrespondenten“ anlegen" /></slot></template>
             <template #append-item><slot name="correspondent-append" /></template>
           </v-autocomplete>
@@ -107,6 +107,12 @@ async function onFieldBlur(event) {
 .pm-metadata-manage:hover :deep(.v-icon),
 .pm-metadata-manage:focus-visible :deep(.v-icon) { opacity:1; }
 .pm-metadata-control :deep(.v-field__input) { padding-top: 7px; padding-bottom: 7px; font-size: 14px; min-height: 36px; }
+/* Gewählter Wert bleibt einzeilig im Feld – lange Namen (z. B. erkannte
+   Absender mit Anschrift) enden mit „…“ statt aus dem Feld zu laufen. */
+.pm-metadata-control :deep(.v-autocomplete .v-field__input) { flex-wrap: nowrap; }
+.pm-metadata-control :deep(.v-autocomplete__selection) { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; }
+.pm-metadata-control :deep(.v-autocomplete .v-field__input input) { flex: 1 1 0; min-width: 0; }
+.pm-metadata-selection { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pm-metadata-control :deep(input::placeholder), .pm-metadata-control :deep(textarea::placeholder) { color: var(--pm-muted); opacity: 1; }
 .pm-metadata-error { margin: 4px 0 0; color: rgb(var(--v-theme-error)); font-size: 12px; }
 .pm-metadata-ai-chip.v-chip { grid-area: source; align-self: center; justify-self: end; height: 18px; padding-inline: 6px; border: 1px solid rgba(var(--v-theme-on-surface), .1); background: rgba(var(--v-theme-on-surface), .025); color: var(--pm-muted); font-size: 10px; font-weight: 500; letter-spacing: 0; }
