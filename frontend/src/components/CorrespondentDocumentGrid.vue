@@ -1,14 +1,14 @@
 <!--
   CorrespondentDocumentGrid — Dokumente eines Korrespondenten als Kacheln.
-  Ein Klick auf eine Kachel öffnet das Dokument in der Vorschau des
-  Dokumentbereichs (Ereignis `open`); hier klappt nichts weiter auf.
+  Ein Klick auf eine Kachel (Cursor: Lupe) öffnet eine große Vorschau als
+  Overlay (DocumentPreviewOverlay) – nicht im Dokumentbereich.
 
   layout="grid": mehrzeiliges Raster (aufgeklappte Mitglieder einer Sammlung).
   layout="row":  eine waagerecht scrollende Reihe (Organisation/Person), lädt
   am Ende nach. Das Laden der Dokumente bleibt beim Aufrufer.
 -->
 <template>
-  <div class="cdg" :class="[`cdg--${size}`, `cdg--${layout}`]">
+  <div ref="rootEl" class="cdg" :class="[`cdg--${size}`, `cdg--${layout}`]">
     <p v-if="failed && !documents.length" class="cdg__state" role="alert">
       Dokumente konnten nicht geladen werden.
       <button type="button" class="cdg__link" @click="emit('retry')">Erneut versuchen</button>
@@ -38,12 +38,14 @@
         :key="doc.id"
         class="cdg-doc"
         :style="{ '--i': index % 12 }"
+        :data-doc="doc.id"
       >
         <button
           type="button"
           class="cdg-doc__face"
-          :aria-label="`${titleOf(doc)} öffnen`"
-          @click="emit('open', doc.id)"
+          :aria-label="`${titleOf(doc)} groß anzeigen`"
+          :title="`${titleOf(doc)} groß anzeigen`"
+          @click="previewId = doc.id"
         >
           <span class="cdg-doc__page" aria-hidden="true">
             <v-icon :size="size === 'regular' ? 28 : 24">mdi-file-document-outline</v-icon>
@@ -64,6 +66,8 @@
         {{ loadingMore ? 'Lädt …' : `Weitere ${total - documents.length} laden` }}
       </button>
     </div>
+    <DocumentPreviewOverlay v-model="previewId" :items="overlayItems" @closed="focusTile" />
+
     <p v-if="loadMoreFailed" class="cdg__state cdg__state--center" role="status">
       Weitere Dokumente konnten nicht geladen werden.
       <button type="button" class="cdg__link" :disabled="loadingMore" @click="emit('load-more')">Erneut versuchen</button>
@@ -72,6 +76,8 @@
 </template>
 
 <script setup>
+import { computed, nextTick, ref } from 'vue';
+import DocumentPreviewOverlay from './DocumentPreviewOverlay.vue';
 import { documentThumbnailUrl } from '../api/documents.js';
 
 const props = defineProps({
@@ -91,7 +97,20 @@ const props = defineProps({
   /** grid = mehrzeiliges Raster, row = eine waagerecht scrollende Reihe (lädt am Ende nach). */
   layout: { type: String, default: 'grid', validator: (v) => ['grid', 'row'].includes(v) },
 });
-const emit = defineEmits(['open', 'load-more', 'retry']);
+const emit = defineEmits(['load-more', 'retry']);
+
+// ── Große Vorschau als Overlay; ←/→ blättern durch die geladenen Dokumente ──
+const rootEl = ref(null);
+const previewId = ref(null);
+const overlayItems = computed(() => props.documents.map(doc => ({
+  document_id: doc.id,
+  title: titleOf(doc),
+  document_type: doc.document_type,
+  document_date: doc.document_date || null,
+})));
+function focusTile(id) {
+  void nextTick(() => rootEl.value?.querySelector(`.cdg-doc[data-doc="${CSS.escape(id)}"] .cdg-doc__face`)?.focus({ preventScroll: true }));
+}
 
 /** Zeile: kurz vor dem Ende der Reihe die nächste Seite anfordern. */
 function loadMoreNearEnd({ currentTarget: list }) {
@@ -196,6 +215,7 @@ function formatDate(iso) {
 }
 .cdg-doc__face:hover { border-color: color-mix(in srgb, var(--pm-text) 24%, transparent); transform: translateY(-2px); }
 .cdg-doc__face:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: -2px; }
+.cdg-doc:not(.cdg-doc--skeleton) .cdg-doc__face { cursor: zoom-in; }
 .cdg-doc--skeleton .cdg-doc__face { cursor: default; }
 .cdg-doc__page {
   position: relative;

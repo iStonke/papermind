@@ -473,11 +473,17 @@ test('profile documents scroll horizontally, load the next page and open in the 
   await expect(workspace.getByRole('list', { name: 'Mitglieder von Energie' })).toBeVisible();
   await expect(workspace.getByRole('button', { name: 'Mitglied hinzufügen', exact: true })).toBeVisible();
 
-  // Ein Klick auf eine Dokumentkachel öffnet das Dokument in der Vorschau des Dokumentbereichs.
+  // Ein Klick auf eine Dokumentkachel (Lupe) öffnet eine große Vorschau als Overlay – nicht im Dokumentbereich.
   await tree.getByText('Stadtwerke Leipzig', { exact: true }).click();
-  await grid.getByRole('button', { name: /^Jahresabrechnung Strom/ }).click();
-  await expect(page.locator('.details-drawer__subtitle')).toContainText('Jahresabrechnung Strom');
-  await expect(page.getByRole('region', { name: 'Jahresabrechnung Strom' })).toHaveCount(0);
+  const tileButton = grid.getByRole('button', { name: 'Jahresabrechnung Strom groß anzeigen' });
+  await expect(tileButton).toHaveCSS('cursor', 'zoom-in');
+  await tileButton.click();
+  const overlay = page.getByRole('region', { name: 'Vorschau: Jahresabrechnung Strom' });
+  await expect(overlay).toBeVisible();
+  await expect(page.locator('.details-drawer__subtitle')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(overlay).toHaveCount(0);
+  await expect(tileButton).toBeFocused();
 });
 
 test('alias and note placeholders expand to solid borders, and saved notes keep their border', async ({ page }) => {
@@ -1086,14 +1092,13 @@ test('a pair marked as no duplicate stays hidden', async ({ page }) => {
 
 test('a card is assigned with the keyboard shortcut and a new spelling can be kept as alias', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  const { utility: knownDocument } = await prepareWorkspace(page);
+  await prepareWorkspace(page);
   const utility = { id: utilityId, name: 'Stadtwerke Leipzig', kind: 'organization', aliases: [] };
   await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items: [utility] } }));
   let unassigned = [
     { document_id: 'bulk1', title: 'Abschlag Januar', sender: 'SWL Energie' },
     { document_id: 'bulk2', title: 'Abschlag Februar', sender: 'SWL Energie' },
-    // Ein Dokument, das der Dokumentbereich kennt, damit sich die Vorschau öffnen lässt.
-    { document_id: knownDocument.id, title: 'Notizzettel' },
+    { document_id: 'bulk3', title: 'Notizzettel' },
   ];
   let hiddenDocs = [{ document_id: 'ignored1', title: 'Werbeprospekt' }];
   const restored = [];
@@ -1128,7 +1133,7 @@ test('a card is assigned with the keyboard shortcut and a new spelling can be ke
   await workspace.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true }).click();
   const review = workspace.getByRole('region', { name: 'Dokumente ohne Korrespondenten', exact: true });
   // Kopf: Sammelaktion für eindeutige Vorschläge – „SWL Energie“ passt noch zu keinem Eintrag.
-  await expect(review.getByRole('button', { name: /^Alle Vorschläge übernehmen/ })).toHaveCount(0);
+  await expect(review.getByRole('button', { name: 'Alle Vorschläge übernehmen: Keine eindeutigen Vorschläge' })).toBeDisabled();
   // Ausgeblendete ansehen und zurückholen.
   await review.getByRole('button', { name: 'Ausgeblendete (1)' }).click();
   await expect(review.getByText('1 Dokument · bewusst ohne Korrespondent')).toBeVisible();
@@ -1136,6 +1141,8 @@ test('a card is assigned with the keyboard shortcut and a new spelling can be ke
   await expect.poll(() => restored).toEqual(['ignored1']);
   await expect(review.getByText('Nichts ausgeblendet.')).toBeVisible();
   await review.getByRole('button', { name: 'Offene anzeigen' }).click();
+  // Ohne Ausgeblendete bleibt der Button sichtbar, aber ausgegraut.
+  await expect(review.getByRole('button', { name: 'Ausgeblendete (0)' })).toBeDisabled();
 
   const january = review.getByRole('listitem', { name: 'Abschlag Januar', exact: true });
   // Keine Mehrfachauswahl: jede Karte wird für sich zugeordnet.
@@ -1167,10 +1174,17 @@ test('a card is assigned with the keyboard shortcut and a new spelling can be ke
   await expect.poll(() => patched).toEqual([['bulk1', utilityId], ['bulk2', utilityId]]);
   await expect(review.getByRole('listitem', { name: 'Abschlag Februar', exact: true })).toHaveCount(0);
 
-  // Das Vorschaubild öffnet das Dokument in der Vorschau des Dokumentbereichs.
-  await review.getByRole('button', { name: 'Notizzettel in der Vorschau öffnen' }).click();
-  await expect(review).toBeHidden();
-  await expect(page.locator('.details-drawer__subtitle')).toContainText('Jahresabrechnung Strom');
+  // Das Vorschaubild öffnet eine große Vorschau als Overlay – nicht im Dokumentbereich.
+  const thumb = review.getByRole('button', { name: 'Notizzettel groß anzeigen' });
+  await thumb.click();
+  const overlay = page.getByRole('region', { name: 'Vorschau: Notizzettel' });
+  await expect(overlay).toBeVisible();
+  await expect(overlay.locator('.pdf-preview__viewer--ready')).toBeVisible({ timeout: 10000 });
+  await expect(review).toBeVisible();
+  await expect(page.locator('.details-drawer__subtitle')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(overlay).toHaveCount(0);
+  await expect(thumb).toBeFocused();
 });
 
 test('cleanup fills in short names and deletes empty entries', async ({ page }) => {

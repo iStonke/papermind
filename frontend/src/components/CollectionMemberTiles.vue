@@ -2,8 +2,8 @@
   CollectionMemberTiles — Mitglieder einer Sammlung als Kacheln. Jede Kachel
   zeigt einen Stapel der neuesten Deckblätter, Anzahl und Zeitraum. Ein Klick öffnet direkt unter der Kachelzeile ein Panel mit
   den Dokumenten des Mitglieds (die Kacheln bleiben an ihrem Platz, das Panel
-  wächst in der Höhe auf); ein Klick auf ein Dokument öffnet es in der
-  Vorschau des Dokumentbereichs.
+  wächst in der Höhe auf); ein Klick auf ein Dokument öffnet eine große
+  Vorschau als Overlay.
 
   Daten: utils/correspondentProfileStats.js → collectionMemberSummaries().
 -->
@@ -112,7 +112,6 @@
               :load-more-failed="docs.failed && docs.items.length > 0"
               :skeleton-count="skeletonCount"
               :label="`Dokumente von ${openTile.name}`"
-              @open="emit('open-document', $event)"
               @retry="loadDocs(openTile)"
               @load-more="loadDocs(openTile, true)"
             />
@@ -149,7 +148,7 @@ const props = defineProps({
   summaries: { type: Object, required: true },
   disabled: Boolean,
 });
-const emit = defineEmits(['open-profile', 'open-document', 'remove', 'open-change']);
+const emit = defineEmits(['open-profile', 'remove', 'open-change']);
 
 const panelId = `cmt-panel-${Math.random().toString(36).slice(2, 8)}`;
 

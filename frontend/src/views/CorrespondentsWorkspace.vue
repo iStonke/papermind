@@ -263,7 +263,6 @@
         @reload="loadUnassignedDocuments"
         @resolved="onUnassignedResolved"
         @select="unassignedDocumentId = $event"
-        @open-document="$emit('open-document', $event)"
       >
         <template #back>
           <button type="button" class="corr-profile__back corr-unassigned-back corr-link" @click="backToDirectory">
@@ -285,7 +284,6 @@
         @reload="loadCollectionDocuments"
         @resolved="onCollectionDocumentsResolved"
         @select="collectionDocumentId = $event"
-        @open-document="$emit('open-document', $event)"
       >
         <template #back>
           <button type="button" class="corr-profile__back corr-unassigned-back corr-link" @click="backToDirectory">
@@ -462,7 +460,7 @@
                 info-label="Was sind Mitglieder?"
               >
                 <p>Eine Sammlung bündelt Organisationen und Personen zu einem Thema. Die Dokumente ihrer Mitglieder erscheinen auch in der Sammlung.</p>
-                <p>Das Band zeigt, wie viele Dokumente von welchem Mitglied stammen. Eine Kachel klappt die Dokumente des Mitglieds hier auf; ein Klick auf ein Dokument öffnet es in der Vorschau.</p>
+                <p>Das Band zeigt, wie viele Dokumente von welchem Mitglied stammen. Eine Kachel klappt die Dokumente des Mitglieds hier auf; ein Klick auf ein Dokument zeigt es groß in einer Vorschau.</p>
               </PmInfoHeading>
               <p v-if="documentsFailed && !profile" class="corr-muted corr-empty" role="status">
                 Mitglieder konnten nicht geladen werden.
@@ -486,7 +484,6 @@
                   :disabled="isSaving"
                   @open-change="openMemberId = $event"
                   @open-profile="selectFromProfile"
-                  @open-document="$emit('open-document', $event)"
                   @remove="detachMemberById"
                 >
                   <template #add>
@@ -526,7 +523,7 @@
                 Dokumente konnten nicht geladen werden.
                 <button type="button" class="corr-link" :disabled="isLoadingProfile" @click="reloadSelected">Erneut versuchen</button>
               </p>
-              <!-- Eine waagerecht scrollende Reihe; ein Klick öffnet das Dokument in der Vorschau des Dokumentbereichs. -->
+              <!-- Eine waagerecht scrollende Reihe; ein Klick öffnet eine große Vorschau als Overlay. -->
               <CorrespondentDocumentGrid
                 v-else
                 :key="selected.id"
@@ -538,7 +535,6 @@
                 :label="`Dokumente von ${selected.name}`"
                 empty-text="Zugeordnete Dokumente erscheinen hier."
                 show-type
-                @open="$emit('open-document', $event)"
                 @load-more="loadMoreDocuments"
               />
             </section>

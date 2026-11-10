@@ -20,8 +20,8 @@
     <button
       type="button"
       class="assign-card__thumb"
-      :aria-label="`${title} in der Vorschau öffnen`"
-      :title="`${title} in der Vorschau öffnen`"
+      :aria-label="`${title} groß anzeigen`"
+      :title="`${title} groß anzeigen`"
       @click="emit('open-document', item.document_id)"
     >
       <v-icon size="22" aria-hidden="true">mdi-file-document-outline</v-icon>

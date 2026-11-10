@@ -2,7 +2,8 @@
   UnassignedCorrespondentDocuments — „Ohne Korrespondent“ bzw. „Genauer
   zuordnen“ als Seite wie „Mögliche Doppelte“: eine Karte pro Dokument
   (CorrespondentAssignmentCard), jede mit eigener Zuordnung. Ein Klick aufs
-  Vorschaubild öffnet das Dokument in der Vorschau des Dokumentbereichs.
+  Vorschaubild öffnet eine große Vorschau als Overlay (DocumentPreviewOverlay),
+  nicht im Dokumentbereich.
 
   Kopf: Sammelaktion für eindeutige Vorschläge („Alle Vorschläge übernehmen“
   bzw. „Genannte Mitglieder übernehmen“, mit Bestätigung) und „Ausgeblendete“
@@ -19,31 +20,32 @@
       </div>
       <!-- Kopfaktionen wie im Profilkopf: umrandete Icon-Buttons, Zahl als Plakette. -->
       <div class="assign__head-actions">
-        <span v-if="!showHidden && bulkCandidates.length" class="assign__action">
+        <!-- Immer sichtbar; ohne Treffer ausgegraut, der Tooltip (am Rahmen, weil
+             deaktivierte Buttons keinen zeigen) sagt warum. -->
+        <span v-if="!showHidden" class="assign__action" :title="bulkTitle">
           <v-btn
             class="pm-header-icon-btn assign__head-btn"
             variant="outlined"
             icon="mdi-check-all"
-            :disabled="Boolean(pending) || isLoading"
-            :aria-label="`${texts.bulk} (${bulkCandidates.length})`"
+            :disabled="!bulkCandidates.length || Boolean(pending) || isLoading"
+            :aria-label="bulkTitle"
             aria-haspopup="dialog"
-            :title="`${texts.bulk} (${bulkCandidates.length})`"
             @click="bulkDialogOpen = true"
           />
-          <span class="assign__badge assign__badge--accent" aria-hidden="true">{{ bulkCandidates.length }}</span>
+          <span v-if="bulkCandidates.length" class="assign__badge assign__badge--accent" aria-hidden="true">{{ bulkCandidates.length }}</span>
         </span>
-        <span v-if="hiddenItems.length || showHidden" class="assign__action">
+        <span class="assign__action" :title="hiddenTitle">
           <v-btn
             class="pm-header-icon-btn assign__head-btn"
             :class="{ 'is-active': showHidden }"
             variant="outlined"
             :icon="showHidden ? 'mdi-arrow-left' : 'mdi-eye-off-outline'"
+            :disabled="!showHidden && !hiddenItems.length"
             :aria-pressed="showHidden"
             :aria-label="showHidden ? 'Offene anzeigen' : `Ausgeblendete (${hiddenItems.length})`"
-            :title="showHidden ? 'Offene anzeigen' : `Ausgeblendete (${hiddenItems.length})`"
             @click="toggleHidden"
           />
-          <span v-if="!showHidden" class="assign__badge" aria-hidden="true">{{ hiddenItems.length }}</span>
+          <span v-if="!showHidden && hiddenItems.length" class="assign__badge" aria-hidden="true">{{ hiddenItems.length }}</span>
         </span>
       </div>
     </header>
@@ -70,7 +72,7 @@
             hidden
             :disabled="Boolean(restoringId)"
             :pending-action="restoringId === item.document_id ? 'restore' : ''"
-            @open-document="emit('open-document', $event)"
+            @open-document="previewId = $event"
             @restore="restore"
           />
         </TransitionGroup>
@@ -98,7 +100,7 @@
           :pending-action="pending?.id === item.document_id ? pending.action : ''"
           :shortcut-label="shortcutLabel"
           :mentioned-member-id="mentionedMembers[item.document_id] || null"
-          @open-document="emit('open-document', $event)"
+          @open-document="previewId = $event"
           @submit="resolve"
         />
       </TransitionGroup>
@@ -115,6 +117,12 @@
         role="status"
       />
     </div>
+
+    <DocumentPreviewOverlay
+      v-model="previewId"
+      :items="showHidden ? hiddenItems : items"
+      @closed="focusThumb"
+    />
 
     <ConfirmDialog
       v-model="bulkDialogOpen"
@@ -145,6 +153,7 @@
 import { computed, nextTick, ref, useId, watch } from 'vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import CorrespondentAssignmentCard from './CorrespondentAssignmentCard.vue';
+import DocumentPreviewOverlay from './DocumentPreviewOverlay.vue';
 import PmEmptyState from './PmEmptyState.vue';
 import {
   getCorrespondentRefinements,
@@ -176,7 +185,7 @@ const props = defineProps({
   // 'unassigned' = ohne Korrespondent; 'collection' = direkt an einer Sammlung → genauer zuordnen.
   mode: { type: String, default: 'unassigned' },
 });
-const emit = defineEmits(['reload', 'resolved', 'select', 'open-document']);
+const emit = defineEmits(['reload', 'resolved', 'select']);
 const store = useCorrespondentStore();
 const settingsStore = useSettingsStore();
 const showSuggestions = computed(() => settingsStore.settings.ui.correspondent_show_suggestions !== false);
@@ -202,6 +211,7 @@ const texts = computed(() => (isCollectionMode.value
     bulk: 'Genannte Mitglieder übernehmen',
     bulkTitle: 'Genannte Mitglieder übernehmen?',
     bulkHint: 'Diese Dokumente nennen genau ein Mitglied ihrer Sammlung und werden ihm zugeordnet.',
+    bulkNone: 'Kein Dokument nennt eindeutig ein Mitglied',
     hiddenRegion: 'Bei der Sammlung belassene Dokumente',
     hiddenTask: 'bei der Sammlung belassen',
   }
@@ -216,6 +226,7 @@ const texts = computed(() => (isCollectionMode.value
     bulk: 'Alle Vorschläge übernehmen',
     bulkTitle: 'Alle Vorschläge übernehmen?',
     bulkHint: 'Der erkannte Absender passt eindeutig zu einem bestehenden Korrespondenten. Neue Korrespondenten werden nicht angelegt.',
+    bulkNone: 'Keine eindeutigen Vorschläge',
     hiddenRegion: 'Bewusst ohne Korrespondent belassene Dokumente',
     hiddenTask: 'bewusst ohne Korrespondent',
   }));
@@ -269,6 +280,15 @@ const bulkCandidates = computed(() => {
   });
 });
 const bulkDescription = computed(() => texts.value.bulkHint);
+const bulkTitle = computed(() => {
+  if (bulkCandidates.value.length) return `${texts.value.bulk} (${bulkCandidates.value.length})`;
+  if (!showSuggestions.value) return `${texts.value.bulk}: Vorschläge sind in den Einstellungen ausgeschaltet`;
+  return `${texts.value.bulk}: ${texts.value.bulkNone}`;
+});
+const hiddenTitle = computed(() => {
+  if (showHidden.value) return 'Offene anzeigen';
+  return hiddenItems.value.length ? `Ausgeblendete (${hiddenItems.value.length})` : 'Ausgeblendete: Nichts ausgeblendet';
+});
 
 async function runBulk() {
   const candidates = bulkCandidates.value;
@@ -335,6 +355,13 @@ async function restore(id) {
     restoringId.value = '';
   }
 }
+
+// ── Große Vorschau als Overlay ────────────────────────────────────
+const previewId = ref(null);
+function focusThumb(id) {
+  void nextTick(() => cardElement(id)?.querySelector('.assign-card__thumb')?.focus({ preventScroll: true }));
+}
+watch(() => props.active, (active) => { if (!active) previewId.value = null; });
 
 function cardElement(id) {
   return scrollRef.value?.querySelector(`.assign-card[data-document-id="${CSS.escape(id)}"]`) || null;

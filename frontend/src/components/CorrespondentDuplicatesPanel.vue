@@ -21,18 +21,19 @@
           />
           <span v-if="cleanupCount" class="dupes__badge dupes__badge--accent" aria-hidden="true">{{ cleanupCount }}</span>
         </span>
-        <span v-if="hiddenPairs.length || showHidden" class="dupes__action">
+        <!-- Immer sichtbar; ohne ausgeblendete Paare ausgegraut. -->
+        <span class="dupes__action" :title="hiddenTitle">
           <v-btn
             class="pm-header-icon-btn dupes__head-btn"
             :class="{ 'is-active': showHidden }"
             variant="outlined"
             :icon="showHidden ? 'mdi-arrow-left' : 'mdi-eye-off-outline'"
+            :disabled="!showHidden && !hiddenPairs.length"
             :aria-pressed="showHidden"
             :aria-label="showHidden ? 'Offene anzeigen' : `Ausgeblendete Paare (${hiddenPairs.length})`"
-            :title="showHidden ? 'Offene anzeigen' : `Ausgeblendete Paare (${hiddenPairs.length})`"
             @click="toggleHidden"
           />
-          <span v-if="!showHidden" class="dupes__badge" aria-hidden="true">{{ hiddenPairs.length }}</span>
+          <span v-if="!showHidden && hiddenPairs.length" class="dupes__badge" aria-hidden="true">{{ hiddenPairs.length }}</span>
         </span>
       </div>
     </header>
@@ -154,6 +155,11 @@ async function toggleHidden() {
   await nextTick();
   titleRef.value?.focus();
 }
+
+const hiddenTitle = computed(() => {
+  if (showHidden.value) return 'Offene anzeigen';
+  return props.hiddenPairs.length ? `Ausgeblendete Paare (${props.hiddenPairs.length})` : 'Ausgeblendete Paare: Keine als „Kein Doppel“ markiert';
+});
 
 const subtitle = computed(() => {
   if (showHidden.value) {
