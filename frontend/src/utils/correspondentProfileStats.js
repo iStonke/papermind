@@ -217,3 +217,67 @@ export function stackedYearlyCounts(activity, keyOf, keys, { now = new Date() } 
   }
   return years;
 }
+
+/**
+ * Kacheln einer Sammlung: je direktem Mitglied (Personen zählen bei ihrer
+ * Organisation) Anzahl, Zeitraum, häufigste Dokumenttypen, die neuesten
+ * Dokument-IDs als Deckblätter und eine Jahresreihe über `years`.
+ * Dokumente der Sammlung selbst bilden den Eintrag `direct`.
+ */
+export function collectionMemberSummaries(activity, members, {
+  ownId, parentOf = () => null, years = [], typeLimit = 2, coverLimit = 3,
+} = {}) {
+  const memberIds = new Set((members || []).map((m) => m.id));
+  const groups = new Map((members || []).map((m) => [m.id, []]));
+  const directEntries = [];
+  for (const entry of activity || []) {
+    const d = toDate(entry?.document_date);
+    if (!d) continue;
+    const cid = entry.correspondent_id;
+    if (cid === ownId) { directEntries.push({ ...entry, date: d }); continue; }
+    const memberId = memberIds.has(cid) ? cid : parentOf(cid);
+    if (groups.has(memberId)) groups.get(memberId).push({ ...entry, date: d });
+  }
+  const summarize = (entries) => {
+    const sorted = entries.slice().sort((a, b) => a.date - b.date);
+    const types = new Map();
+    const perYear = new Map();
+    for (const e of sorted) {
+      if (e.document_type) types.set(e.document_type, (types.get(e.document_type) || 0) + 1);
+      const y = e.date.getFullYear();
+      perYear.set(y, (perYear.get(y) || 0) + 1);
+    }
+    return {
+      count: sorted.length,
+      first: sorted[0]?.date || null,
+      last: sorted.at(-1)?.date || null,
+      types: [...types.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'de-DE'))
+        .slice(0, typeLimit)
+        .map(([name]) => name),
+      coverIds: sorted.filter((e) => e.document_id).slice(-coverLimit).reverse().map((e) => e.document_id),
+      years: years.map((year) => ({ year, count: perYear.get(year) || 0 })),
+    };
+  };
+  const rows = (members || []).map((m) => ({ id: m.id, name: m.name, kind: m.kind, ...summarize(groups.get(m.id)) }));
+  rows.sort((a, b) => (a.first && b.first ? a.first - b.first : a.first ? -1 : b.first ? 1 : a.name.localeCompare(b.name, 'de-DE')));
+  return { rows, direct: summarize(directEntries) };
+}
+
+/** Jahre von `start` bis `end` (inklusive), höchstens `max` (die jüngsten). */
+export function yearRange(start, end, max = 24) {
+  const a = Number(start);
+  const b = Number(end);
+  if (!a || !b || b < a) return a ? [a] : b ? [b] : [];
+  const from = Math.max(a, b - max + 1);
+  return Array.from({ length: b - from + 1 }, (_, i) => from + i);
+}
+
+/** Deckkraft-Stufen der Mitgliedsfarbe (Anteil der Akzentfarbe in %). */
+export const COLLECTION_TONE_STRENGTHS = Object.freeze([100, 74, 54, 38, 26]);
+
+/** Farbe des n-ten Mitglieds einer Sammlung: Abstufung der Akzentfarbe. */
+export function collectionTone(index) {
+  const strength = COLLECTION_TONE_STRENGTHS[index % COLLECTION_TONE_STRENGTHS.length];
+  return `color-mix(in srgb, var(--pm-accent) ${strength}%, var(--pm-app-surface))`;
+}

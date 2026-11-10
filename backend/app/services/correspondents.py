@@ -575,9 +575,9 @@ class CorrespondentService:
         ).all()
 
         activity_rows = self.db.execute(
-            select(effective_date, Document.correspondent_id, Document.document_type)
+            select(effective_date, Document.correspondent_id, Document.document_type, Document.id)
             .where(*scope)
-            .order_by(effective_date.asc())
+            .order_by(effective_date.asc(), Document.id.asc())
         ).all()
 
         own_count, _ = stats.get(correspondent_id, (0, None))
@@ -605,8 +605,10 @@ class CorrespondentService:
                 for currency, total, count in amount_rows
             ],
             activity=[
-                CorrespondentProfileActivity(document_date=day, correspondent_id=cid, document_type=doc_type)
-                for day, cid, doc_type in activity_rows
+                CorrespondentProfileActivity(
+                    document_date=day, correspondent_id=cid, document_type=doc_type, document_id=doc_id
+                )
+                for day, cid, doc_type, doc_id in activity_rows
                 if day is not None
             ],
             relations=self.list_relations(correspondent_id),

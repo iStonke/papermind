@@ -206,6 +206,8 @@ class CorrespondentProfileActivity(BaseModel):
     document_date: date
     correspondent_id: uuid.UUID
     document_type: str | None = None
+    # Für Deckblatt-Vorschaubilder der Mitglieder-Kacheln in Sammlungen.
+    document_id: uuid.UUID | None = None
 
 
 # Rolle des *anderen* Korrespondenten aus Sicht des Profils.

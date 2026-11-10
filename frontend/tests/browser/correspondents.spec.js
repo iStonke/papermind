@@ -408,7 +408,7 @@ test('the document search shows and clears the exact filter opened from a corres
   await expect(groups).toHaveCount(3);
 });
 
-test('recent documents scroll horizontally and load the next page', async ({ page }) => {
+test('profile documents scroll horizontally, load the next page and expand in place', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const { requests, utility } = await prepareWorkspace(page);
   Object.assign(utility, { amount: '42.00', currency: 'EUR' });
@@ -427,7 +427,7 @@ test('recent documents scroll horizontally and load the next page', async ({ pag
   let failNextPage = true;
   await page.route('**/api/documents?*', route => {
     const params = new URL(route.request().url()).searchParams;
-    if (failNextPage && params.get('correspondent_id') === clubId && params.get('offset') === '6') {
+    if (failNextPage && params.get('correspondent_id') === clubId && params.get('offset') === '12') {
       failNextPage = false;
       return route.fulfill({ status: 503, json: {} });
     }
@@ -437,44 +437,53 @@ test('recent documents scroll horizontally and load the next page', async ({ pag
   await page.locator('.sidebar-item--correspondents').click();
   const workspace = page.locator('.panel-correspondents');
   const tree = workspace.getByRole('tree');
-  const rail = workspace.getByRole('list', { name: 'Neuste Dokumente' });
   await tree.getByText('Kieler Männer-Turnverein', { exact: true }).click();
-  await expect(rail.getByRole('listitem')).toHaveCount(6);
+  const rail = workspace.getByRole('list', { name: 'Dokumente von Kieler Männer-Turnverein' });
+  await expect(rail.getByRole('listitem')).toHaveCount(12);
+  // Eine Reihe: die vierte Karte steht rechts neben der ersten, nicht darunter.
   const [first, fourth] = await Promise.all([rail.getByRole('listitem').first().boundingBox(), rail.getByRole('listitem').nth(3).boundingBox()]);
-  expect(fourth.y).toBe(first.y);
+  expect(Math.abs(fourth.y - first.y)).toBeLessThan(6);
   expect(fourth.x).toBeGreaterThan(first.x + first.width);
   await rail.evaluate(list => { list.scrollLeft = list.scrollWidth; });
   const error = workspace.getByRole('status').filter({ hasText: 'Weitere Dokumente konnten nicht geladen werden.' });
   await expect(error).toBeVisible();
-  await expect(rail.getByRole('listitem')).toHaveCount(6);
-  await error.getByRole('button', { name: 'Erneut versuchen' }).click();
   await expect(rail.getByRole('listitem')).toHaveCount(12);
+  await error.getByRole('button', { name: 'Erneut versuchen' }).click();
+  await expect(rail.getByRole('listitem')).toHaveCount(24);
   expect(requests.some(request => request.correspondent_id === clubId && request.correspondent_members === 'true'
-    && request.sort === 'correspondent_date' && request.offset === '6')).toBe(true);
+    && request.sort === 'correspondent_date' && request.offset === '12')).toBe(true);
   await expect(workspace.getByRole('button', { name: 'Alle 52 anzeigen' })).toBeVisible();
 
   await tree.getByText('Stadtwerke Leipzig', { exact: true }).click();
-  await expect(rail.getByRole('listitem')).toHaveCount(1);
-  const documentCard = rail.getByRole('button', { name: /^Jahresabrechnung Strom/ });
+  const grid = workspace.getByRole('list', { name: 'Dokumente von Stadtwerke Leipzig' });
+  await expect(grid.getByRole('listitem')).toHaveCount(1);
+  const documentCard = grid.getByRole('button', { name: /^Jahresabrechnung Strom/ });
   await expect(documentCard.getByText('Rechnung', { exact: true })).toHaveCSS('font-weight', '600');
   await expect(documentCard.getByText('20.05.2026')).toBeVisible();
   await expect(documentCard).not.toContainText('42,00');
-  expect(await rail.evaluate(list => list.scrollLeft)).toBe(0);
-  const recent = workspace.getByRole('region', { name: 'Neuste Dokumente' });
-  // A single document uses the same thumbnail card as two or three: a third of the rail, preview above the text.
-  const railWidth = (await rail.boundingBox()).width;
-  expect((await rail.getByRole('listitem').first().boundingBox()).width).toBeCloseTo((railWidth - 24) / 3, 0);
-  const pageBox = await documentCard.locator('.pm-recent-docs__page').boundingBox();
-  expect(pageBox.y + pageBox.height).toBeLessThanOrEqual((await documentCard.locator('.pm-recent-docs__copy').boundingBox()).y + 1);
+  expect(await grid.evaluate(list => list.scrollLeft)).toBe(0);
+  // Ein einzelnes Dokument nimmt wie zwei oder drei ein Drittel der Reihe ein.
+  const railWidth = (await grid.boundingBox()).width;
+  expect((await grid.getByRole('listitem').first().boundingBox()).width).toBeCloseTo((railWidth - 24) / 3, 0);
 
+  // Ein Klick klappt die Vorschau unter der Kachel auf, statt in den Dokumentbereich zu wechseln.
+  await documentCard.click();
+  const detail = workspace.getByRole('region', { name: 'Jahresabrechnung Strom' });
+  await expect(detail).toBeVisible();
+  await expect(documentCard).toHaveAttribute('aria-expanded', 'true');
+  await expect(detail.getByRole('button', { name: 'Seiten blättern' })).toBeVisible();
+  expect((await detail.boundingBox()).y).toBeGreaterThan((await documentCard.boundingBox()).y);
+  await expect(page.locator('.details-drawer__subtitle')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(detail).toHaveCount(0);
+  await expect(documentCard).toBeFocused();
+
+  // Sammlungen zeigen statt des Dokumentrasters Mitglieder-Kacheln.
   await tree.getByText('Energie', { exact: true }).click();
-  const emptyCard = recent.locator('.pm-recent-docs__empty');
-  await expect(emptyCard.getByText('Noch keine Dokumente')).toBeVisible();
-  expect((await emptyCard.boundingBox()).width).toBeCloseTo((await recent.boundingBox()).width / 2, 0);
-  await page.setViewportSize({ width: 420, height: 900 });
-  await expect(emptyCard).toHaveCSS('flex-direction', 'column');
-  await expect.poll(async () => (await recent.boundingBox()).width).toBeGreaterThan(250);
-  await expect.poll(() => emptyCard.evaluate(card => Math.abs(card.offsetWidth - card.closest('section').offsetWidth / 2))).toBeLessThanOrEqual(1);
+  await expect(workspace.getByRole('heading', { name: 'Energie', exact: true })).toBeVisible();
+  await expect(workspace.getByRole('region', { name: 'Dokumente', exact: true })).toHaveCount(0);
+  await expect(workspace.getByRole('list', { name: 'Mitglieder von Energie' })).toBeVisible();
+  await expect(workspace.getByRole('button', { name: 'Mitglied hinzufügen', exact: true })).toBeVisible();
 });
 
 test('alias and note placeholders expand to solid borders, and saved notes keep their border', async ({ page }) => {
@@ -720,7 +729,10 @@ test('the directory handles open document assignments and only offers short name
   expect((await addAffiliation.boundingBox()).y).toBeGreaterThan((await collectionTile.boundingBox()).y);
 
   await collectionTile.click();
-  await expect(members.getByRole('button', { name: /^Unsortierter Kontakt/ })).toBeVisible();
+  // Neues Mitglied ohne Dokumente: Kachel sichtbar, aber nicht aufklappbar.
+  await expect(members.getByRole('listitem').filter({ hasText: 'Unsortierter Kontakt' })).toBeVisible();
+  await expect(members.getByRole('button', { name: /^Unsortierter Kontakt.*aufklappen$/ })).toHaveCount(0);
+  await expect(members.getByRole('button', { name: 'Zuordnung von Unsortierter Kontakt lösen' })).toBeAttached();
   const addMember = members.getByRole('button', { name: 'Mitglied hinzufügen', exact: true });
   await expect(addMember).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(addMember).toHaveCSS('border-top-style', 'dashed');

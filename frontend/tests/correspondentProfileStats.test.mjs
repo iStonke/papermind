@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  collectionMemberSummaries,
   documentRhythm,
   memberTimelines,
   monthlyCounts,
@@ -9,6 +10,7 @@ import {
   stackedYearlyCounts,
   typeBreakdown,
   yearlyCounts,
+  yearRange,
 } from '../src/utils/correspondentProfileStats.js';
 
 const entry = (document_date, correspondent_id = 'org', document_type = 'Rechnung') => ({ document_date, correspondent_id, document_type });
@@ -105,4 +107,39 @@ test('stacked years keep the given group order and fill empty years', () => {
   assert.deepEqual(years.map((y) => y.year), [2022, 2023, 2024, 2025, 2026]);
   assert.deepEqual(years.find((y) => y.year === 2024).segments, [{ key: 'a', count: 1 }, { key: 'b', count: 1 }]);
   assert.equal(years.find((y) => y.year === 2026).total, 1, 'unknown groups are skipped');
+});
+
+test('collectionMemberSummaries groups by member, counts persons at their organisation', () => {
+  const act = [
+    { document_date: '2003-05-01', correspondent_id: 'schoolA', document_type: 'Zeugnis', document_id: 'd1' },
+    { document_date: '2004-05-01', correspondent_id: 'teacher', document_type: 'Brief', document_id: 'd2' },
+    { document_date: '2005-05-01', correspondent_id: 'schoolA', document_type: 'Zeugnis', document_id: 'd3' },
+    { document_date: '2006-01-01', correspondent_id: 'schoolA', document_type: 'Zeugnis', document_id: 'd4' },
+    { document_date: '2010-01-01', correspondent_id: 'coll', document_type: null, document_id: 'd5' },
+    { document_date: '2011-01-01', correspondent_id: 'schoolB', document_type: 'Anmeldung', document_id: 'd6' },
+  ];
+  const members = [
+    { id: 'schoolB', name: 'B', kind: 'organization' },
+    { id: 'schoolA', name: 'A', kind: 'organization' },
+  ];
+  const { rows, direct } = collectionMemberSummaries(act, members, {
+    ownId: 'coll',
+    parentOf: (id) => (id === 'teacher' ? 'schoolA' : null),
+    years: yearRange(2003, 2011),
+  });
+  assert.deepEqual(rows.map((r) => r.id), ['schoolA', 'schoolB']);
+  const a = rows[0];
+  assert.equal(a.count, 4);
+  assert.deepEqual(a.types, ['Zeugnis', 'Brief']);
+  assert.deepEqual(a.coverIds, ['d4', 'd3', 'd2']);
+  assert.equal(a.years.length, 9);
+  assert.equal(a.years.find((y) => y.year === 2005).count, 1);
+  assert.equal(direct.count, 1);
+  assert.deepEqual(direct.coverIds, ['d5']);
+});
+
+test('yearRange is inclusive and capped to the latest years', () => {
+  assert.deepEqual(yearRange(2002, 2004), [2002, 2003, 2004]);
+  assert.equal(yearRange(1990, 2019, 10)[0], 2010);
+  assert.deepEqual(yearRange('', 2019), [2019]);
 });

@@ -48,7 +48,9 @@
             @keydown.enter.prevent="openUnassigned"
             @keydown.space.prevent="openUnassigned"
           >
-            <v-icon class="corr-inbox__icon" size="20" aria-hidden="true">mdi-inbox-outline</v-icon>
+            <span class="corr-inbox__icon" aria-hidden="true">
+              <v-icon size="20">mdi-inbox-outline</v-icon>
+            </span>
             <span class="corr-inbox__text">
               <span class="corr-inbox__title">Ohne Korrespondent</span>
               <span class="corr-inbox__subtitle">Dokumente zum Zuordnen</span>
@@ -70,7 +72,9 @@
             @keydown.enter.prevent="openCollectionReview"
             @keydown.space.prevent="openCollectionReview"
           >
-            <v-icon class="corr-inbox__icon" size="20" aria-hidden="true">mdi-shape-outline</v-icon>
+            <span class="corr-inbox__icon" aria-hidden="true">
+              <v-icon size="20">mdi-shape-outline</v-icon>
+            </span>
             <span class="corr-inbox__text">
               <span class="corr-inbox__title">Genauer zuordnen</span>
               <span class="corr-inbox__subtitle">Dokumente an Sammlungen</span>
@@ -92,7 +96,9 @@
             @keydown.enter.prevent="openDuplicates"
             @keydown.space.prevent="openDuplicates"
           >
-            <v-icon class="corr-inbox__icon" size="20" aria-hidden="true">mdi-source-merge</v-icon>
+            <span class="corr-inbox__icon" aria-hidden="true">
+              <v-icon size="20">mdi-source-merge</v-icon>
+            </span>
             <span class="corr-inbox__text">
               <span class="corr-inbox__title">Mögliche Doppelte</span>
               <span class="corr-inbox__subtitle">Einträge zum Zusammenführen</span>
@@ -442,9 +448,82 @@
         </header>
         <div ref="profileScrollRef" class="corr-profile__scroll" :inert="isProfileSwitching">
           <div class="corr-sheet">
-            <section aria-labelledby="corr-docs-title">
+            <section v-if="isCollection" class="corr-collection" aria-labelledby="corr-members-title">
+              <PmInfoHeading
+                title="Mitglieder"
+                heading-id="corr-members-title"
+                :reset-key="selectedId"
+                info-label="Was sind Mitglieder?"
+              >
+                <p>Eine Sammlung bündelt Organisationen und Personen zu einem Thema. Die Dokumente ihrer Mitglieder erscheinen auch in der Sammlung.</p>
+                <p>Das Band zeigt, wie viele Dokumente von welchem Mitglied stammen. Eine Kachel klappt die Dokumente des Mitglieds hier auf, ein Dokument darin vergrößert sich zur Vorschau.</p>
+              </PmInfoHeading>
+              <p v-if="documentsFailed && !profile" class="corr-muted corr-empty" role="status">
+                Mitglieder konnten nicht geladen werden.
+                <button type="button" class="corr-link" :disabled="isLoadingProfile" @click="reloadSelected">Erneut versuchen</button>
+              </p>
+              <template v-else>
+                <CollectionShareBand
+                  v-if="collectionShareVisible"
+                  class="corr-collection__band"
+                  :collection-id="selected.id"
+                  :summaries="collectionSummaries"
+                  :active-id="openMemberId"
+                  @select="toggleCollectionMember"
+                />
+                <CollectionMemberTiles
+                  ref="memberTilesRef"
+                  :key="selected.id"
+                  :collection-id="selected.id"
+                  :collection-name="selected.name"
+                  :summaries="collectionSummaries"
+                  :disabled="isSaving"
+                  @open-change="openMemberId = $event"
+                  @open-profile="selectFromProfile"
+                  @remove="detachMemberById"
+                >
+                  <template #add>
+                    <CorrespondentConnectionMenu
+                      :key="selectedId"
+                      :correspondent="selected"
+                      :options="connectKinds"
+                      :find-candidates="findConnectCandidates"
+                      :candidate-initials="initials"
+                      :save-connection="connectTo"
+                      :disabled="isSaving"
+                    >
+                      <template #activator="{ props: menuProps }">
+                        <button v-bind="menuProps" type="button" class="corr-placeholder corr-placeholder--collection" :disabled="isSaving" aria-label="Mitglied hinzufügen">
+                          <span class="corr-placeholder__badge" aria-hidden="true">
+                            <v-icon size="22">mdi-account-plus</v-icon>
+                          </span>
+                          <span class="corr-placeholder__title">Mitglied hinzufügen</span>
+                          <span class="corr-placeholder__hint">Person oder Organisation auswählen</span>
+                        </button>
+                      </template>
+                    </CorrespondentConnectionMenu>
+                  </template>
+                </CollectionMemberTiles>
+              </template>
+            </section>
+
+            <section v-if="isCollection && timelineHasData" aria-labelledby="corr-lifeline-title">
               <div class="corr-section-head">
-                <h2 id="corr-docs-title">Neuste Dokumente</h2>
+                <h2 id="corr-lifeline-title">Lebenslauf</h2>
+              </div>
+              <CorrespondentMemberTimeline
+                :key="selected.id"
+                :rows="timeline.rows"
+                :direct="timeline.direct"
+                :start-year="timelineRange.start"
+                :end-year="timelineRange.end"
+                @select="toggleCollectionMember"
+              />
+            </section>
+
+            <section v-if="!isCollection" aria-labelledby="corr-docs-title">
+              <div class="corr-section-head">
+                <h2 id="corr-docs-title">Dokumente</h2>
                 <button v-if="documentTotal" type="button" class="corr-link corr-section-action" @click="showDocuments">
                   {{ documentTotal === 1 ? 'In Dokumenten zeigen' : `Alle ${documentTotal} anzeigen` }}
                   <v-icon size="15" aria-hidden="true">mdi-arrow-right</v-icon>
@@ -454,25 +533,25 @@
                 Dokumente konnten nicht geladen werden.
                 <button type="button" class="corr-link" :disabled="isLoadingProfile" @click="reloadSelected">Erneut versuchen</button>
               </p>
-              <CorrespondentRecentDocuments
+              <!-- Eine waagerecht scrollende Reihe; ein Dokument klappt darunter auf (wie in Sammlungen), statt in den Dokumentbereich zu springen. -->
+              <CorrespondentDocumentGrid
                 v-else
                 :key="selected.id"
+                layout="row"
                 :documents="documents"
-                :empty-description="isCollection ? 'Hier erscheinen Dokumente der Sammlung und ihrer Mitglieder.' : 'Zugeordnete Dokumente erscheinen hier.'"
-                :has-more="hasMoreDocuments"
+                :total="documentsResultTotal"
                 :loading-more="isLoadingMoreDocuments"
                 :load-more-failed="moreDocumentsFailed"
-                @open="$emit('open-document', $event)"
+                :owner-name="selected.name"
+                :label="`Dokumente von ${selected.name}`"
+                empty-text="Zugeordnete Dokumente erscheinen hier."
+                show-type
                 @load-more="loadMoreDocuments"
               />
-              <p v-if="moreDocumentsFailed" class="corr-muted corr-empty corr-docs-retry" role="status">
-                Weitere Dokumente konnten nicht geladen werden.
-                <button type="button" class="corr-link" :disabled="isLoadingMoreDocuments || isLoadingProfile" @click="loadMoreDocuments">Erneut versuchen</button>
-              </p>
             </section>
 
             <section class="corr-profile-data" aria-label="Profildaten">
-              <section class="corr-section-info" aria-labelledby="corr-structure-title">
+              <section v-if="!isCollection" class="corr-section-info" aria-labelledby="corr-structure-title">
                 <PmInfoHeading
                   :title="structureTitle"
                   heading-id="corr-structure-title"
@@ -561,16 +640,6 @@
                   </li>
                 </ul>
 
-                <details v-if="isCollection && timelineHasData" :key="selected.id" class="corr-disclosure corr-disclosure--timeline">
-                  <summary>Mitglieder im Zeitverlauf</summary>
-                  <CorrespondentMemberTimeline
-                    :rows="timeline.rows"
-                    :direct="timeline.direct"
-                    :start-year="timelineRange.start"
-                    :end-year="timelineRange.end"
-                    @select="selectFromProfile"
-                  />
-                </details>
               </section>
 
               <section v-if="isCollection && connectionItems.length" class="corr-section-info" aria-labelledby="corr-connections-title">
@@ -870,7 +939,7 @@ import CorrespondentMemberTimeline from '../components/CorrespondentMemberTimeli
 import CorrespondentPersonNameFields from '../components/CorrespondentPersonNameFields.vue';
 import CorrespondentProfileIllustration from '../components/CorrespondentProfileIllustration.vue';
 import CorrespondentProfileRow from '../components/CorrespondentProfileRow.vue';
-import CorrespondentRecentDocuments from '../components/CorrespondentRecentDocuments.vue';
+import CorrespondentDocumentGrid from '../components/CorrespondentDocumentGrid.vue';
 import CorrespondentRecognition from '../components/CorrespondentRecognition.vue';
 import ListActionToolbar from '../components/ListActionToolbar.vue';
 import PmEmptyState from '../components/PmEmptyState.vue';
@@ -906,7 +975,9 @@ import {
   sortCorrespondentTree,
   correspondentDisplayName,
 } from '../utils/correspondentHierarchy.js';
-import { memberTimelines } from '../utils/correspondentProfileStats.js';
+import { collectionMemberSummaries, memberTimelines } from '../utils/correspondentProfileStats.js';
+import CollectionMemberTiles from '../components/CollectionMemberTiles.vue';
+import CollectionShareBand from '../components/CollectionShareBand.vue';
 
 const props = defineProps({
   selectedId: { type: String, default: null },
@@ -914,7 +985,7 @@ const props = defineProps({
 const emit = defineEmits(['update:selectedId', 'show-documents', 'open-document', 'documents-changed']);
 
 const correspondentStore = useCorrespondentStore();
-const RECENT_DOCUMENT_LIMIT = 6;
+const RECENT_DOCUMENT_LIMIT = 12;
 
 const query = ref('');
 const kindFilter = ref('all');
@@ -1631,6 +1702,29 @@ const timelineHasData = computed(() =>
 
 const documentTotal = computed(() => profile.value?.document_count ?? documentsResultTotal.value);
 
+// Sammlung: Kacheln je Mitglied, Anteilsband und Lebenslauf teilen dieselbe Auswertung.
+const collectionSummaries = computed(() =>
+  // Mitglieder aus dem Store: neu zugeordnete erscheinen sofort, auch ohne Dokumente.
+  collectionMemberSummaries(activity.value, selectedMembers.value, {
+    ownId: profile.value?.correspondent?.id,
+    parentOf: (id) => correspondentStore.findById(id)?.parent_id || null,
+  })
+);
+const collectionShareVisible = computed(() => {
+  const { rows, direct } = collectionSummaries.value;
+  return rows.filter((row) => row.count > 0).length + (direct.count ? 1 : 0) > 1;
+});
+const memberTilesRef = ref(null);
+const openMemberId = ref(null);
+watch(() => props.selectedId, () => { openMemberId.value = null; });
+function toggleCollectionMember(id) {
+  memberTilesRef.value?.toggleMember(id);
+}
+function detachMemberById(id) {
+  const member = selectedMembers.value.find((entry) => entry.id === id);
+  if (member) detachFromParent(member);
+}
+
 function yearSpan(first, last) {
   const a = yearOf(first);
   const b = yearOf(last);
@@ -2149,13 +2243,16 @@ onMounted(() => {
   background: var(--pm-list-accent);
   pointer-events: none;
 }
-.corr-inbox__icon.v-icon {
+.corr-inbox__icon {
+  display: grid;
+  place-items: center;
   flex: none;
   width: 34px;
   height: 34px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--pm-warning) 18%, transparent);
-  color: color-mix(in srgb, var(--pm-warning) 70%, var(--pm-text));
+  color: var(--pm-error);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 40%, transparent);
 }
 .corr-inbox__text { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; line-height: 1.25; }
 .corr-inbox__title { font-size: 0.9rem; font-weight: 600; }
@@ -2173,8 +2270,6 @@ onMounted(() => {
 }
 .corr-inbox__chevron { flex: none; color: var(--pm-muted); }
 .corr-inbox + .corr-inbox { padding-top: 0; }
-.corr-inbox__row--dupes .corr-inbox__icon { color: var(--pm-warning); }
-.corr-inbox__row--collection .corr-inbox__icon { color: var(--pm-accent-text, var(--pm-accent)); }
 .corr-inbox + .corr-section { margin-top: 6px; border-top: 1px solid var(--pm-divider); }
 .corr-section + .corr-section {
   margin-top: 6px;
@@ -2568,7 +2663,6 @@ onMounted(() => {
 .corr-kind-error { margin: 12px 0 0; color: var(--pm-error); }
 
 .corr-empty { margin: 0; font-size: 0.84rem; line-height: 1.45; }
-.corr-docs-retry { margin-block-start: 6px; }
 .corr-sheet {
   --corr-section-content-gap: 8px;
   display: grid;
@@ -2616,6 +2710,8 @@ onMounted(() => {
   gap: 10px;
 }
 .corr-structure--tiles > .corr-structure__add-action { grid-column: 1 / -1; }
+.corr-collection { container-type: inline-size; }
+.corr-collection__band { margin-bottom: 14px; }
 .corr-disclosure > summary:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: -2px; }
 .corr-disclosure > summary { cursor: pointer; }
 .corr-disclosure--timeline { margin-top: 7px; }
@@ -2652,6 +2748,33 @@ button.corr-note:not(.corr-note--empty) { background: var(--pm-v-card, var(--pm-
   color: var(--pm-muted);
   cursor: pointer;
 }
+.corr-placeholder.corr-placeholder--collection {
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 10px;
+  border-color: color-mix(in srgb, var(--pm-accent) 36%, var(--pm-divider));
+  text-align: center;
+}
+.corr-placeholder--collection:hover:not(:disabled) {
+  border-color: var(--pm-accent);
+  background-color: color-mix(in srgb, var(--pm-accent) 6%, transparent);
+}
+.corr-placeholder--collection:focus-visible {
+  outline: 2px solid var(--pm-accent);
+  outline-offset: -2px;
+}
+.corr-placeholder__badge {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  margin-block-end: 5px;
+  border: 1px solid color-mix(in srgb, var(--pm-accent) 22%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--pm-accent) 12%, transparent);
+}
+.corr-placeholder__title { color: var(--pm-text); font-weight: 600; }
+.corr-placeholder__hint { color: var(--pm-muted); font-size: 0.75rem; }
 .corr-note--input {
   width: auto;
   min-width: min(28ch, 100%);
