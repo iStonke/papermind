@@ -32,6 +32,10 @@ class ImportMetadataHeuristicsTest(unittest.TestCase):
         self.assertFalse(is_plausible_sender("Pi Sync und Betrieb", notes))
         self.assertFalse(is_plausible_sender("", notes))
 
+    def test_placeholder_values_are_not_plausible_senders(self) -> None:
+        for placeholder in ("null", "None", "n/a", "Unbekannt", " undefined "):
+            self.assertFalse(is_plausible_sender(placeholder), placeholder)
+
     def test_real_senders_stay_plausible(self) -> None:
         letter = "Stadtwerke Kiel\nPostfach 1234\n24103 Kiel\nSehr geehrte Frau Muster,"
         self.assertTrue(is_plausible_sender("Stadtwerke Kiel", letter))

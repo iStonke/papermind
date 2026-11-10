@@ -1,7 +1,6 @@
 <!--
   CollectionMemberTiles — Mitglieder einer Sammlung als Kacheln. Jede Kachel
-  zeigt einen Stapel der neuesten Deckblätter, Anzahl, Zeitraum, häufigste
-  Dokumenttypen. Ein Klick öffnet direkt unter der Kachelzeile ein Panel mit
+  zeigt einen Stapel der neuesten Deckblätter, Anzahl und Zeitraum. Ein Klick öffnet direkt unter der Kachelzeile ein Panel mit
   den Dokumenten des Mitglieds (die Kacheln bleiben an ihrem Platz, das Panel
   wächst in der Höhe auf); ein Klick auf ein Dokument öffnet es in der
   Vorschau des Dokumentbereichs.
@@ -52,12 +51,9 @@
           </span>
           <span class="cmt__name">
             <v-icon size="15" class="cmt__kind" aria-hidden="true">{{ entry.icon }}</v-icon>
-            <span class="cmt__name-text">{{ entry.name }}</span>
+            <span class="cmt__name-text" :title="entry.name">{{ entry.name }}</span>
           </span>
           <span class="cmt__meta">{{ metaLabel(entry) }}</span>
-          <span v-if="entry.types.length" class="cmt__types">
-            <span v-for="type in entry.types" :key="type" class="cmt__type">{{ type }}</span>
-          </span>
         </component>
         <button
           v-if="!entry.direct"
@@ -171,7 +167,7 @@ const tiles = computed(() => {
       ...direct,
       id: props.collectionId,
       key: DIRECT_KEY,
-      name: 'Direkt in der Sammlung',
+      name: 'Direkt zugeordnet',
       direct: true,
       icon: 'mdi-shape-outline',
       tone: 'color-mix(in srgb, var(--pm-muted) 55%, var(--pm-app-surface))',
@@ -440,24 +436,12 @@ defineExpose({ toggleMember, openKey });
 .cmt:hover .cmt__sheet--2, .cmt__face:focus-visible .cmt__sheet--2 { transform: translateX(34px) rotate(10deg); }
 .cmt:hover .cmt__sheet--1:not(:last-child) { transform: translateY(-3px); }
 
-.cmt__name { display: flex; align-items: flex-start; gap: 6px; font-size: 0.9rem; font-weight: 650; line-height: 1.3; }
+/* Feste Zeilen: Name (1), Umfang (1) – jede Kachel gleich gegliedert. */
+.cmt__name { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 0.9rem; font-weight: 650; line-height: 1.3; }
 .cmt__kind { flex: none; margin-top: 1px; color: var(--cmt-tone); }
 .cmt--direct .cmt__kind { color: var(--pm-muted); }
-.cmt__name-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
-.cmt__meta { color: var(--pm-muted); font-size: 0.78rem; }
-.cmt__types { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.cmt__type {
-  max-width: 100%;
-  padding: 1px 8px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--pm-accent) 12%, transparent);
-  color: var(--pm-accent-text);
-  font-size: 0.72rem;
-  font-weight: 600;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
+.cmt__name-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cmt__meta { overflow: hidden; color: var(--pm-muted); font-size: 0.78rem; white-space: nowrap; text-overflow: ellipsis; }
 
 .cmt__remove {
   position: absolute;

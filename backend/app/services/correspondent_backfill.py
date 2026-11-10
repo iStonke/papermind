@@ -202,12 +202,16 @@ class CorrespondentBackfillService:
         limit: int = 200,
         include_deleted: bool = False,
         excerpt_chars: int = 700,
+        hidden: bool = False,
     ) -> UnresolvedCorrespondentReport:
+        """Dokumente ohne Korrespondent. ``hidden=True`` liefert stattdessen die
+        bewusst ohne Korrespondent belassenen (zum Zurückholen)."""
+        review = Document.flags["correspondent_review"].astext
         stmt = (
             select(Document)
             .where(
                 Document.correspondent_id.is_(None),
-                Document.flags["correspondent_review"].astext.is_distinct_from("ignored"),
+                review == "ignored" if hidden else review.is_distinct_from("ignored"),
             )
             .order_by(Document.created_at.asc())
             .limit(limit)
@@ -244,16 +248,18 @@ class CorrespondentBackfillService:
             items=items,
         )
 
-    def collection_report(self, *, limit: int = 200, excerpt_chars: int = 0) -> UnresolvedCorrespondentReport:
+    def collection_report(self, *, limit: int = 200, excerpt_chars: int = 0, hidden: bool = False) -> UnresolvedCorrespondentReport:
         """Dokumente, die direkt einer Sammlung zugeordnet sind – Kandidaten für eine
-        genauere Zuordnung. Bewusst bei der Sammlung belassene fallen heraus."""
+        genauere Zuordnung. Bewusst bei der Sammlung belassene fallen heraus;
+        ``hidden=True`` liefert genau diese (zum Zurückholen)."""
+        review = Document.flags["collection_review"].astext
         stmt = (
             select(Document, Correspondent.name)
             .join(Correspondent, Correspondent.id == Document.correspondent_id)
             .where(
                 Correspondent.kind == "collection",
                 Document.is_deleted.is_(False),
-                Document.flags["collection_review"].astext.is_distinct_from("kept"),
+                review == "kept" if hidden else review.is_distinct_from("kept"),
             )
             .order_by(Document.created_at.asc())
             .limit(limit)

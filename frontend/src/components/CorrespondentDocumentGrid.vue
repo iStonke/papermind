@@ -29,7 +29,7 @@
           <span class="cdg-doc__face">
             <span class="cdg-doc__page" />
             <span class="cdg-doc__title"><span class="cdg-sk" /></span>
-            <span class="cdg-doc__date"><span class="cdg-sk cdg-sk--short" /></span>
+            <span class="cdg-doc__foot"><span class="cdg-sk cdg-sk--short" /></span>
           </span>
         </li>
       </template>
@@ -50,8 +50,11 @@
             <img :key="doc.updated_at" :src="thumbnail(doc)" alt="" loading="lazy" decoding="async" @error="$event.target.hidden = true">
           </span>
           <span class="cdg-doc__title" :title="titleOf(doc)">{{ titleOf(doc) }}</span>
-          <span v-if="showType && doc.document_type" class="cdg-doc__type">{{ doc.document_type }}</span>
-          <span class="cdg-doc__date">{{ formatDate(doc.document_date || doc.created_at) }}</span>
+          <!-- Eine feste Fußzeile: Datum links, Dokumenttyp rechts. -->
+          <span class="cdg-doc__foot">
+            <span class="cdg-doc__date">{{ formatDate(doc.document_date || doc.created_at) }}</span>
+            <span v-if="showType && doc.document_type" class="cdg-doc__type" :title="doc.document_type">{{ doc.document_type }}</span>
+          </span>
         </button>
       </li>
     </ul>
@@ -222,7 +225,7 @@ function formatDate(iso) {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   align-self: stretch;
-  min-height: 2.6em;
+  height: 2.6em;
   overflow: hidden;
   font-size: 0.78rem;
   font-weight: 600;
@@ -230,20 +233,29 @@ function formatDate(iso) {
   overflow-wrap: anywhere;
 }
 .cdg--regular .cdg-doc__title { font-size: 0.84rem; }
+/* Dokumenttyp-Chip wie in den Mitglieder-Kacheln: neutral umrandet. */
 .cdg-doc__type {
-  max-width: 100%;
-  margin: 2px 0;
-  padding: 1px 8px;
+  min-width: 0;
+  padding: 1px 7px;
   overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--pm-accent) 12%, transparent);
-  color: var(--pm-accent-text);
+  border: 1px solid var(--pm-list-divider);
+  border-radius: 6px;
+  color: var(--pm-muted);
   font-size: 0.72rem;
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.cdg-doc__date { margin-top: auto; color: var(--pm-muted); font-size: 0.74rem; }
+.cdg-doc__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  align-self: stretch;
+  height: 22px;
+  margin-top: 4px;
+}
+.cdg-doc__date { flex: none; color: var(--pm-muted); font-size: 0.74rem; font-variant-numeric: tabular-nums; }
 .cdg-sk { display: inline-block; width: 85%; height: 0.8em; border-radius: 4px; background: var(--pm-list-hover); vertical-align: middle; }
 .cdg-sk--short { width: 55%; }
 

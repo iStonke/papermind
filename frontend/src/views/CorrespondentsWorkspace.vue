@@ -262,7 +262,8 @@
         :load-error="unassignedLoadError"
         @reload="loadUnassignedDocuments"
         @resolved="onUnassignedResolved"
-        @select="openUnassignedDocument"
+        @select="unassignedDocumentId = $event"
+        @open-document="$emit('open-document', $event)"
       >
         <template #back>
           <button type="button" class="corr-profile__back corr-unassigned-back corr-link" @click="backToDirectory">
@@ -283,7 +284,8 @@
         :load-error="collectionDocumentsLoadError"
         @reload="loadCollectionDocuments"
         @resolved="onCollectionDocumentsResolved"
-        @select="openCollectionDocument"
+        @select="collectionDocumentId = $event"
+        @open-document="$emit('open-document', $event)"
       >
         <template #back>
           <button type="button" class="corr-profile__back corr-unassigned-back corr-link" @click="backToDirectory">
@@ -298,9 +300,13 @@
       <CorrespondentDuplicatesPanel
         ref="duplicatesPanelRef"
         :pairs="visibleDuplicatePairs"
+        :hidden-pairs="hiddenDuplicatePairs"
+        :cleanup-count="cleanupCount"
         :busy-key="dismissingDuplicateKey"
         @merge="openMergeFor"
         @dismiss="dismissDuplicate"
+        @restore="restoreDuplicate"
+        @cleanup="isCleanupOpen = true"
         @open="openFromDuplicates"
       >
         <template #back>
@@ -1099,7 +1105,7 @@ function openUnassigned() {
   const visible = visibleUnassignedDocuments.value;
   const resume = visible.find(doc => doc.document_id === lastUnassignedDocumentId);
   const target = resume ?? visible[0];
-  if (target) openUnassignedDocument(target.document_id);
+  openUnassignedDocument(target?.document_id ?? null);
 }
 
 async function loadUnassignedDocuments() {
@@ -1160,7 +1166,7 @@ function openCollectionDocument(id) {
 function openCollectionReview() {
   const visible = visibleCollectionDocuments.value;
   const target = visible.find(doc => doc.document_id === lastCollectionDocumentId) ?? visible[0];
-  if (target) openCollectionDocument(target.document_id);
+  openCollectionDocument(target?.document_id ?? null);
 }
 
 async function loadCollectionDocuments() {
@@ -1289,6 +1295,12 @@ const duplicateDismissals = computed(() => settingsStore.settings?.ui?.correspon
 const duplicatePairs = computed(() => (correspondentStore.isLoaded
   ? findDuplicatePairs(correspondentStore.correspondents, duplicateDismissals.value)
   : []));
+// Als „Kein Doppel“ markierte Paare, die es noch gibt (zum Wiederanzeigen).
+const hiddenDuplicatePairs = computed(() => {
+  if (!correspondentStore.isLoaded || !duplicateDismissals.value.length) return [];
+  const dismissed = new Set(duplicateDismissals.value);
+  return findDuplicatePairs(correspondentStore.correspondents, []).filter(pair => dismissed.has(pair.key));
+});
 const visibleDuplicatePairs = computed(() => {
   const term = query.value.trim().toLocaleLowerCase('de-DE');
   return term
@@ -1318,6 +1330,20 @@ async function dismissDuplicate(key) {
     });
   } catch (error) {
     notifyError(error, 'Die Markierung konnte nicht gespeichert werden.');
+  } finally {
+    dismissingDuplicateKey.value = '';
+  }
+}
+
+async function restoreDuplicate(key) {
+  if (dismissingDuplicateKey.value) return;
+  dismissingDuplicateKey.value = key;
+  try {
+    await settingsStore.patchSettings(getBaseUrl(), {
+      ui: { correspondent_duplicate_dismissals: duplicateDismissals.value.filter(entry => entry !== key) },
+    });
+  } catch (error) {
+    notifyError(error, 'Das Paar konnte nicht wieder angezeigt werden.');
   } finally {
     dismissingDuplicateKey.value = '';
   }

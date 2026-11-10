@@ -104,7 +104,6 @@ test('collectionMemberSummaries groups by member, counts persons at their organi
   assert.deepEqual(rows.map((r) => r.id), ['schoolA', 'schoolB']);
   const a = rows[0];
   assert.equal(a.count, 4);
-  assert.deepEqual(a.types, ['Zeugnis', 'Brief']);
   assert.deepEqual(a.coverIds, ['d4', 'd3', 'd2']);
   assert.equal(a.years.length, 9);
   assert.equal(a.years.find((y) => y.year === 2005).count, 1);

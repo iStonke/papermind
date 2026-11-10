@@ -181,7 +181,7 @@ export function stackedYearlyCounts(activity, keyOf, keys, { now = new Date() } 
  * Dokumente der Sammlung selbst bilden den Eintrag `direct`.
  */
 export function collectionMemberSummaries(activity, members, {
-  ownId, parentOf = () => null, years = [], typeLimit = 2, coverLimit = 3,
+  ownId, parentOf = () => null, years = [], coverLimit = 3,
 } = {}) {
   const memberIds = new Set((members || []).map((m) => m.id));
   const groups = new Map((members || []).map((m) => [m.id, []]));
@@ -196,10 +196,8 @@ export function collectionMemberSummaries(activity, members, {
   }
   const summarize = (entries) => {
     const sorted = entries.slice().sort((a, b) => a.date - b.date);
-    const types = new Map();
     const perYear = new Map();
     for (const e of sorted) {
-      if (e.document_type) types.set(e.document_type, (types.get(e.document_type) || 0) + 1);
       const y = e.date.getFullYear();
       perYear.set(y, (perYear.get(y) || 0) + 1);
     }
@@ -207,10 +205,6 @@ export function collectionMemberSummaries(activity, members, {
       count: sorted.length,
       first: sorted[0]?.date || null,
       last: sorted.at(-1)?.date || null,
-      types: [...types.entries()]
-        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'de-DE'))
-        .slice(0, typeLimit)
-        .map(([name]) => name),
       coverIds: sorted.filter((e) => e.document_id).slice(-coverLimit).reverse().map((e) => e.document_id),
       years: years.map((year) => ({ year, count: perYear.get(year) || 0 })),
     };

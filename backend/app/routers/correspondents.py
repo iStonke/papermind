@@ -69,6 +69,7 @@ def report_unresolved_correspondents(
     limit: int = Query(default=200, ge=1, le=1000),
     include_deleted: bool = Query(default=False),
     excerpt_chars: int = Query(default=300, ge=0, le=2000),
+    hidden: bool = Query(default=False, description="Bewusst ohne Korrespondent belassene Dokumente liefern"),
     db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> UnresolvedCorrespondentReportResponse:
     service = CorrespondentBackfillService(db, user.id)
@@ -76,6 +77,7 @@ def report_unresolved_correspondents(
         limit=limit,
         include_deleted=include_deleted,
         excerpt_chars=excerpt_chars,
+        hidden=hidden,
     )
     return UnresolvedCorrespondentReportResponse.model_validate(report.to_dict())
 
@@ -104,6 +106,25 @@ def ignore_unresolved_correspondent(
     return OkResponse()
 
 
+@router.delete(
+    "/unresolved/{document_id}/ignore",
+    response_model=OkResponse,
+    summary="Bring a document marked as without correspondent back to the open list",
+    responses={404: {"model": ErrorResponse}},
+)
+def restore_unresolved_correspondent(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
+) -> OkResponse:
+    document = DocumentService(db, user.id).get_document_or_404(document_id)
+    flags = dict(document.flags or {})
+    flags.pop("correspondent_review", None)
+    flags.pop("correspondent_review_reason", None)
+    document.flags = flags
+    db.commit()
+    return OkResponse()
+
+
 @router.get(
     "/collection-documents",
     response_model=UnresolvedCorrespondentReportResponse,
@@ -112,9 +133,10 @@ def ignore_unresolved_correspondent(
 def report_collection_documents(
     limit: int = Query(default=200, ge=1, le=1000),
     excerpt_chars: int = Query(default=0, ge=0, le=2000),
+    hidden: bool = Query(default=False, description="Bewusst bei der Sammlung belassene Dokumente liefern"),
     db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> UnresolvedCorrespondentReportResponse:
-    report = CorrespondentBackfillService(db, user.id).collection_report(limit=limit, excerpt_chars=excerpt_chars)
+    report = CorrespondentBackfillService(db, user.id).collection_report(limit=limit, excerpt_chars=excerpt_chars, hidden=hidden)
     return UnresolvedCorrespondentReportResponse.model_validate(report.to_dict())
 
 
@@ -130,6 +152,24 @@ def keep_collection_document(
 ) -> OkResponse:
     document = DocumentService(db, user.id).get_document_or_404(document_id)
     document.flags = {**(document.flags or {}), "collection_review": "kept"}
+    db.commit()
+    return OkResponse()
+
+
+@router.delete(
+    "/collection-documents/{document_id}/keep",
+    response_model=OkResponse,
+    summary="Bring a document kept with its collection back to the review list",
+    responses={404: {"model": ErrorResponse}},
+)
+def restore_collection_document(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
+) -> OkResponse:
+    document = DocumentService(db, user.id).get_document_or_404(document_id)
+    flags = dict(document.flags or {})
+    flags.pop("collection_review", None)
+    document.flags = flags
     db.commit()
     return OkResponse()
 

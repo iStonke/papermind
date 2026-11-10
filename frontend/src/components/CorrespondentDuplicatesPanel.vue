@@ -7,11 +7,78 @@
         <h1 id="dupes-title" ref="titleRef" tabindex="-1" class="dupes__title">Mögliche Doppelte</h1>
         <p class="dupes__subtitle">{{ subtitle }}</p>
       </div>
+      <!-- Kopfaktionen wie im Profilkopf: umrandete Icon-Buttons, Zahl als Plakette. -->
+      <div class="dupes__head-actions">
+        <span v-if="!showHidden" class="dupes__action">
+          <v-btn
+            class="pm-header-icon-btn dupes__head-btn"
+            variant="outlined"
+            icon="mdi-broom"
+            aria-label="Aufräumen …"
+            aria-haspopup="dialog"
+            title="Aufräumen: Doppelte, Kurznamen und leere Einträge"
+            @click="emit('cleanup')"
+          />
+          <span v-if="cleanupCount" class="dupes__badge dupes__badge--accent" aria-hidden="true">{{ cleanupCount }}</span>
+        </span>
+        <span v-if="hiddenPairs.length || showHidden" class="dupes__action">
+          <v-btn
+            class="pm-header-icon-btn dupes__head-btn"
+            :class="{ 'is-active': showHidden }"
+            variant="outlined"
+            :icon="showHidden ? 'mdi-arrow-left' : 'mdi-eye-off-outline'"
+            :aria-pressed="showHidden"
+            :aria-label="showHidden ? 'Offene anzeigen' : `Ausgeblendete Paare (${hiddenPairs.length})`"
+            :title="showHidden ? 'Offene anzeigen' : `Ausgeblendete Paare (${hiddenPairs.length})`"
+            @click="toggleHidden"
+          />
+          <span v-if="!showHidden" class="dupes__badge" aria-hidden="true">{{ hiddenPairs.length }}</span>
+        </span>
+      </div>
     </header>
 
     <div class="dupes__scroll">
+      <template v-if="showHidden">
+        <TransitionGroup v-if="hiddenPairs.length" tag="ul" name="dupes-card" class="dupes__list" aria-label="Ausgeblendete Paare">
+          <li v-for="pair in hiddenPairs" :key="pair.key" class="dupes__card dupes__card--hidden">
+            <div class="dupes__pair">
+              <button
+                v-for="(entry, index) in [pair.a, pair.b]"
+                :key="entry.id"
+                type="button"
+                class="dupes__entry"
+                :class="{ 'dupes__entry--second': index === 1 }"
+                :aria-label="`${entry.name} öffnen`"
+                @click="emit('open', entry.id)"
+              >
+                <v-icon class="dupes__entry-icon" size="18" aria-hidden="true">{{ kindIcon(entry.kind) }}</v-icon>
+                <span class="dupes__entry-text">
+                  <span class="dupes__entry-name">{{ entry.name }}</span>
+                  <span class="dupes__entry-meta">{{ meta(entry) }}</span>
+                </span>
+              </button>
+              <v-icon class="dupes__link" size="18" aria-hidden="true">mdi-swap-horizontal</v-icon>
+            </div>
+            <div class="dupes__foot">
+              <span class="dupes__reason">Als „Kein Doppel“ markiert</span>
+              <span class="dupes__actions">
+                <v-btn
+                  class="text-none"
+                  variant="text"
+                  size="small"
+                  prepend-icon="mdi-undo"
+                  :disabled="busyKey === pair.key"
+                  :aria-label="`${pair.a.name} und ${pair.b.name} wieder anzeigen`"
+                  @click="emit('restore', pair.key)"
+                >Wieder anzeigen</v-btn>
+              </span>
+            </div>
+          </li>
+        </TransitionGroup>
+        <PmEmptyState v-else icon="mdi-eye-off-outline" title="Keine ausgeblendeten Paare." size="md" role="status" />
+      </template>
       <PmEmptyState
-        v-if="!pairs.length"
+        v-else-if="!pairs.length"
         icon="mdi-check-circle-outline"
         title="Keine möglichen Doppelten."
         subtitle="Neue Vorschläge erscheinen hier automatisch."
@@ -66,18 +133,33 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import PmEmptyState from './PmEmptyState.vue';
 import { correspondentKindIcon, correspondentKindLabel } from '../utils/correspondentHierarchy.js';
 
 const props = defineProps({
   pairs: { type: Array, required: true },
   busyKey: { type: String, default: '' },
+  /** Als „Kein Doppel“ markierte Paare, die es noch gibt. */
+  hiddenPairs: { type: Array, default: () => [] },
+  /** Anzahl der Aufräum-Vorschläge (Plakette am Besen). */
+  cleanupCount: { type: Number, default: 0 },
 });
-const emit = defineEmits(['merge', 'dismiss', 'open']);
+const emit = defineEmits(['merge', 'dismiss', 'open', 'restore', 'cleanup']);
 const titleRef = ref(null);
+const showHidden = ref(false);
+
+async function toggleHidden() {
+  showHidden.value = !showHidden.value;
+  await nextTick();
+  titleRef.value?.focus();
+}
 
 const subtitle = computed(() => {
+  if (showHidden.value) {
+    const hidden = props.hiddenPairs.length;
+    return `${hidden === 1 ? '1 Paar' : `${hidden} Paare`} · als „Kein Doppel“ markiert`;
+  }
   const count = props.pairs.length;
   if (!count) return 'Alles geprüft';
   return `${count === 1 ? '1 Paar' : `${count} Paare`} · prüfen und zusammenführen`;
@@ -122,7 +204,31 @@ defineExpose({ focusTitle: () => titleRef.value?.focus() });
   background: color-mix(in srgb, var(--pm-warning) 12%, transparent);
   color: var(--pm-warning);
 }
-.dupes__heading { min-width: 0; }
+.dupes__heading { flex: 1; min-width: 0; }
+.dupes__head-actions { display: flex; flex: none; align-items: center; gap: 10px; }
+.dupes__action { position: relative; display: inline-flex; }
+.dupes__head-btn.v-btn { border-color: var(--pm-divider); color: var(--pm-muted); }
+.dupes__head-btn.v-btn.is-active { border-color: var(--pm-accent); color: var(--pm-accent-text); }
+.dupes__badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 2px solid var(--pm-app-surface);
+  border-radius: 999px;
+  background: var(--pm-muted);
+  color: var(--pm-app-surface);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.dupes__badge--accent { background: var(--pm-accent); color: var(--pm-accent-contrast, #fff); }
+.dupes__card--hidden .dupes__entry { opacity: 0.8; }
 .dupes__title { margin: 0; font-size: 1.5rem; font-weight: 700; line-height: 1.2; outline: none; }
 .dupes__subtitle { margin: 4px 0 0; color: var(--pm-muted); font-size: 0.86rem; }
 .dupes__scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 22px clamp(16px, 3vw, 40px) 40px; }

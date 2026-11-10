@@ -458,7 +458,7 @@ test('profile documents scroll horizontally, load the next page and open in the 
   const grid = workspace.getByRole('list', { name: 'Dokumente von Stadtwerke Leipzig' });
   await expect(grid.getByRole('listitem')).toHaveCount(1);
   const documentCard = grid.getByRole('button', { name: /^Jahresabrechnung Strom/ });
-  await expect(documentCard.getByText('Rechnung', { exact: true })).toHaveCSS('font-weight', '600');
+  await expect(documentCard.getByText('Rechnung', { exact: true })).toHaveCSS('border-top-style', 'solid');
   await expect(documentCard.getByText('20.05.2026')).toBeVisible();
   await expect(documentCard).not.toContainText('42,00');
   expect(await grid.evaluate(list => list.scrollLeft)).toBe(0);
@@ -743,20 +743,18 @@ test('the directory handles open document assignments and only offers short name
   const review = workspace.getByRole('region', { name: 'Dokumente ohne Korrespondenten', exact: true });
   await expect(tree).toBeVisible();
   await expect(inboxRow).toHaveAttribute('aria-selected', 'true');
-  const strip = review.getByRole('listbox', { name: 'Offene Dokumente', exact: true });
-  await expect(strip.getByRole('option')).toHaveCount(3);
-  await expect(strip.getByRole('option', { name: 'Garantiebeleg', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await expect(review.getByText('1 / 3', { exact: true })).toBeVisible();
-  await expect(review.getByRole('heading', { name: 'Garantiebeleg', exact: true })).toBeVisible();
-  await expect(review.getByText('Privater Beleg', { exact: true })).toHaveCount(0);
-  const preview = review.getByRole('region', { name: 'Dokumentvorschau: Garantiebeleg' });
-  await expect(preview.locator('.pdf-preview__viewer--ready')).toBeVisible({ timeout: 10000 });
-  const drawer = review.getByRole('region', { name: 'Dokumentdetails', exact: true });
-  const correspondent = drawer.getByRole('combobox', { name: 'Korrespondent', exact: true });
-  await expect(drawer.getByText('2 Seiten', { exact: true })).toBeVisible();
-  await expect(drawer.getByRole('tablist')).toHaveCount(0);
-  await expect(correspondent).toBeVisible();
-  const suggestionChip = drawer.getByText('Vorschlag', { exact: true });
+  // Eine Seite wie „Mögliche Doppelte“: eine Karte pro Dokument, keine große Vorschau, kein Streifen.
+  await expect(review.getByRole('heading', { name: 'Ohne Korrespondent', level: 1 })).toBeVisible();
+  await expect(review.getByText('3 Dokumente · zuordnen', { exact: true })).toBeVisible();
+  await expect(review.locator('.assign-card')).toHaveCount(3);
+  await expect(review.locator('.pdf-preview')).toHaveCount(0);
+  await expect(review.getByRole('listbox', { name: 'Offene Dokumente' })).toHaveCount(0);
+  const garantie = review.getByRole('listitem', { name: 'Garantiebeleg', exact: true });
+  await expect(garantie.getByRole('heading', { name: 'Garantiebeleg', exact: true })).toBeVisible();
+  await expect(garantie.locator('.assign-card__meta')).toContainText('Rechnung');
+  await expect(garantie.locator('.assign-card__meta')).toContainText('20.05.2026');
+  const correspondent = garantie.getByRole('combobox', { name: 'Korrespondent', exact: true });
+  const suggestionChip = garantie.getByText('Vorschlag', { exact: true });
   await expect(suggestionChip).toBeVisible();
   await correspondent.fill('Energie');
   await page.getByRole('option').filter({ hasText: 'Energie' }).click();
@@ -764,64 +762,44 @@ test('the directory handles open document assignments and only offers short name
   await correspondent.fill('Stadtwerke');
   await page.getByRole('option').filter({ hasText: 'Stadtwerke Leipzig' }).click();
   await expect(suggestionChip).toBeVisible();
-  await drawer.getByRole('button', { name: 'Dokumentdetails schließen', exact: true }).click();
-  await expect(correspondent).toBeHidden();
-  await expect(preview.locator('.pdf-preview__viewer--ready')).toBeVisible();
-  // The strip stays visible with the collapsed drawer and keeps it collapsed.
-  const privateThumb = strip.getByRole('option', { name: 'Privater Beleg', exact: true });
-  await privateThumb.click();
-  await expect(drawer.getByRole('heading', { name: 'Privater Beleg', exact: true })).toBeVisible();
-  await expect(privateThumb).toHaveAttribute('aria-selected', 'true');
-  await expect(privateThumb).toBeFocused();
-  await expect(review.getByText('3 / 3', { exact: true })).toBeVisible();
-  await expect(correspondent).toBeHidden();
-  await page.keyboard.press('ArrowLeft');
-  await expect(drawer.getByRole('heading', { name: 'Teilnahmebestätigung', exact: true })).toBeVisible();
-  await page.keyboard.press('Home');
-  await expect(drawer.getByRole('heading', { name: 'Garantiebeleg', exact: true })).toBeVisible();
-  await expect(strip.getByRole('option', { name: 'Garantiebeleg', exact: true })).toBeFocused();
-  await drawer.getByRole('button', { name: 'Dokumentdetails öffnen', exact: true }).click();
-  await expect(correspondent).toBeVisible();
-  await drawer.getByRole('button', { name: 'Dokumentdetails schließen', exact: true }).click();
-  const headerMenu = drawer.locator('.details-drawer__header').getByRole('button', { name: 'Weitere Aktionen' });
-  await headerMenu.click();
+
+  await garantie.getByRole('button', { name: 'Weitere Aktionen für Garantiebeleg' }).click();
   await page.getByText('Absender als Alias übernehmen', { exact: true }).click();
-  await expect(drawer.getByRole('button', { name: 'Dokumentdetails schließen', exact: true })).toBeVisible();
   await expect(correspondent).toBeFocused();
   await expect(suggestionChip).toHaveCount(0);
-  await expect(drawer.getByRole('button', { name: 'Alias übernehmen und zuordnen' })).toBeDisabled();
-  await drawer.getByRole('button', { name: 'Abbrechen', exact: true }).click();
-  await expect(drawer.locator('.pm-metadata-value')).toContainText('SW Leipzig');
-  await expect(drawer.getByText(/Erkannter Absender|Vorschlag anhand/)).toHaveCount(0);
-  await drawer.getByRole('button', { name: 'Zuordnen', exact: true }).click();
-  await expect(review.getByRole('heading', { name: 'Teilnahmebestätigung', exact: true })).toBeVisible();
-  await expect(drawer.locator('.pm-metadata-value')).toContainText('Nordlicht Akademie');
-  await expect(suggestionChip).toBeVisible();
+  await expect(garantie.getByRole('button', { name: 'Alias übernehmen und zuordnen' })).toBeDisabled();
+  await garantie.getByRole('button', { name: 'Abbrechen', exact: true }).click();
+  await expect(garantie.locator('.pm-metadata-value')).toContainText('SW Leipzig');
+  await expect(garantie.getByText(/Erkannter Absender|Vorschlag anhand/)).toHaveCount(0);
+  await garantie.getByRole('button', { name: 'Zuordnen', exact: true }).click();
+  await expect(garantie).toHaveCount(0);
+  await expect(review.locator('.assign-card')).toHaveCount(2);
+
+  const course = review.getByRole('listitem', { name: 'Teilnahmebestätigung', exact: true });
+  await expect(course.locator('.pm-metadata-value')).toContainText('Nordlicht Akademie');
+  await expect(course.getByText('Vorschlag', { exact: true })).toBeVisible();
   expect(newCorrespondents).toEqual([]);
-  await drawer.getByRole('button', { name: 'Anlegen und zuordnen', exact: true }).click();
+  await course.getByRole('button', { name: 'Anlegen und zuordnen', exact: true }).click();
+  await expect(course).toHaveCount(0);
   expect(newCorrespondents).toEqual([{ name: academy.name }]);
-  await expect(review.getByRole('heading', { name: 'Privater Beleg', exact: true })).toBeVisible();
-  await expect(suggestionChip).toHaveCount(0);
-  await expect(preview).toHaveCount(0);
-  await expect(drawer.getByRole('button', { name: 'Zuordnen', exact: true })).toBeDisabled();
+  const privateCard = review.getByRole('listitem', { name: 'Privater Beleg', exact: true });
+  await expect(privateCard.getByText('Vorschlag', { exact: true })).toHaveCount(0);
+  await expect(privateCard.getByRole('button', { name: 'Zuordnen', exact: true })).toBeDisabled();
   expect(assignments).toEqual([{ correspondent_id: utilityId }, { correspondent_id: academy.id }]);
   await expect(inboxRow.locator('.corr-inbox__count')).toHaveText('1');
-  await expect(strip).toHaveCount(0);
 
   const remainingRow = inboxRow;
   await expect(remainingRow).toHaveAttribute('aria-selected', 'true');
   await page.setViewportSize({ width: 820, height: 1000 });
   await expect(tree).toBeHidden();
-  await drawer.getByRole('button', { name: 'Dokumentdetails schließen', exact: true }).click();
-  await expect(correspondent).toBeHidden();
   await review.getByRole('button', { name: 'Korrespondenten', exact: true }).click();
   await expect(tree).toBeVisible();
   await expect(remainingRow).toBeFocused();
   await remainingRow.click();
-  await expect(correspondent).toBeVisible();
-  await review.getByRole('button', { name: 'Weitere Aktionen' }).click();
+  await expect(privateCard).toBeVisible();
+  await privateCard.getByRole('button', { name: 'Weitere Aktionen für Privater Beleg' }).click();
   await page.getByText('Bewusst ohne Korrespondent', { exact: true }).click();
-  await expect(review.getByRole('status')).toHaveText('Keine offenen Zuordnungen.');
+  await expect(review.getByRole('status')).toContainText('Keine offenen Zuordnungen.');
   await review.getByRole('button', { name: 'Korrespondenten', exact: true }).click();
   await expect(unassignedGroup).toHaveCount(0);
 });
@@ -1090,19 +1068,46 @@ test('a pair marked as no duplicate stays hidden', async ({ page }) => {
   await expect.poll(() => patch).toEqual({ ui: { correspondent_duplicate_dismissals: [[clubId, utilityId].sort().join('|')] } });
   await expect(panel.getByText('Keine möglichen Doppelten.')).toBeVisible();
   await expect(tile).toHaveCount(0);
+
+  // Ausgeblendete Paare lassen sich ansehen und wieder anzeigen.
+  await panel.getByRole('button', { name: 'Ausgeblendete Paare (1)' }).click();
+  await expect(panel.getByText('1 Paar · als „Kein Doppel“ markiert')).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Aufräumen …' })).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Müller und Müller GmbH wieder anzeigen' }).click();
+  await expect.poll(() => patch).toEqual({ ui: { correspondent_duplicate_dismissals: [] } });
+  await expect(panel.getByText('Keine ausgeblendeten Paare.')).toBeVisible();
+  await panel.getByRole('button', { name: 'Offene anzeigen' }).click();
+  await expect(panel.getByRole('button', { name: 'Müller und Müller GmbH: kein Doppel' })).toBeVisible();
+
+  // „Aufräumen …“ öffnet den vorhandenen Aufräumen-Dialog.
+  await panel.getByRole('button', { name: 'Aufräumen …' }).click();
+  await expect(page.getByRole('dialog').filter({ hasText: 'Aufräumen' })).toBeVisible();
 });
 
-test('several open documents can be assigned at once and a new spelling can be kept as alias', async ({ page }) => {
+test('a card is assigned with the keyboard shortcut and a new spelling can be kept as alias', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await prepareWorkspace(page);
+  const { utility: knownDocument } = await prepareWorkspace(page);
   const utility = { id: utilityId, name: 'Stadtwerke Leipzig', kind: 'organization', aliases: [] };
   await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items: [utility] } }));
   let unassigned = [
     { document_id: 'bulk1', title: 'Abschlag Januar', sender: 'SWL Energie' },
     { document_id: 'bulk2', title: 'Abschlag Februar', sender: 'SWL Energie' },
-    { document_id: 'bulk3', title: 'Notizzettel' },
+    // Ein Dokument, das der Dokumentbereich kennt, damit sich die Vorschau öffnen lässt.
+    { document_id: knownDocument.id, title: 'Notizzettel' },
   ];
-  await page.route('**/api/correspondents/unresolved?*', route => route.fulfill({ json: { items: unassigned } }));
+  let hiddenDocs = [{ document_id: 'ignored1', title: 'Werbeprospekt' }];
+  const restored = [];
+  await page.route('**/api/correspondents/unresolved?*', route => {
+    const hidden = new URL(route.request().url()).searchParams.get('hidden') === 'true';
+    return route.fulfill({ json: { items: hidden ? hiddenDocs : unassigned } });
+  });
+  await page.route('**/api/correspondents/unresolved/*/ignore', route => {
+    if (route.request().method() !== 'DELETE') return route.fallback();
+    const id = new URL(route.request().url()).pathname.split('/').at(-2);
+    restored.push(id);
+    hiddenDocs = hiddenDocs.filter(doc => doc.document_id !== id);
+    return route.fulfill({ json: { ok: true } });
+  });
   const patched = [];
   await page.route('**/api/documents/bulk*', route => {
     if (route.request().method() !== 'PATCH') return route.fallback();
@@ -1122,28 +1127,50 @@ test('several open documents can be assigned at once and a new spelling can be k
   const workspace = page.locator('.panel-correspondents');
   await workspace.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true }).click();
   const review = workspace.getByRole('region', { name: 'Dokumente ohne Korrespondenten', exact: true });
-  const strip = review.getByRole('listbox', { name: 'Offene Dokumente', exact: true });
-  await expect(strip).toHaveAttribute('aria-multiselectable', 'true');
-  await strip.getByRole('option', { name: 'Abschlag Februar', exact: true }).click({ modifiers: ['ControlOrMeta'] });
-  await expect(review.getByText('2 Dokumente ausgewählt')).toBeVisible();
-  await expect(strip.getByRole('option', { name: 'Abschlag Januar', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await expect(strip.getByRole('option', { name: 'Abschlag Februar', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await expect(strip.getByRole('option', { name: 'Notizzettel', exact: true })).toHaveAttribute('aria-selected', 'false');
+  // Kopf: Sammelaktion für eindeutige Vorschläge – „SWL Energie“ passt noch zu keinem Eintrag.
+  await expect(review.getByRole('button', { name: /^Alle Vorschläge übernehmen/ })).toHaveCount(0);
+  // Ausgeblendete ansehen und zurückholen.
+  await review.getByRole('button', { name: 'Ausgeblendete (1)' }).click();
+  await expect(review.getByText('1 Dokument · bewusst ohne Korrespondent')).toBeVisible();
+  await review.getByRole('button', { name: 'Werbeprospekt zurückholen' }).click();
+  await expect.poll(() => restored).toEqual(['ignored1']);
+  await expect(review.getByText('Nichts ausgeblendet.')).toBeVisible();
+  await review.getByRole('button', { name: 'Offene anzeigen' }).click();
 
-  const drawer = review.getByRole('region', { name: 'Dokumentdetails', exact: true });
-  const correspondent = drawer.getByRole('combobox', { name: 'Korrespondent', exact: true });
+  const january = review.getByRole('listitem', { name: 'Abschlag Januar', exact: true });
+  // Keine Mehrfachauswahl: jede Karte wird für sich zugeordnet.
+  await expect(review.getByRole('checkbox')).toHaveCount(0);
+
+  const correspondent = january.getByRole('combobox', { name: 'Korrespondent', exact: true });
   await correspondent.fill('Stadtwerke');
   await page.getByRole('option').filter({ hasText: 'Stadtwerke Leipzig' }).click();
-  await expect(drawer.getByRole('button', { name: '2 Dokumente zuordnen' })).toBeEnabled();
+  await expect(january.getByRole('button', { name: 'Zuordnen', exact: true })).toBeEnabled();
   await page.keyboard.press('ControlOrMeta+Enter');
 
-  await expect.poll(() => patched).toEqual([['bulk1', utilityId], ['bulk2', utilityId]]);
-  await expect(review.getByRole('heading', { name: 'Notizzettel', exact: true })).toBeVisible();
-  await expect(review.getByText('2 Dokumente ausgewählt')).toHaveCount(0);
-  const toast = page.getByText('2 Dokumente zugeordnet. „SWL Energie“ als Schreibweise von Stadtwerke Leipzig merken?');
+  await expect.poll(() => patched).toEqual([['bulk1', utilityId]]);
+  await expect(january).toHaveCount(0);
+  await expect(review.locator('.assign-card')).toHaveCount(2);
+  await expect(review.getByRole('listitem', { name: 'Abschlag Februar', exact: true })).toBeFocused();
+  const toast = page.getByText('Dokument zugeordnet. „SWL Energie“ als Schreibweise von Stadtwerke Leipzig merken?');
   await expect(toast).toBeVisible();
   await page.getByRole('button', { name: 'Als Alias merken' }).click();
   await expect.poll(() => alias).toBe('SWL Energie');
+
+  // Mit dem neuen Alias passt „Abschlag Februar“ eindeutig: die Sammelaktion übernimmt ihn.
+  const bulk = review.getByRole('button', { name: 'Alle Vorschläge übernehmen (1)' });
+  await expect(bulk).toBeVisible();
+  await bulk.click();
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Alle Vorschläge übernehmen?' });
+  await expect(dialog.getByText('Abschlag Februar')).toBeVisible();
+  await expect(dialog.getByText('Stadtwerke Leipzig', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: '1 Dokument zuordnen' }).click();
+  await expect.poll(() => patched).toEqual([['bulk1', utilityId], ['bulk2', utilityId]]);
+  await expect(review.getByRole('listitem', { name: 'Abschlag Februar', exact: true })).toHaveCount(0);
+
+  // Das Vorschaubild öffnet das Dokument in der Vorschau des Dokumentbereichs.
+  await review.getByRole('button', { name: 'Notizzettel in der Vorschau öffnen' }).click();
+  await expect(review).toBeHidden();
+  await expect(page.locator('.details-drawer__subtitle')).toContainText('Jahresabrechnung Strom');
 });
 
 test('cleanup fills in short names and deletes empty entries', async ({ page }) => {
@@ -1229,7 +1256,7 @@ test('choosing a collection or organisation offers the more specific members of 
   await page.locator('.sidebar-item--correspondents').click();
   const workspace = page.locator('.panel-correspondents');
   await workspace.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true }).click();
-  const drawer = workspace.getByRole('region', { name: 'Dokumentdetails', exact: true });
+  const drawer = workspace.getByRole('listitem', { name: 'Kontoauszug März', exact: true });
   const correspondent = drawer.getByRole('combobox', { name: 'Korrespondent', exact: true });
   await correspondent.fill('Bank');
   await page.getByRole('option').filter({ hasText: 'Bank · Sammlung' }).click();
@@ -1265,7 +1292,7 @@ test('correspondent pickers find entries by their short name', async ({ page }) 
   await page.locator('.sidebar-item--correspondents').click();
   const workspace = page.locator('.panel-correspondents');
   await workspace.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true }).click();
-  const drawer = workspace.getByRole('region', { name: 'Dokumentdetails', exact: true });
+  const drawer = workspace.getByRole('listitem', { name: 'Beitragsbescheid', exact: true });
   await drawer.getByRole('combobox', { name: 'Korrespondent', exact: true }).fill('AOK');
   await expect(page.getByRole('option').filter({ hasText: 'Allgemeine Ortskrankenkasse Nordwest' })).toBeVisible();
   await expect(page.getByRole('option').filter({ hasText: 'Techniker Krankenkasse' })).toHaveCount(0);
@@ -1325,20 +1352,23 @@ test('documents assigned to a collection can be refined to a member or kept', as
   await expect(tile.locator('.corr-inbox__count')).toHaveText('2');
   await tile.click();
   const review = workspace.getByRole('region', { name: 'Dokumente an Sammlungen', exact: true });
-  const drawer = review.getByRole('region', { name: 'Dokumentdetails', exact: true });
-  await expect(review.getByRole('heading', { name: 'Kontoauszug März', exact: true })).toBeVisible();
-  await expect(drawer.locator('.unassigned-collection')).toHaveText('Bank');
+  await expect(review.getByRole('heading', { name: 'Genauer zuordnen', level: 1 })).toBeVisible();
+  // Nur „Kontoauszug März“ nennt genau ein Mitglied.
+  await expect(review.getByRole('button', { name: 'Genannte Mitglieder übernehmen (1)' })).toBeVisible();
+  const first = review.getByRole('listitem', { name: 'Kontoauszug März', exact: true });
+  await expect(first.locator('.assign-card__collection')).toHaveText('Bank');
   // The member named in the document is preselected as suggestion.
-  await expect(drawer.locator('.pm-metadata-value')).toContainText('Förde Sparkasse');
-  await expect(drawer.getByText('Vorschlag', { exact: true })).toBeVisible();
-  await drawer.getByRole('button', { name: 'Zuordnen', exact: true }).click();
+  await expect(first.locator('.pm-metadata-value')).toContainText('Förde Sparkasse');
+  await expect(first.getByText('Vorschlag', { exact: true })).toBeVisible();
+  await first.getByRole('button', { name: 'Zuordnen', exact: true }).click();
   await expect.poll(() => patched).toEqual([['coll1', 'sparkasse']]);
+  await expect(first).toHaveCount(0);
 
   // Without a mentioned member the collection stays selected and cannot be "assigned" again.
-  await expect(review.getByRole('heading', { name: 'Allgemeine Bedingungen', exact: true })).toBeVisible();
-  await expect(drawer.getByRole('button', { name: 'Zuordnen', exact: true })).toBeDisabled();
-  await expect(drawer.getByRole('group', { name: 'Sammlung – genauer:' }).getByRole('button')).toHaveCount(2);
-  await drawer.locator('.details-drawer__header').getByRole('button', { name: 'Weitere Aktionen' }).click();
+  const second = review.getByRole('listitem', { name: 'Allgemeine Bedingungen', exact: true });
+  await expect(second.getByRole('button', { name: 'Zuordnen', exact: true })).toBeDisabled();
+  await expect(second.getByRole('group', { name: 'Sammlung – genauer:' }).getByRole('button')).toHaveCount(2);
+  await second.getByRole('button', { name: 'Weitere Aktionen für Allgemeine Bedingungen' }).click();
   await page.getByText('Bei der Sammlung lassen', { exact: true }).click();
   await expect.poll(() => kept).toEqual(['coll2']);
   await expect(review.getByText('Alle Dokumente sind genauer zugeordnet.')).toBeVisible();

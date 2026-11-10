@@ -267,7 +267,7 @@ class CollectionDocumentsReviewIntegrationTest(unittest.TestCase):
     def test_collection_documents_can_be_listed_kept_and_return_after_reassignment(self) -> None:
         from types import SimpleNamespace
 
-        from app.routers.correspondents import keep_collection_document
+        from app.routers.correspondents import keep_collection_document, restore_collection_document
         from app.schemas.documents import DocumentUpdateRequest
         from app.services.correspondent_backfill import CorrespondentBackfillService
         from app.services.documents import DocumentService
@@ -286,6 +286,14 @@ class CollectionDocumentsReviewIntegrationTest(unittest.TestCase):
 
         keep_collection_document(on_bank.id, db=self.db, user=SimpleNamespace(id=self.user.id))
         self.assertEqual(CorrespondentBackfillService(self.db, self.user.id).collection_report().items, [])
+        hidden = CorrespondentBackfillService(self.db, self.user.id).collection_report(hidden=True)
+        self.assertEqual([item.title for item in hidden.items], ["Kontoauszug"])
+
+        # Bringing it back puts it on the review list again.
+        restore_collection_document(on_bank.id, db=self.db, user=SimpleNamespace(id=self.user.id))
+        self.assertEqual(len(CorrespondentBackfillService(self.db, self.user.id).collection_report().items), 1)
+        self.assertEqual(CorrespondentBackfillService(self.db, self.user.id).collection_report(hidden=True).items, [])
+        keep_collection_document(on_bank.id, db=self.db, user=SimpleNamespace(id=self.user.id))
 
         # Moving it elsewhere and back resets "keep": it is a new decision.
         service = DocumentService(self.db, self.user.id)
@@ -294,3 +302,27 @@ class CollectionDocumentsReviewIntegrationTest(unittest.TestCase):
         service.update_document(on_bank.id, DocumentUpdateRequest(correspondent_id=bank.id))
         self.db.commit()
         self.assertEqual(len(CorrespondentBackfillService(self.db, self.user.id).collection_report().items), 1)
+
+    def test_documents_without_correspondent_can_be_hidden_and_brought_back(self) -> None:
+        from types import SimpleNamespace
+
+        from app.routers.correspondents import ignore_unresolved_correspondent, restore_unresolved_correspondent
+        from app.schemas.correspondents import CorrespondentReviewIgnoreRequest
+        from app.services.correspondent_backfill import CorrespondentBackfillService
+
+        loose = Document(owner_id=self.user.id, original_filename="zettel.pdf", display_name="Zettel")
+        self.db.add(loose)
+        self.db.commit()
+        user = SimpleNamespace(id=self.user.id)
+        report = lambda **kw: [item.title for item in CorrespondentBackfillService(self.db, self.user.id).unresolved_report(**kw).items]
+
+        self.assertEqual(report(), ["Zettel"])
+        self.assertEqual(report(hidden=True), [])
+        ignore_unresolved_correspondent(loose.id, CorrespondentReviewIgnoreRequest(reason="Bewusst ohne Korrespondent"), db=self.db, user=user)
+        self.assertEqual(report(), [])
+        self.assertEqual(report(hidden=True), ["Zettel"])
+        restore_unresolved_correspondent(loose.id, db=self.db, user=user)
+        self.assertEqual(report(), ["Zettel"])
+        self.assertEqual(report(hidden=True), [])
+        self.db.refresh(loose)
+        self.assertNotIn("correspondent_review_reason", loose.flags or {})

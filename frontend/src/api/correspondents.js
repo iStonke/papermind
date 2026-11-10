@@ -8,21 +8,29 @@ export const listCorrespondents = (includeCount = false) =>
 export const getCorrespondentProfile = (correspondentId) =>
   apiGet(`/api/correspondents/${correspondentId}/profile`);
 
-/** GET /api/correspondents/unresolved */
-export const listUnresolvedCorrespondents = ({ limit = 200, excerptChars = 300 } = {}) =>
-  apiGet(`/api/correspondents/unresolved?limit=${limit}&excerpt_chars=${excerptChars}`);
+/** GET /api/correspondents/unresolved – `hidden`: bewusst ohne Korrespondent belassene */
+export const listUnresolvedCorrespondents = ({ limit = 200, excerptChars = 300, hidden = false } = {}) =>
+  apiGet(`/api/correspondents/unresolved?limit=${limit}&excerpt_chars=${excerptChars}${hidden ? '&hidden=true' : ''}`);
 
 /** POST /api/correspondents/unresolved/{document_id}/ignore */
 export const ignoreUnresolvedCorrespondent = (documentId, reason = null) =>
   apiPost(`/api/correspondents/unresolved/${documentId}/ignore`, { reason });
 
-/** GET /api/correspondents/collection-documents – Dokumente direkt an Sammlungen */
-export const listCollectionDocuments = ({ limit = 200 } = {}) =>
-  apiGet(`/api/correspondents/collection-documents?limit=${limit}`);
+/** DELETE /api/correspondents/unresolved/{document_id}/ignore – zurück in die offene Liste */
+export const restoreUnresolvedCorrespondent = (documentId) =>
+  apiDelete(`/api/correspondents/unresolved/${documentId}/ignore`);
+
+/** GET /api/correspondents/collection-documents – Dokumente direkt an Sammlungen; `hidden`: bewusst belassene */
+export const listCollectionDocuments = ({ limit = 200, hidden = false } = {}) =>
+  apiGet(`/api/correspondents/collection-documents?limit=${limit}${hidden ? '&hidden=true' : ''}`);
 
 /** POST /api/correspondents/collection-documents/{document_id}/keep */
 export const keepCollectionDocument = (documentId) =>
   apiPost(`/api/correspondents/collection-documents/${documentId}/keep`, {});
+
+/** DELETE /api/correspondents/collection-documents/{document_id}/keep – wieder genauer zuordnen */
+export const restoreCollectionDocument = (documentId) =>
+  apiDelete(`/api/correspondents/collection-documents/${documentId}/keep`);
 
 /** POST /api/correspondents */
 export const createCorrespondent = (payload) =>

@@ -71,6 +71,9 @@ _LETTER_CONTEXT_RE = re.compile(
     r"Sehr geehrt|Mit freundlichen|\b(?:Rechnung|Briefdatum|Rechnungsdatum)\b|\b\d{5}\s+[A-ZÄÖÜ]", re.IGNORECASE
 )
 # Wörter, die einen Titel oder ein Thema kennzeichnen, aber keinen Absender.
+_PLACEHOLDER_SENDERS = frozenset({
+    "", "null", "none", "nil", "undefined", "n/a", "na", "unbekannt", "unknown", "kein absender", "keiner",
+})
 _NON_SENDER_RE = re.compile(
     r"(?<![\wÄÖÜäöüß])(?:merkhilfe|anleitung|notiz(?:en)?|übersicht|checkliste|zusammenfassung|spickzettel|"
     r"cheat ?sheet|mitschrift|handbuch|leitfaden|tutorial|how-?to|befehle|to-?do(?:-liste)?|einkaufsliste|"
@@ -89,6 +92,9 @@ def is_plausible_sender(sender: object, text_value: object = None) -> bool:
     """
     value = normalize_text(sender)
     if not value:
+        return False
+    # Modelle liefern bei fehlendem Absender mitunter einen Platzhalter als Text.
+    if value.casefold().strip(" .-–—") in _PLACEHOLDER_SENDERS:
         return False
     if contains_legal_form(value):
         return True
