@@ -2448,7 +2448,8 @@ onMounted(() => {
 }
 
 /* Profil */
-.corr-profile { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* position: relative – das Vorschau-Overlay (DocumentPreviewOverlay) deckt nur diesen Bereich ab. */
+.corr-profile { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .corr-profile__loading { flex: 1; }
 /* Kopf bleibt oben stehen; nur der Inhalt darunter scrollt. Seine Unterkante
    fluchtet mit der Linie unter Listenkopf (57 px) + Filterleiste links. */

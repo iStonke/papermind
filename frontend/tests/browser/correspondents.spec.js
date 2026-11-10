@@ -1179,6 +1179,10 @@ test('a card is assigned with the keyboard shortcut and a new spelling can be ke
   await thumb.click();
   const overlay = page.getByRole('region', { name: 'Vorschau: Notizzettel' });
   await expect(overlay).toBeVisible();
+  // Nur über dem rechten Bereich: die Liste links bleibt frei.
+  const [overlayBox, reviewBox] = await Promise.all([overlay.boundingBox(), review.boundingBox()]);
+  expect(overlayBox.x).toBeGreaterThanOrEqual(reviewBox.x - 1);
+  expect(overlayBox.width).toBeLessThanOrEqual(reviewBox.width + 1);
   await expect(overlay.locator('.pdf-preview__viewer--ready')).toBeVisible({ timeout: 10000 });
   await expect(review).toBeVisible();
   await expect(page.locator('.details-drawer__subtitle')).toHaveCount(0);
