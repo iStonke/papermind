@@ -43,30 +43,47 @@ class SuggestFromTextTest(unittest.TestCase):
         self.assertEqual((found.name, found.matched_by), ("Praxis Fr. Peters", "surname"))
         self.assertEqual(similar, [])
 
+    def test_surname_next_to_the_senders_first_name_in_any_order(self) -> None:
+        # Praxisstempel: OCR liest „De mee“ statt „Dr. med.“, Nachname vor Vorname.
+        text = "Privatrezept\n19.07.25 De mee\nPeters\nAndrea\nAllgemeinmedizin\nHaltenau 12"
+        found, _ = suggest_from_text(self.pool, text=text, sender="Dr. med. Andrea", owner_names=("Jan Steinke",))
+        self.assertEqual((found.name, found.matched_by), ("Praxis Fr. Peters", "surname"))
+        found, _ = suggest_from_text(self.pool, text="Peters\nAllgemeinmedizin", sender="Dr. med. Birgit")
+        self.assertIsNone(found)
+
     def test_the_recipient_is_never_suggested(self) -> None:
         found, _ = suggest_from_text(self.pool, text="Herrn Jan Steinke\nIhre Rechnung", owner_names=("Jan Steinke",))
         self.assertIsNone(found)
 
-    def test_full_names_in_the_text_win_and_ambiguity_only_hints(self) -> None:
+    def test_full_names_in_the_text_win_and_ties_pick_the_best(self) -> None:
         found, _ = suggest_from_text(self.pool, text="Ihr Aufenthalt im Hotel Bürgerhof")
         self.assertEqual((found.name, found.matched_by), ("Hotel Bürgerhof", "text"))
         other = candidate("Hotel Bürgerhof Kiel")
-        found, similar = suggest_from_text([*self.pool, candidate("Bürgerhof")], text="Hotel Bürgerhof")
-        self.assertIsNone(found)
-        self.assertEqual([entry.name for entry in similar], ["Bürgerhof", "Hotel Bürgerhof"])
-        self.assertNotIn(other.name, [entry.name for entry in similar])
+        pool = [*self.pool, candidate("Bürgerhof"), other]
+        # Mehrere Treffer: der spezifischere wird Vorschlag, der andere Alternative.
+        found, similar = suggest_from_text(pool, text="Hotel Bürgerhof")
+        self.assertEqual((found.name, found.matched_by), ("Hotel Bürgerhof", "text"))
+        self.assertEqual([entry.name for entry in similar], ["Bürgerhof"])
+        # Der dem Absender ähnlichere gewinnt vor dem längeren Namen.
+        found, similar = suggest_from_text(pool[:-1] + [candidate("Bürgerhof Gastro")], text="Hotel Bürgerhof · Bürgerhof", sender="Bürgerhof Gastro")
+        self.assertEqual(found.name, "Bürgerhof Gastro")
 
     def test_lowercase_words_or_collections_do_not_match(self) -> None:
         found, similar = suggest_from_text(self.pool, text="wir peters und Söhne, arzt", sender="")
         self.assertIsNone(found)
         self.assertEqual(similar, [])
 
-    def test_similar_names_to_the_sender_are_offered_as_hints(self) -> None:
+    def test_the_most_similar_existing_name_becomes_the_suggestion(self) -> None:
         found, similar = suggest_from_text(self.pool, text="Rechnung", sender="Hotel Börgerhof, Inh. Marek Burdynowski")
-        self.assertIsNone(found)
-        self.assertEqual([entry.name for entry in similar], ["Hotel Bürgerhof"])
-        _, similar = suggest_from_text([candidate("Autohaus Müller KG")], text="", sender="Autohaus Mueller Service")
-        self.assertEqual([entry.name for entry in similar], ["Autohaus Müller KG"])
+        self.assertEqual((found.name, found.matched_by), ("Hotel Bürgerhof", "similar"))
+        self.assertEqual(similar, [])
+        found, _ = suggest_from_text([candidate("Autohaus Müller KG")], text="", sender="Autohaus Mueller Service")
+        self.assertEqual((found.name, found.matched_by), ("Autohaus Müller KG", "similar"))
+        # Weitere ähnliche Namen bleiben als Alternativen, der beste Treffer zuerst.
+        pool = [candidate("Stadtwerke Plön"), candidate("Stadtwerke Kiel Netz"), candidate("Kieler Stadtwerke")]
+        found, similar = suggest_from_text(pool, text="", sender="Stadtwerke Netz Kiel GmbH")
+        self.assertEqual(found.name, "Stadtwerke Kiel Netz")
+        self.assertEqual({entry.name for entry in similar}, {"Stadtwerke Plön", "Kieler Stadtwerke"})
 
     def test_same_name_except_umlaut_spelling_and_legal_form_is_suggested(self) -> None:
         found, _ = suggest_from_text([candidate("Autohaus Müller")], text="", sender="Autohaus Mueller GmbH")

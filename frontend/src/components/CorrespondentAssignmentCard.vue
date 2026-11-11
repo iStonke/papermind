@@ -117,14 +117,14 @@
             >Vorschlag</v-chip>
           </template>
           <template #after-correspondent>
-            <!-- Vor dem Anlegen: ähnliche vorhandene Korrespondenten zum Anklicken. -->
+            <!-- Weitere vorhandene Korrespondenten zum Anklicken (Alternativen zum Vorschlag). -->
             <div
               v-if="similarExisting.length"
               class="assign-card__similar"
               role="group"
-              aria-label="Ähnlich vorhanden:"
+              :aria-label="similarLabel"
             >
-              <span class="assign-card__similar-label">Ähnlich vorhanden:</span>
+              <span class="assign-card__similar-label">{{ similarLabel }}</span>
               <button
                 v-for="entry in similarExisting"
                 :key="entry.id"
@@ -219,15 +219,18 @@ const suggestedCorrespondent = computed(() => (showSuggestions.value
   ? suggestCorrespondent(props.item, store, { mentionedMemberId: props.mentionedMemberId, collectionMode: isCollectionMode.value })
   : null));
 const suggestionTitle = computed(() => suggestionReason(props.item, suggestedCorrespondent.value));
-// Ähnliche vorhandene Einträge (Backend), solange nichts Vorhandenes gewählt ist.
+// Alternativen (Backend), solange der Vorschlag, „neu“ oder nichts gewählt ist.
 const similarExisting = computed(() => {
   if (action.value !== 'assign') return [];
   const selection = correspondentSelection.value;
-  if (selection && selection !== NEW_SENDER && selection !== collectionId.value) return [];
+  const isOpen = !selection || selection === NEW_SENDER || selection === collectionId.value
+    || selection === suggestedCorrespondent.value?.id;
+  if (!isOpen) return [];
   return (props.item.similar || [])
     .map(entry => store.findById(entry.correspondent_id))
-    .filter(Boolean);
+    .filter(correspondent => correspondent && correspondent.id !== selection);
 });
+const similarLabel = computed(() => (suggestedCorrespondent.value ? 'Alternativ:' : 'Ähnlich vorhanden:'));
 const newSenderOption = computed(() => {
   if (!showSuggestions.value || action.value !== 'assign' || !detectedSender.value || suggestedCorrespondent.value) return null;
   return { title: detectedSender.value, value: NEW_SENDER, props: { subtitle: 'Neuen Korrespondenten anlegen' } };

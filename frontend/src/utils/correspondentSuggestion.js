@@ -3,8 +3,8 @@
  * „Alle Vorschläge übernehmen“ nutzen dieselbe Regel) – vorhandene
  * Korrespondenten immer vor einem neu anzulegenden:
  *  1. im Sammlungsmodus das im Dokument genannte Mitglied,
- *  2. der Vorschlag des Backends (`item.suggestion`: Absender, Matcher oder
- *     ein im Dokumenttext eindeutig genannter Korrespondent),
+ *  2. der Vorschlag des Backends (`item.suggestion`: Absender, Matcher, ein im
+ *     Dokumenttext genannter oder der namentlich ähnlichste Korrespondent),
  *  3. sonst ein bestehender Korrespondent, dessen Name oder Alias dem
  *     erkannten Absender entspricht (exakt oder eindeutig bis auf Schreibweise).
  */
@@ -40,5 +40,11 @@ export function suggestionReason(item, correspondent) {
     surname: `${correspondent.name} – Name im Dokument genannt`,
     member: `${correspondent.name} wird im Dokument genannt`,
     matcher: `${correspondent.name} – passt zu einer Suchregel`,
+    similar: `${correspondent.name} – Name ähnlich zum erkannten Absender`,
   }[matchedBy] || `${correspondent.name} passt zum erkannten Absender`;
+}
+
+/** Vorschlag nur aus Namensähnlichkeit (in der Sammelaktion markiert). */
+export function isSimilarityGuess(item, correspondent) {
+  return Boolean(correspondent && item?.suggestion?.correspondent_id === correspondent.id && item.suggestion.matched_by === 'similar');
 }

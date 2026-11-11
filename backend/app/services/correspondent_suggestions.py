@@ -9,9 +9,9 @@ Ergänzt :func:`app.services.correspondent_matching.match_correspondent` (Absend
 * :func:`suggest_from_text` sucht bestehende Korrespondenten im Dokumenttext:
   ganzer Name, Kurzname oder Alias als eigenes Wort – bei Personen und Praxen
   genügt der Nachname hinter Titel oder Vorname („Dr. med. Andrea Peters“ →
-  „Praxis Fr. Peters“). Eindeutige Treffer werden Vorschlag; mehrere gleich
-  gute Treffer bzw. Namensähnlichkeiten mit dem Absender werden nur als
-  „ähnlich“ gemeldet.
+  „Praxis Fr. Peters“). Der beste Treffer wird Vorschlag – bei mehreren
+  gleich guten der dem Absender ähnlichste, ohne Texttreffer der namentlich
+  ähnlichste vorhandene Korrespondent. Weitere Treffer sind Alternativen.
 
 Reine Funktionen über In-Memory-Kandidaten, ohne Datenbank testbar.
 """
@@ -138,14 +138,32 @@ def _surname(candidate: CorrespondentCandidate) -> str | None:
     return surname if surname and len(surname) >= 3 and surname[0].isupper() else None
 
 
-def _mentions_surname(text: str, surname: str) -> bool:
+def _given_names(sender: str | None) -> list[str]:
+    """Großgeschriebene Namenswörter des Absenders ohne Titel („Dr. med. Andrea“ → „Andrea“)."""
+    return [
+        word
+        for word in _words(sender or "")
+        if len(word) >= 3 and word[0].isupper() and word.casefold().strip(".") not in _GENERIC_WORDS
+    ]
+
+
+def _mentions_surname(text: str, surname: str, given_names: list[str] = ()) -> bool:
     # Nachname nur hinter Anrede/Titel oder einem großgeschriebenen Vornamen –
     # so trifft „Peters“ nicht jedes beliebige Vorkommen des Wortes.
-    pattern = (
-        rf"(?:\b(?:Dr|Frau|Fr|Herr|Hr|Prof|med|dent|Praxis)\.?\s+|\b[A-ZÄÖÜ][a-zäöüß]+\s+)"
-        rf"{re.escape(surname)}(?![\wÄÖÜäöüß])"
-    )
-    return re.search(pattern, text) is not None
+    name = rf"{re.escape(surname)}(?![\wÄÖÜäöüß])"
+    pattern = rf"(?:\b(?:Dr|Frau|Fr|Herr|Hr|Prof|med|dent|Praxis)\.?\s+|\b[A-ZÄÖÜ][a-zäöüß]+\s+){name}"
+    if re.search(pattern, text):
+        return True
+    # Stempel/Spalten-OCR dreht oft die Reihenfolge („Peters\nAndrea“): steht ein
+    # Vorname aus dem erkannten Absender direkt daneben, zählt das ebenso.
+    for given in given_names:
+        if given.casefold() == surname.casefold():
+            continue
+        first = rf"\b{re.escape(given)}(?![\wÄÖÜäöüß])"
+        near = r"[\s,;:.]+(?:\S+[\s,;:.]+)?"
+        if re.search(rf"{first}{near}\b{name}|\b{name}{near}{first}", text):
+            return True
+    return False
 
 
 def _is_owner(candidate: CorrespondentCandidate, owner_names: tuple[str, ...]) -> bool:
@@ -171,7 +189,7 @@ def suggest_from_text(
     sender: str | None = None,
     owner_names: tuple[str, ...] = (),
 ) -> tuple[SuggestedCorrespondent | None, list[SuggestedCorrespondent]]:
-    """Eindeutiger Vorschlag aus dem Dokumenttext und bis zu drei ähnliche Kandidaten."""
+    """Bester vorhandener Korrespondent als Vorschlag und bis zu drei Alternativen."""
     pool = [
         candidate
         for candidate in candidates
@@ -179,13 +197,22 @@ def suggest_from_text(
     ]
     corpus = _normalize(text)
 
+    sender_words = _significant(sender or "")
+
+    def sender_overlap(candidate: CorrespondentCandidate) -> int:
+        names = correspondent_names(candidate.name, candidate.short_name, candidate.aliases)
+        return max((_overlap(sender_words, _significant(name)) for name in names), default=0) if sender_words else 0
+
     def pick(hits: list[CorrespondentCandidate], matched_by: str):
+        # Mutig: bei mehreren gleich guten Treffern wird der dem Absender
+        # ähnlichste vorgeschlagen, die übrigen bleiben als Alternativen.
         unique = {candidate.correspondent_id: candidate for candidate in hits}
-        if len(unique) == 1:
-            candidate = next(iter(unique.values()))
-            return SuggestedCorrespondent(str(candidate.correspondent_id), candidate.name, matched_by), []
-        similar = [SuggestedCorrespondent(str(c.correspondent_id), c.name, "similar") for c in unique.values()]
-        return None, sorted(similar, key=lambda entry: entry.name.casefold())[:_MAX_SIMILAR]
+        ranked = sorted(unique.values(), key=lambda c: (-sender_overlap(c), -len(c.name), c.name.casefold()))
+        best, rest = ranked[0], ranked[1:]
+        return (
+            SuggestedCorrespondent(str(best.correspondent_id), best.name, matched_by),
+            [SuggestedCorrespondent(str(c.correspondent_id), c.name, "similar") for c in rest[:_MAX_SIMILAR]],
+        )
 
     # Gleicher Name bis auf Umlaut-Schreibweise und Rechtsform („Autohaus Mueller GmbH“ ↔ „Autohaus Müller“).
     sender_key = _name_key(sender or "")
@@ -196,9 +223,7 @@ def suggest_from_text(
             if any(_name_key(name) == sender_key for name in correspondent_names(candidate.name, candidate.short_name, candidate.aliases))
         ]
         if same_name:
-            found, similar = pick(same_name, "name")
-            if found:
-                return found, similar
+            return pick(same_name, "name")
 
     if corpus:
         by_name = [
@@ -208,28 +233,27 @@ def suggest_from_text(
         ]
         if by_name:
             return pick(by_name, "text")
+        given_names = _given_names(sender)
         by_surname = [
             candidate
             for candidate in pool
-            if (surname := _surname(candidate)) and _mentions_surname(corpus, surname)
+            if (surname := _surname(candidate)) and _mentions_surname(corpus, surname, given_names)
         ]
         if by_surname:
             return pick(by_surname, "surname")
 
-    # Nichts Eindeutiges im Text: Namensähnlichkeit zum Absender als Hinweis.
-    sender_words = _significant(sender or "")
+    # Nichts im Text: der dem Absender ähnlichste vorhandene Korrespondent wird
+    # Vorschlag (vor einem neu anzulegenden), weitere bleiben Alternativen.
     if not sender_words:
         return None, []
-    scored: list[tuple[int, str, CorrespondentCandidate]] = []
-    for candidate in pool:
-        names = correspondent_names(candidate.name, candidate.short_name, candidate.aliases)
-        overlap = max((_overlap(sender_words, _significant(name)) for name in names), default=0)
-        if overlap:
-            scored.append((overlap, candidate.name.casefold(), candidate))
-    scored.sort(key=lambda entry: (-entry[0], entry[1]))
-    return None, [
+    scored = [(overlap, candidate) for candidate in pool if (overlap := sender_overlap(candidate))]
+    if not scored:
+        return None, []
+    scored.sort(key=lambda entry: (-entry[0], entry[1].name.casefold()))
+    best = scored[0][1]
+    return SuggestedCorrespondent(str(best.correspondent_id), best.name, "similar"), [
         SuggestedCorrespondent(str(candidate.correspondent_id), candidate.name, "similar")
-        for _, _, candidate in scored[:_MAX_SIMILAR]
+        for _, candidate in scored[1 : _MAX_SIMILAR + 1]
     ]
 
 

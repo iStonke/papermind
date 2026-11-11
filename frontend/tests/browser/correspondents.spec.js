@@ -1133,7 +1133,7 @@ test('a card is assigned with the keyboard shortcut and a new spelling can be ke
   await workspace.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true }).click();
   const review = workspace.getByRole('region', { name: 'Dokumente ohne Korrespondenten', exact: true });
   // Kopf: Sammelaktion für eindeutige Vorschläge – „SWL Energie“ passt noch zu keinem Eintrag.
-  await expect(review.getByRole('button', { name: 'Alle Vorschläge übernehmen: Keine eindeutigen Vorschläge' })).toBeDisabled();
+  await expect(review.getByRole('button', { name: 'Alle Vorschläge übernehmen: Keine Vorschläge vorhanden' })).toBeDisabled();
   // Ausgeblendete ansehen und zurückholen.
   await review.getByRole('button', { name: 'Ausgeblendete (1)' }).click();
   await expect(review.getByText('1 Dokument · bewusst ohne Korrespondent')).toBeVisible();
@@ -1197,6 +1197,8 @@ test('open documents prefer existing correspondents found in the text and offer 
   const items = [
     { id: 'peters', name: 'Praxis Fr. Peters', kind: 'organization', aliases: [] },
     { id: 'hotel', name: 'Hotel Bürgerhof', kind: 'organization', aliases: [] },
+    { id: 'netz', name: 'Stadtwerke Kiel Netz', kind: 'organization', aliases: [] },
+    { id: 'ploen', name: 'Stadtwerke Plön', kind: 'organization', aliases: [] },
   ];
   await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items } }));
   const suggestRequests = [];
@@ -1213,6 +1215,11 @@ test('open documents prefer existing correspondents found in the text and offer 
         document_id: 'hb1', title: 'Rechnung Hotel', sender: 'Hotel Börgerhof', suggestion: null,
         similar: [{ correspondent_id: 'hotel', name: 'Hotel Bürgerhof', matched_by: 'similar' }],
       },
+      {
+        document_id: 'sw1', title: 'Abschlag Strom', sender: 'Stadtwerke Netz Kiel GmbH',
+        suggestion: { correspondent_id: 'netz', name: 'Stadtwerke Kiel Netz', matched_by: 'similar' },
+        similar: [{ correspondent_id: 'ploen', name: 'Stadtwerke Plön', matched_by: 'similar' }],
+      },
     ] } });
   });
 
@@ -1228,7 +1235,21 @@ test('open documents prefer existing correspondents found in the text and offer 
   await expect(rx.locator('.assign-card__suggestion')).toHaveAttribute('title', 'Praxis Fr. Peters – Name im Dokument genannt');
   await expect(rx.getByRole('button', { name: 'Zuordnen', exact: true })).toBeEnabled();
   await expect(rx.getByRole('button', { name: 'Anlegen und zuordnen' })).toHaveCount(0);
-  await expect(review.getByRole('button', { name: 'Alle Vorschläge übernehmen (1)' })).toBeEnabled();
+  await expect(review.getByRole('button', { name: 'Alle Vorschläge übernehmen (2)' })).toBeEnabled();
+
+  // Nur Namensähnlichkeit: der ähnlichste vorhandene wird mutig vorgeschlagen, weitere als Alternative.
+  const power = review.getByRole('listitem', { name: 'Abschlag Strom', exact: true });
+  await expect(power.locator('.pm-metadata-value')).toContainText('Stadtwerke Kiel Netz');
+  await expect(power.locator('.assign-card__suggestion')).toHaveAttribute('title', 'Stadtwerke Kiel Netz – Name ähnlich zum erkannten Absender');
+  await expect(power.getByRole('button', { name: 'Anlegen und zuordnen' })).toHaveCount(0);
+  const alternatives = power.getByRole('group', { name: 'Alternativ:' });
+  await expect(alternatives.getByRole('button')).toHaveText(['Stadtwerke Plön']);
+  await review.getByRole('button', { name: 'Alle Vorschläge übernehmen (2)' }).click();
+  const bulkDialog = page.getByRole('dialog').filter({ hasText: 'Alle Vorschläge übernehmen?' });
+  await expect(bulkDialog.locator('.assign__bulk-guess')).toHaveCount(1);
+  await expect(bulkDialog.locator('li').filter({ hasText: 'Abschlag Strom' }).locator('.assign__bulk-guess')).toHaveText('ähnlich');
+  await bulkDialog.getByRole('button', { name: 'Abbrechen' }).click();
+  await expect(bulkDialog).toHaveCount(0);
 
   // Nur Ähnliches gefunden: Anlegen bleibt möglich, das Vorhandene steht als Hinweis daneben.
   const hotel = review.getByRole('listitem', { name: 'Rechnung Hotel', exact: true });

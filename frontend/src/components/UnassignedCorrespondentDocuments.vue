@@ -140,6 +140,7 @@
           <span class="assign__bulk-doc">{{ titleOf(entry.item) }}</span>
           <v-icon size="14" aria-hidden="true">mdi-arrow-right</v-icon>
           <span class="assign__bulk-target">{{ entry.correspondent.name }}</span>
+          <span v-if="entry.guess" class="assign__bulk-guess" title="Vorschlag aus Namensähnlichkeit – bitte kurz prüfen">ähnlich</span>
         </li>
         <li v-if="bulkCandidates.length > BULK_PREVIEW" class="assign__bulk-more">
           und {{ bulkCandidates.length - BULK_PREVIEW }} weitere
@@ -169,7 +170,7 @@ import { useCorrespondentStore } from '../stores/correspondents.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { notifyError, useNotifications } from '../stores/notifications.js';
 import { senderKey } from '../utils/senderKey.js';
-import { suggestCorrespondent } from '../utils/correspondentSuggestion.js';
+import { isSimilarityGuess, suggestCorrespondent } from '../utils/correspondentSuggestion.js';
 
 const BULK = '__bulk';
 const BULK_PREVIEW = 8;
@@ -225,8 +226,8 @@ const texts = computed(() => (isCollectionMode.value
     task: 'zuordnen',
     bulk: 'Alle Vorschläge übernehmen',
     bulkTitle: 'Alle Vorschläge übernehmen?',
-    bulkHint: 'Der erkannte Absender passt eindeutig zu einem bestehenden Korrespondenten. Neue Korrespondenten werden nicht angelegt.',
-    bulkNone: 'Keine eindeutigen Vorschläge',
+    bulkHint: 'Jedes Dokument wird seinem vorgeschlagenen, bereits vorhandenen Korrespondenten zugeordnet; Vorschläge aus Namensähnlichkeit sind markiert. Neue Korrespondenten werden nicht angelegt.',
+    bulkNone: 'Keine Vorschläge vorhanden',
     hiddenRegion: 'Bewusst ohne Korrespondent belassene Dokumente',
     hiddenTask: 'bewusst ohne Korrespondent',
   }));
@@ -276,7 +277,7 @@ const bulkCandidates = computed(() => {
     const correspondent = suggestCorrespondent(item, store, { mentionedMemberId, collectionMode: isCollectionMode.value });
     if (!correspondent || correspondent.id === item.correspondent_id) return [];
     if (isCollectionMode.value && correspondent.id !== mentionedMemberId) return [];
-    return [{ item, correspondent }];
+    return [{ item, correspondent, guess: isSimilarityGuess(item, correspondent) }];
   });
 });
 const bulkDescription = computed(() => texts.value.bulkHint);
@@ -525,6 +526,14 @@ defineExpose({ focusTitle: () => titleRef.value?.focus() });
 .assign__bulk-list { display: grid; gap: 6px; margin: 4px 0 0; padding: 0; list-style: none; font-size: 0.86rem; }
 .assign__bulk-list li { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .assign__bulk-list .v-icon { flex: none; color: var(--pm-muted); }
+.assign__bulk-guess {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pm-warning, #b7791f) 14%, transparent);
+  color: var(--pm-warning, #b7791f);
+  font-size: 0.72rem;
+}
 .assign__bulk-doc { min-width: 0; overflow: hidden; color: var(--pm-muted); text-overflow: ellipsis; white-space: nowrap; }
 .assign__bulk-target { flex: none; max-width: 50%; overflow: hidden; color: var(--pm-text); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .assign__bulk-more { color: var(--pm-muted); }
