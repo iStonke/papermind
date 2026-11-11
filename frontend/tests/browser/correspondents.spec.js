@@ -1228,6 +1228,8 @@ test('open documents prefer existing correspondents found in the text and offer 
   await workspace.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true }).click();
   const review = workspace.getByRole('region', { name: 'Dokumente ohne Korrespondenten', exact: true });
   expect(suggestRequests).toContain('true');
+  // Erst Dokumente mit vorhandenem Vorschlag, dann die neu anzulegenden.
+  await expect(review.locator('.assign-card__title')).toHaveText(['Privatrezept', 'Abschlag Strom', 'Rechnung Hotel']);
 
   // Der im Dokument genannte, vorhandene Korrespondent wird vorgeschlagen – kein Anlegen.
   const rx = review.getByRole('listitem', { name: 'Privatrezept', exact: true });

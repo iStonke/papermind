@@ -84,7 +84,7 @@
       </template>
 
       <TransitionGroup
-        v-else-if="items.length"
+        v-else-if="sortedItems.length"
         tag="ul"
         name="assign-card"
         class="assign__list"
@@ -92,7 +92,7 @@
         @focusin="onFocusIn"
       >
         <CorrespondentAssignmentCard
-          v-for="item in items"
+          v-for="item in sortedItems"
           :key="item.document_id"
           :item="item"
           :mode="mode"
@@ -120,7 +120,7 @@
 
     <DocumentPreviewOverlay
       v-model="previewId"
-      :items="showHidden ? hiddenItems : items"
+      :items="showHidden ? hiddenItems : sortedItems"
       @closed="focusThumb"
     />
 
@@ -267,6 +267,21 @@ async function loadMentionedMembers() {
 }
 watch([() => props.items, () => props.active], () => { void loadMentionedMembers(); }, { immediate: true });
 
+// ── Reihenfolge: erst Dokumente mit vorhandenem Vorschlag, dann die, für die
+// ein neuer Korrespondent angelegt werden müsste (je Gruppe stabil). ──
+function suggestionFor(item) {
+  if (!showSuggestions.value) return null;
+  const mentionedMemberId = mentionedMembers.value[item.document_id] || null;
+  const correspondent = suggestCorrespondent(item, store, { mentionedMemberId, collectionMode: isCollectionMode.value });
+  return correspondent && correspondent.id !== item.correspondent_id ? correspondent : null;
+}
+const sortedItems = computed(() => {
+  const withSuggestion = [];
+  const rest = [];
+  for (const item of props.items) (suggestionFor(item) ? withSuggestion : rest).push(item);
+  return [...withSuggestion, ...rest];
+});
+
 // ── Sammelaktion: nur eindeutige Vorschläge auf bestehende Korrespondenten ──
 const bulkDialogOpen = ref(false);
 const bulkCandidates = computed(() => {
@@ -374,7 +389,7 @@ function onFocusIn(event) {
 }
 
 // Nach dem Erledigen rückt der Fokus auf die nächste Karte.
-watch(() => props.items, (list) => {
+watch(sortedItems, (list) => {
   if (focusIndexAfterResolve >= 0) {
     const index = Math.min(focusIndexAfterResolve, list.length - 1);
     focusIndexAfterResolve = -1;
@@ -409,7 +424,7 @@ function senderMatches(correspondent, sender) {
 async function resolve({ key, item, correspondentId: chosenId, name, collectionId }) {
   if (pending.value || props.isLoading) return;
   const id = item.document_id;
-  focusIndexAfterResolve = props.items.findIndex(entry => entry.document_id === id);
+  focusIndexAfterResolve = sortedItems.value.findIndex(entry => entry.document_id === id);
   let correspondentId = chosenId;
   pending.value = { id, action: key };
   const done = [];
