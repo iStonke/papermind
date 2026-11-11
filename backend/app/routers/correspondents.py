@@ -70,6 +70,7 @@ def report_unresolved_correspondents(
     include_deleted: bool = Query(default=False),
     excerpt_chars: int = Query(default=300, ge=0, le=2000),
     hidden: bool = Query(default=False, description="Bewusst ohne Korrespondent belassene Dokumente liefern"),
+    suggest: bool = Query(default=False, description="Vorschlag aus vorhandenen Korrespondenten und ähnliche Kandidaten mitliefern"),
     db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> UnresolvedCorrespondentReportResponse:
     service = CorrespondentBackfillService(db, user.id)
@@ -78,6 +79,7 @@ def report_unresolved_correspondents(
         include_deleted=include_deleted,
         excerpt_chars=excerpt_chars,
         hidden=hidden,
+        suggest=suggest,
     )
     return UnresolvedCorrespondentReportResponse.model_validate(report.to_dict())
 

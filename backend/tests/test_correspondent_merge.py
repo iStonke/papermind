@@ -303,6 +303,31 @@ class CollectionDocumentsReviewIntegrationTest(unittest.TestCase):
         self.db.commit()
         self.assertEqual(len(CorrespondentBackfillService(self.db, self.user.id).collection_report().items), 1)
 
+    def test_open_documents_get_existing_correspondents_suggested_first(self) -> None:
+        from app.services.correspondent_backfill import CorrespondentBackfillService
+
+        self.user.display_name = "Jan Steinke"
+        practice = Correspondent(owner_id=self.user.id, name="Praxis Fr. Peters", kind="organization")
+        recipient = Correspondent(owner_id=self.user.id, name="Jan Steinke", kind="person")
+        self.db.add_all([practice, recipient])
+        self.db.flush()
+        prescription = Document(
+            owner_id=self.user.id, original_filename="rezept.pdf", display_name="Privatrezept",
+            ai_sender="Dr. med. Andrea, 04317/333111",
+            text_content="Jan Steinke\nMusterweg 1\n24103 Kiel\nPrivatrezept\nDr. med. Andrea Peters",
+        )
+        self.db.add(prescription)
+        self.db.commit()
+
+        report = CorrespondentBackfillService(self.db, self.user.id).unresolved_report(suggest=True)
+        item = next(entry for entry in report.items if entry.title == "Privatrezept")
+        self.assertEqual(item.sender, "Dr. med. Andrea")
+        self.assertEqual(item.suggestion["correspondent_id"], str(practice.id))
+        self.assertEqual(item.suggestion["matched_by"], "surname")
+        # Ohne suggest bleibt der Bericht schlank.
+        plain = CorrespondentBackfillService(self.db, self.user.id).unresolved_report()
+        self.assertIsNone(next(entry for entry in plain.items if entry.title == "Privatrezept").suggestion)
+
     def test_documents_without_correspondent_can_be_hidden_and_brought_back(self) -> None:
         from types import SimpleNamespace
 

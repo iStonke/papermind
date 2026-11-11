@@ -108,6 +108,7 @@
           <template #correspondent-suffix>
             <v-chip
               v-if="showsSuggestion"
+              :title="suggestionTitle"
               class="assign-card__suggestion"
               color="primary"
               variant="tonal"
@@ -116,6 +117,25 @@
             >Vorschlag</v-chip>
           </template>
           <template #after-correspondent>
+            <!-- Vor dem Anlegen: ähnliche vorhandene Korrespondenten zum Anklicken. -->
+            <div
+              v-if="similarExisting.length"
+              class="assign-card__similar"
+              role="group"
+              aria-label="Ähnlich vorhanden:"
+            >
+              <span class="assign-card__similar-label">Ähnlich vorhanden:</span>
+              <button
+                v-for="entry in similarExisting"
+                :key="entry.id"
+                type="button"
+                class="assign-card__similar-chip"
+                :disabled="disabled"
+                :title="entry.name"
+                :aria-label="`Vorhandenen Korrespondenten wählen: ${entry.name}`"
+                @click="correspondentSelection = entry.id"
+              >{{ entry.short_name || entry.name }}</button>
+            </div>
             <CorrespondentRefineHint
               :document-id="item.document_id"
               :correspondent-id="correspondentSelection === NEW_SENDER ? null : correspondentSelection"
@@ -150,7 +170,7 @@ import { documentThumbnailUrl } from '../api/documents.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { useCorrespondentStore } from '../stores/correspondents.js';
 import { formatDocumentDateInputFromIso } from '../utils/dates.js';
-import { normalizedSender, suggestCorrespondent } from '../utils/correspondentSuggestion.js';
+import { normalizedSender, suggestCorrespondent, suggestionReason } from '../utils/correspondentSuggestion.js';
 
 const NEW_SENDER = 'unassigned:new-sender';
 const ACTION_LABELS = {
@@ -198,6 +218,16 @@ const detectedSender = computed(() => normalizedSender(props.item));
 const suggestedCorrespondent = computed(() => (showSuggestions.value
   ? suggestCorrespondent(props.item, store, { mentionedMemberId: props.mentionedMemberId, collectionMode: isCollectionMode.value })
   : null));
+const suggestionTitle = computed(() => suggestionReason(props.item, suggestedCorrespondent.value));
+// Ähnliche vorhandene Einträge (Backend), solange nichts Vorhandenes gewählt ist.
+const similarExisting = computed(() => {
+  if (action.value !== 'assign') return [];
+  const selection = correspondentSelection.value;
+  if (selection && selection !== NEW_SENDER && selection !== collectionId.value) return [];
+  return (props.item.similar || [])
+    .map(entry => store.findById(entry.correspondent_id))
+    .filter(Boolean);
+});
 const newSenderOption = computed(() => {
   if (!showSuggestions.value || action.value !== 'assign' || !detectedSender.value || suggestedCorrespondent.value) return null;
   return { title: detectedSender.value, value: NEW_SENDER, props: { subtitle: 'Neuen Korrespondenten anlegen' } };
@@ -342,6 +372,29 @@ defineExpose({ focus: () => cardEl.value?.focus({ preventScroll: true }), el: ca
   white-space: nowrap;
 }
 .assign-card__actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.assign-card__similar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.8rem; }
+.assign-card__similar-label { color: var(--pm-muted); }
+.assign-card__similar-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 220px;
+  min-height: 26px;
+  padding: 0 9px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--pm-accent) 55%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pm-accent-text);
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+.assign-card__similar-chip:hover:not(:disabled) { background: color-mix(in srgb, var(--pm-accent) 8%, transparent); }
+.assign-card__similar-chip:disabled { opacity: .5; cursor: default; }
+.assign-card__similar-chip:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 2px; }
+@media (pointer: coarse) { .assign-card__similar-chip { min-height: 44px; } }
 .assign-card__suggestion.v-chip { flex-shrink: 0; margin-inline: 6px; font-weight: 400; letter-spacing: 0; }
 .assign-card__submit.v-btn {
   max-width: 100%;

@@ -12,7 +12,9 @@ from app.models.correspondent import Correspondent
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.services.import_metadata_heuristics import is_plausible_sender
-from app.services.correspondent_matching import CorrespondentMatchingService
+from app.models.user import User
+from app.services.correspondent_matching import CorrespondentMatchingService, match_correspondent
+from app.services.correspondent_suggestions import clean_sender, suggestion_for
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,10 @@ class UnresolvedCorrespondentItem:
     # Nur bei Dokumenten, die direkt an einer Sammlung hängen.
     correspondent_id: str | None = None
     correspondent_name: str | None = None
+    # Vorschlag aus vorhandenen Korrespondenten (Absender, Matcher, Dokumenttext)
+    # und weitere ähnliche Kandidaten – nur mit ``suggest=True``.
+    suggestion: dict | None = None
+    similar: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -203,6 +209,7 @@ class CorrespondentBackfillService:
         include_deleted: bool = False,
         excerpt_chars: int = 700,
         hidden: bool = False,
+        suggest: bool = False,
     ) -> UnresolvedCorrespondentReport:
         """Dokumente ohne Korrespondent. ``hidden=True`` liefert stattdessen die
         bewusst ohne Korrespondent belassenen (zum Zurückholen)."""
@@ -222,22 +229,42 @@ class CorrespondentBackfillService:
             stmt = stmt.where(Document.is_deleted.is_(False))
 
         documents = self.db.execute(stmt).scalars().all()
+        candidates = self.matcher.load_candidates() if suggest else []
+        owner_names = self._owner_names() if suggest else ()
         items: list[UnresolvedCorrespondentItem] = []
         for document in documents:
             text = self._text_for_matching(document, max_chars=excerpt_chars) if excerpt_chars else ""
+            sender = self._clean_sender(document.ai_sender)
+            suggestion, similar = None, ()
+            if suggest:
+                # Vorhandene Korrespondenten zuerst: Absender/Matcher, dann der Dokumenttext.
+                matching_text = self._text_for_matching(document, max_chars=6000)
+                match = match_correspondent(candidates, sender=sender, ocr_text=matching_text) if candidates else None
+                found, similar_found = suggestion_for(
+                    candidates,
+                    sender=sender,
+                    text=matching_text,
+                    owner_names=owner_names,
+                    sender_match=match if match is not None and match.score >= 500 else None,
+                )
+                suggestion = asdict(found) if found else None
+                similar = tuple(asdict(entry) for entry in similar_found)
             items.append(
                 UnresolvedCorrespondentItem(
                     document_id=str(document.id),
                     title=(document.display_name or document.original_filename or "").strip(),
                     original_filename=document.original_filename,
-                    # Ältere Klassifizierungen enthalten mitunter Überschriften statt Absender.
-                    sender=document.ai_sender if is_plausible_sender(document.ai_sender) else None,
+                    # Ältere Klassifizierungen enthalten mitunter Überschriften statt Absender;
+                    # Telefon, Anschrift und Webadresse fallen weg.
+                    sender=sender,
                     document_type=document.document_type,
                     document_date=document.document_date.isoformat() if document.document_date else None,
                     ai_status=document.ai_status,
                     ocr_status=document.ocr_status,
                     text_available=bool(text.strip()),
                     text_excerpt=self._compact_excerpt(text, max_chars=excerpt_chars),
+                    suggestion=suggestion,
+                    similar=similar,
                 )
             )
 
@@ -276,7 +303,7 @@ class CorrespondentBackfillService:
                     document_id=str(document.id),
                     title=(document.display_name or document.original_filename or "").strip(),
                     original_filename=document.original_filename,
-                    sender=document.ai_sender if is_plausible_sender(document.ai_sender) else None,
+                    sender=self._clean_sender(document.ai_sender),
                     document_type=document.document_type,
                     document_date=document.document_date.isoformat() if document.document_date else None,
                     ai_status=document.ai_status,
@@ -288,6 +315,20 @@ class CorrespondentBackfillService:
                 )
             )
         return UnresolvedCorrespondentReport(scanned=len(rows), unresolved=len(items), include_deleted=False, items=items)
+
+    @staticmethod
+    def _clean_sender(value: str | None) -> str | None:
+        if not is_plausible_sender(value):
+            return None
+        cleaned = clean_sender(value)
+        return cleaned if is_plausible_sender(cleaned) else None
+
+    def _owner_names(self) -> tuple[str, ...]:
+        """Name der Nutzerin/des Nutzers – steht als Empfänger in fast jedem Brief."""
+        if self.owner_id is None:
+            return ()
+        user = self.db.get(User, self.owner_id)
+        return tuple(value for value in (getattr(user, "display_name", None), getattr(user, "username", None)) if value)
 
     def _text_for_matching(self, document: Document, *, max_chars: int) -> str:
         text = str(document.text_content or "").strip()

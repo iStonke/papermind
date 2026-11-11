@@ -1109,7 +1109,8 @@ async function loadUnassignedDocuments() {
   isLoadingUnassigned.value = true;
   unassignedLoadError.value = false;
   try {
-    const result = await listUnresolvedCorrespondents({ limit: UNASSIGNED_LIMIT, excerptChars: 0 });
+    // Vorhandene Korrespondenten zuerst: das Backend sucht sie im Absender und im Dokumenttext.
+    const result = await listUnresolvedCorrespondents({ limit: UNASSIGNED_LIMIT, excerptChars: 0, suggest: true });
     replaceUnassignedDocuments(result.items ?? []);
   } catch {
     unassignedLoadError.value = true;

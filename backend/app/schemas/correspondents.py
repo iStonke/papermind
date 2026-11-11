@@ -260,6 +260,13 @@ class CorrespondentProfileRead(BaseModel):
     relations: list[CorrespondentRelationRead] = Field(default_factory=list)
 
 
+class CorrespondentSuggestionRead(BaseModel):
+    correspondent_id: uuid.UUID
+    name: str
+    # 'name' | 'alias' | 'matcher' | 'member' | 'text' | 'surname' | 'similar'
+    matched_by: str
+
+
 class UnresolvedCorrespondentItemRead(BaseModel):
     document_id: uuid.UUID
     title: str
@@ -273,6 +280,9 @@ class UnresolvedCorrespondentItemRead(BaseModel):
     text_excerpt: str | None = None
     correspondent_id: uuid.UUID | None = None
     correspondent_name: str | None = None
+    # Vorhandene Korrespondenten zuerst: eindeutiger Vorschlag und ähnliche Kandidaten.
+    suggestion: CorrespondentSuggestionRead | None = None
+    similar: list[CorrespondentSuggestionRead] = Field(default_factory=list)
 
 
 class UnresolvedCorrespondentReportResponse(BaseModel):

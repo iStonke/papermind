@@ -1191,6 +1191,55 @@ test('a card is assigned with the keyboard shortcut and a new spelling can be ke
   await expect(thumb).toBeFocused();
 });
 
+test('open documents prefer existing correspondents found in the text and offer similar ones', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await prepareWorkspace(page);
+  const items = [
+    { id: 'peters', name: 'Praxis Fr. Peters', kind: 'organization', aliases: [] },
+    { id: 'hotel', name: 'Hotel Bürgerhof', kind: 'organization', aliases: [] },
+  ];
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items } }));
+  const suggestRequests = [];
+  await page.route('**/api/correspondents/unresolved?*', route => {
+    const params = new URL(route.request().url()).searchParams;
+    if (params.get('hidden') === 'true') return route.fulfill({ json: { items: [] } });
+    suggestRequests.push(params.get('suggest'));
+    return route.fulfill({ json: { items: [
+      {
+        document_id: 'rx1', title: 'Privatrezept', sender: 'Dr. med. Andrea',
+        suggestion: { correspondent_id: 'peters', name: 'Praxis Fr. Peters', matched_by: 'surname' }, similar: [],
+      },
+      {
+        document_id: 'hb1', title: 'Rechnung Hotel', sender: 'Hotel Börgerhof', suggestion: null,
+        similar: [{ correspondent_id: 'hotel', name: 'Hotel Bürgerhof', matched_by: 'similar' }],
+      },
+    ] } });
+  });
+
+  await page.locator('.sidebar-item--correspondents').click();
+  const workspace = page.locator('.panel-correspondents');
+  await workspace.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true }).click();
+  const review = workspace.getByRole('region', { name: 'Dokumente ohne Korrespondenten', exact: true });
+  expect(suggestRequests).toContain('true');
+
+  // Der im Dokument genannte, vorhandene Korrespondent wird vorgeschlagen – kein Anlegen.
+  const rx = review.getByRole('listitem', { name: 'Privatrezept', exact: true });
+  await expect(rx.locator('.pm-metadata-value')).toContainText('Praxis Fr. Peters');
+  await expect(rx.locator('.assign-card__suggestion')).toHaveAttribute('title', 'Praxis Fr. Peters – Name im Dokument genannt');
+  await expect(rx.getByRole('button', { name: 'Zuordnen', exact: true })).toBeEnabled();
+  await expect(rx.getByRole('button', { name: 'Anlegen und zuordnen' })).toHaveCount(0);
+  await expect(review.getByRole('button', { name: 'Alle Vorschläge übernehmen (1)' })).toBeEnabled();
+
+  // Nur Ähnliches gefunden: Anlegen bleibt möglich, das Vorhandene steht als Hinweis daneben.
+  const hotel = review.getByRole('listitem', { name: 'Rechnung Hotel', exact: true });
+  await expect(hotel.getByRole('button', { name: 'Anlegen und zuordnen' })).toBeVisible();
+  const similar = hotel.getByRole('group', { name: 'Ähnlich vorhanden:' });
+  await similar.getByRole('button', { name: 'Vorhandenen Korrespondenten wählen: Hotel Bürgerhof' }).click();
+  await expect(hotel.locator('.pm-metadata-value')).toContainText('Hotel Bürgerhof');
+  await expect(hotel.getByRole('button', { name: 'Zuordnen', exact: true })).toBeEnabled();
+  await expect(similar).toHaveCount(0);
+});
+
 test('cleanup fills in short names and deletes empty entries', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 1440, height: 1000 });

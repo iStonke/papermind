@@ -8,9 +8,12 @@ export const listCorrespondents = (includeCount = false) =>
 export const getCorrespondentProfile = (correspondentId) =>
   apiGet(`/api/correspondents/${correspondentId}/profile`);
 
-/** GET /api/correspondents/unresolved – `hidden`: bewusst ohne Korrespondent belassene */
-export const listUnresolvedCorrespondents = ({ limit = 200, excerptChars = 300, hidden = false } = {}) =>
-  apiGet(`/api/correspondents/unresolved?limit=${limit}&excerpt_chars=${excerptChars}${hidden ? '&hidden=true' : ''}`);
+/**
+ * GET /api/correspondents/unresolved – `hidden`: bewusst ohne Korrespondent belassene;
+ * `suggest`: Vorschlag aus vorhandenen Korrespondenten (Absender, Dokumenttext) + ähnliche.
+ */
+export const listUnresolvedCorrespondents = ({ limit = 200, excerptChars = 300, hidden = false, suggest = false } = {}) =>
+  apiGet(`/api/correspondents/unresolved?limit=${limit}&excerpt_chars=${excerptChars}${hidden ? '&hidden=true' : ''}${suggest ? '&suggest=true' : ''}`);
 
 /** POST /api/correspondents/unresolved/{document_id}/ignore */
 export const ignoreUnresolvedCorrespondent = (documentId, reason = null) =>
