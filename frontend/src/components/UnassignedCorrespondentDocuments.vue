@@ -86,7 +86,7 @@
             hidden
             :disabled="Boolean(restoringId)"
             :pending-action="restoringId === item.document_id ? 'restore' : ''"
-            @open-document="previewId = $event"
+            @open-document="openPreview"
             @restore="restore"
           />
         </TransitionGroup>
@@ -116,7 +116,7 @@
           :shortcut-label="shortcutLabel"
           :mentioned-member-id="mentionedMembers[item.document_id] || null"
           :succeeded="succeededId === item.document_id"
-          @open-document="previewId = $event"
+          @open-document="openPreview"
           @submit="resolve"
         />
       </TransitionGroup>
@@ -138,6 +138,7 @@
     <DocumentPreviewOverlay
       v-model="previewId"
       :items="showHidden ? hiddenItems : sortedItems"
+      :thumbnail="previewThumbnail"
       @closed="focusThumb"
     />
 
@@ -400,7 +401,14 @@ async function restore(id) {
 
 // ── Große Vorschau als Overlay ────────────────────────────────────
 const previewId = ref(null);
+const previewThumbnail = ref(null);
+function openPreview(id, thumbnail) {
+  previewThumbnail.value = thumbnail;
+  previewId.value = id;
+}
+
 function focusThumb(id) {
+  previewThumbnail.value = null;
   void nextTick(() => cardElement(id)?.querySelector('.assign-card__thumb')?.focus({ preventScroll: true }));
 }
 watch(() => props.active, (active) => { if (!active) previewId.value = null; });

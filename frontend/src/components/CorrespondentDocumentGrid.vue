@@ -45,7 +45,7 @@
           class="cdg-doc__face"
           :aria-label="`${titleOf(doc)} groß anzeigen`"
           :title="`${titleOf(doc)} groß anzeigen`"
-          @click="previewId = doc.id"
+          @click="openPreview(doc.id, $event.currentTarget)"
         >
           <span class="cdg-doc__page" aria-hidden="true">
             <v-icon :size="size === 'regular' ? 28 : 24">mdi-file-document-outline</v-icon>
@@ -66,7 +66,7 @@
         {{ loadingMore ? 'Lädt …' : `Weitere ${total - documents.length} laden` }}
       </button>
     </div>
-    <DocumentPreviewOverlay v-model="previewId" :items="overlayItems" @closed="focusTile" />
+    <DocumentPreviewOverlay v-model="previewId" :items="overlayItems" :thumbnail="previewThumbnail" @closed="focusTile" />
 
     <p v-if="loadMoreFailed" class="cdg__state cdg__state--center" role="status">
       Weitere Dokumente konnten nicht geladen werden.
@@ -102,13 +102,20 @@ const emit = defineEmits(['load-more', 'retry']);
 // ── Große Vorschau als Overlay; ←/→ blättern durch die geladenen Dokumente ──
 const rootEl = ref(null);
 const previewId = ref(null);
+const previewThumbnail = ref(null);
 const overlayItems = computed(() => props.documents.map(doc => ({
   document_id: doc.id,
   title: titleOf(doc),
   document_type: doc.document_type,
   document_date: doc.document_date || null,
 })));
+function openPreview(id, button) {
+  previewThumbnail.value = button.querySelector('.cdg-doc__page');
+  previewId.value = id;
+}
+
 function focusTile(id) {
+  previewThumbnail.value = null;
   void nextTick(() => rootEl.value?.querySelector(`.cdg-doc[data-doc="${CSS.escape(id)}"] .cdg-doc__face`)?.focus({ preventScroll: true }));
 }
 

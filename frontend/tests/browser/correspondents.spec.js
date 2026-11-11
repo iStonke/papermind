@@ -411,6 +411,10 @@ test('the document search shows and clears the exact filter opened from a corres
 test('profile documents scroll horizontally, load the next page and open in the document preview', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const { requests, utility } = await prepareWorkspace(page);
+  await page.route(`**/api/documents/${utility.id}/file?*`, route => route.fulfill({
+    contentType: 'application/pdf',
+    body: syntheticDocumentPdf(),
+  }));
   Object.assign(utility, { amount: '42.00', currency: 'EUR' });
   const correspondents = [
     { id: clubId, name: 'Kieler Männer-Turnverein', kind: 'organization', usage_count: 52 },
@@ -480,6 +484,12 @@ test('profile documents scroll horizontally, load the next page and open in the 
   await tileButton.click();
   const overlay = page.getByRole('region', { name: 'Vorschau: Jahresabrechnung Strom' });
   await expect(overlay).toBeVisible();
+  const pages = overlay.locator('.pdf-preview__pages');
+  await expect(pages.locator('.pdf-preview__page')).toHaveCount(2);
+  await expect(pages).toBeVisible();
+  await pages.hover();
+  await page.mouse.wheel(0, 700);
+  await expect.poll(() => pages.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
   await expect(page.locator('.details-drawer__subtitle')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(overlay).toHaveCount(0);

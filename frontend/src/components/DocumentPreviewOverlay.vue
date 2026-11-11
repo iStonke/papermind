@@ -1,11 +1,10 @@
 <!--
   DocumentPreviewOverlay — große Vorschau eines Dokuments als Overlay nur über
   dem rechten Bereich (nächster `.corr-profile`), weitgehend rahmenlos: eine
-  milchige Fläche, darauf das Dokument wie ein Blatt mit Stapel darunter.
+  milchige Fläche mit einer scrollbaren PDF-Vorschau.
 
-  Beim Öffnen wird das Blatt von rechts in den sichtbaren Bereich „geworfen“;
-  beim Blättern zwischen Dokumenten (←/→) wechselt es ohne Animation. Blättern im PDF
-  wie in der Dokumentvorschau; ←/→ wechseln zwischen den Dokumenten der Liste,
+  Beim Öffnen wächst das Blatt aus dem angeklickten Vorschaubild.
+  ←/→ wechseln ohne Animation zwischen den Dokumenten der Liste,
   Esc oder ein Klick daneben schließt. Öffnet nichts im Dokumentbereich.
 -->
 <template>
@@ -14,7 +13,6 @@
     <Transition name="doc-overlay">
       <div
         v-if="current"
-        ref="layerEl"
         class="doc-overlay"
         :class="{ 'doc-overlay--detached': !containerEl, 'is-static': staticMotion }"
         role="region"
@@ -62,30 +60,22 @@
             ><v-icon size="20" aria-hidden="true">mdi-close</v-icon></button>
           </div>
         </header>
-        <!-- Der Wurf startet sofort beim Klick; bis die erste Seite gerendert ist,
-             fliegt eine weiße Platzhalterseite mit, danach blendet das PDF ein. -->
         <div
           :key="current.document_id"
           class="doc-overlay__stage"
-          :class="{ 'is-throwing': throwIn, 'is-ready': pageReady }"
+          :class="{ 'is-opening': opening, 'is-ready': pageReady && !opening }"
+          :aria-busy="!pageReady"
           @click.self="close"
         >
           <div class="doc-overlay__placeholder">
             <div class="doc-overlay__placeholder-box">
-              <div class="doc-overlay__sheet">
-                <!-- Ladeanimation im PaperMind-Stil: Blatt-Symbol, dessen Zeilen sich
-                     schreiben, darunter pulsierende Punkte. -->
-                <div v-if="!pageReady" class="doc-overlay__loader" role="status" aria-label="Dokument wird geladen">
-                  <span class="doc-overlay__halo" aria-hidden="true" />
-                  <svg class="doc-overlay__mark" viewBox="0 0 64 64" aria-hidden="true">
-                    <path class="doc-overlay__mark-page" d="M17 8h22l11 11v37H17z" />
-                    <path class="doc-overlay__mark-fold" d="M39 8v11h11" />
-                    <line class="doc-overlay__mark-line" x1="24" y1="30" x2="43" y2="30" />
-                    <line class="doc-overlay__mark-line" x1="24" y1="38" x2="43" y2="38" />
-                    <line class="doc-overlay__mark-line" x1="24" y1="46" x2="35" y2="46" />
-                  </svg>
-                  <span class="doc-overlay__dots" aria-hidden="true"><i /><i /><i /></span>
-                </div>
+              <div
+                ref="sheetEl"
+                class="doc-overlay__sheet"
+                :style="opening?.style"
+                @animationend.self="opening = null"
+              >
+                <img v-if="opening?.image" class="doc-overlay__thumbnail" :src="opening.image" alt="">
               </div>
             </div>
           </div>
@@ -116,6 +106,8 @@ const props = defineProps({
   modelValue: { type: String, default: null },
   /** Dokumente, zwischen denen ←/→ wechseln ({ document_id, title, … }). */
   items: { type: Array, default: () => [] },
+  /** Thumbnail des Auslösers für die Öffnungsanimation. */
+  thumbnail: { type: Object, default: null },
   /** Bereich, den das Overlay überdeckt (nächster Vorfahr mit diesem Selektor). */
   container: { type: String, default: '.corr-profile' },
 });
@@ -123,11 +115,10 @@ const emit = defineEmits(['update:modelValue', 'closed']);
 
 const anchorEl = ref(null);
 const containerEl = ref(null);
-const layerEl = ref(null);
+const sheetEl = ref(null);
 const previewRef = ref(null);
 const closeRef = ref(null);
-// Geworfen wird nur beim Öffnen; beim Blättern wechselt das Dokument ohne Animation.
-const throwIn = ref(true);
+const opening = ref(null);
 const pageReady = ref(false);
 const staticMotion = ref(false);
 
@@ -158,8 +149,6 @@ function close() {
 function step(delta) {
   const next = props.items[index.value + delta];
   if (!next) return;
-  throwIn.value = false;
-  pageReady.value = false;
   emit('update:modelValue', next.document_id);
 }
 
@@ -180,13 +169,30 @@ function onKeydown(event) {
 watch(() => props.items, () => {
   if (props.modelValue && !current.value) close();
 });
-watch(() => props.modelValue, async (id, previous) => {
-  if (!id) return;
-  if (previous) return;
+watch(() => props.modelValue, async (id, previous, onCleanup) => {
+  opening.value = null;
   pageReady.value = false;
-  throwIn.value = true;
+  if (!id || previous) return;
   staticMotion.value = motionOff();
+  const image = props.thumbnail?.querySelector('img');
+  const loadedImage = image?.complete && image.naturalWidth && !image.hidden ? image : null;
+  const source = staticMotion.value ? null : (loadedImage || props.thumbnail)?.getBoundingClientRect();
+  let cancelled = false;
+  onCleanup(() => { cancelled = true; });
   await nextTick();
+  if (cancelled) return;
+  const target = sheetEl.value?.getBoundingClientRect();
+  if (source?.width && source.height && target?.width && target.height) {
+    opening.value = {
+      image: loadedImage?.currentSrc || loadedImage?.src,
+      style: {
+        '--open-x': `${source.left - target.left}px`,
+        '--open-y': `${source.top - target.top}px`,
+        '--open-scale-x': source.width / target.width,
+        '--open-scale-y': source.height / target.height,
+      },
+    };
+  }
   closeRef.value?.focus?.({ preventScroll: true });
 });
 </script>
@@ -200,7 +206,7 @@ watch(() => props.modelValue, async (id, previous) => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: color-mix(in srgb, var(--pm-app-surface) 82%, transparent);
+  background: color-mix(in srgb, var(--pm-app-surface) 70%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(120%);
   backdrop-filter: blur(12px) saturate(120%);
   outline: none;
@@ -250,147 +256,61 @@ watch(() => props.modelValue, async (id, previous) => {
 .doc-overlay__btn:disabled { opacity: 0.35; cursor: default; }
 .doc-overlay__btn:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 2px; }
 
-/* Luft rundum, damit das Blatt wie auf einem Tisch liegt und der Stapel
-   darunter sichtbar bleibt. Abgeschnitten wird erst am Rand des Bereichs. */
-.doc-overlay__stage { position: relative; flex: 1; min-height: 0; padding: 4px clamp(24px, 6%, 56px) 30px; }
-.doc-overlay__pdf { display: block; width: 100%; height: 100%; }
-.doc-overlay__stage :deep(.pdf-preview),
-.doc-overlay__stage :deep(.pdf-preview__viewer) { overflow: visible; background: transparent !important; }
-.doc-overlay__stage :deep(.pdf-preview__pages) { padding: 6px 18px 18px 4px; }
-
-/* Das Blatt mit zwei Bögen darunter – ein kleiner Stapel. */
-.doc-overlay .doc-overlay__stage :deep(.pdf-preview .pdf-preview__page) {
-  overflow: visible;
-  box-shadow:
-    0 18px 40px rgb(0 0 0 / 0.22),
-    0 2px 6px rgb(0 0 0 / 0.14),
-    7px 6px 0 -1px #f3f3f1,
-    7px 6px 0 0 rgb(0 0 0 / 0.1),
-    14px 11px 0 -1px #e9e9e6,
-    14px 11px 0 0 rgb(0 0 0 / 0.09);
+.doc-overlay__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 4px clamp(24px, 6%, 56px) 12px;
+}
+.doc-overlay__stage :deep(.pdf-preview__pages) {
+  align-items: safe center;
+  overscroll-behavior: contain;
+}
+.doc-overlay__stage.is-opening .doc-overlay__pdf { visibility: hidden; }
+.doc-overlay__stage.is-opening .doc-overlay__sheet {
+  transform-origin: top left;
+  animation: doc-grow 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes doc-grow {
+  from {
+    transform: translate(var(--open-x), var(--open-y)) scale(var(--open-scale-x), var(--open-scale-y));
+  }
+  to { transform: none; }
 }
 
-/* „Reinwerfen“ mit dezentem Bounce: der Stapel fliegt sofort beim Klick schräg
-   herein, schießt leicht über die Mitte hinaus und pendelt kurz aus. */
-.doc-overlay__stage.is-throwing {
-  --dir: 1;
-  animation: doc-throw 820ms both;
-  transform-origin: 50% 90%;
+.doc-overlay__thumbnail {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  animation: doc-thumbnail-fade 320ms ease both;
 }
-@keyframes doc-throw {
-  0% {
-    transform: translate(calc(var(--dir) * 110%), -6%) rotate(calc(var(--dir) * 12deg)) scale(1.03);
-    animation-timing-function: cubic-bezier(0.15, 0.75, 0.3, 1);
-  }
-  45% {
-    transform: translate(calc(var(--dir) * -2.2%), 0.4%) rotate(calc(var(--dir) * -1.8deg));
-    animation-timing-function: cubic-bezier(0.4, 0, 0.5, 1);
-  }
-  68% {
-    transform: translate(calc(var(--dir) * 0.8%), 0) rotate(calc(var(--dir) * 0.6deg));
-    animation-timing-function: cubic-bezier(0.4, 0, 0.5, 1);
-  }
-  86% {
-    transform: translate(calc(var(--dir) * -0.25%), 0) rotate(calc(var(--dir) * -0.2deg));
-  }
-  100% { transform: none; }
+@keyframes doc-thumbnail-fade {
+  0%, 40% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
-/* Weiße Platzhalterseite (mit demselben Stapel), bis das PDF da ist. */
 .doc-overlay__placeholder {
   position: absolute;
-  inset: 4px clamp(24px, 6%, 56px) 30px;
+  inset: 4px clamp(24px, 6%, 56px) 12px;
   display: flex;
   justify-content: center;
-  padding: 6px 18px 18px 4px;
+  padding: 0 20px 16px;
   pointer-events: none;
   transition: opacity 220ms ease;
 }
 /* Platzhalter so groß wie eine eingepasste A4-Seite (Breite oder Höhe begrenzt). */
 .doc-overlay__placeholder-box { flex: 1; display: flex; justify-content: center; min-width: 0; container-type: size; }
 .doc-overlay__sheet {
+  position: relative;
   width: min(100cqw, calc(100cqh / 1.414));
   height: min(100cqh, calc(100cqw * 1.414));
   border-radius: 3px;
   background: #fff;
-  box-shadow:
-    0 18px 40px rgb(0 0 0 / 0.22),
-    0 2px 6px rgb(0 0 0 / 0.14),
-    7px 6px 0 -1px #f3f3f1,
-    7px 6px 0 0 rgb(0 0 0 / 0.1),
-    14px 11px 0 -1px #e9e9e6,
-    14px 11px 0 0 rgb(0 0 0 / 0.09);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.12), 0 1px 3px rgb(0 0 0 / 0.1);
 }
 .doc-overlay__stage.is-ready .doc-overlay__placeholder { opacity: 0; }
-
-/* Ladeanimation auf der weißen Seite (Papier ist immer hell → feste Farben). */
-.doc-overlay__sheet { position: relative; container-type: size; }
-.doc-overlay__loader {
-  --loader-accent: #0b7a83;
-  --loader-line: #cfe3e6;
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: clamp(10px, 3cqh, 18px);
-  animation: loader-in 360ms ease 180ms both;
-}
-@keyframes loader-in { from { opacity: 0; transform: translateY(6px); } }
-.doc-overlay__halo {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: clamp(150px, 46cqw, 260px);
-  aspect-ratio: 1;
-  border-radius: 50%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--loader-accent) 14%, transparent), transparent 68%);
-  transform: translate(-50%, -62%);
-  animation: loader-halo 2.4s ease-in-out infinite;
-}
-@keyframes loader-halo {
-  0%, 100% { opacity: 0.55; transform: translate(-50%, -62%) scale(0.92); }
-  50% { opacity: 1; transform: translate(-50%, -62%) scale(1.06); }
-}
-.doc-overlay__mark {
-  position: relative;
-  width: clamp(72px, 24cqw, 132px);
-  height: auto;
-  overflow: visible;
-  animation: loader-float 2.4s ease-in-out infinite;
-}
-@keyframes loader-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
-.doc-overlay__mark-page { fill: #f6fbfb; stroke: var(--loader-accent); stroke-width: 2.6; stroke-linejoin: round; }
-.doc-overlay__mark-fold { fill: #ddeef0; stroke: var(--loader-accent); stroke-width: 2.6; stroke-linejoin: round; }
-/* Zeilen „schreiben“ sich nacheinander, halten kurz und setzen neu an. */
-.doc-overlay__mark-line {
-  stroke: var(--loader-accent);
-  stroke-width: 3.6;
-  stroke-linecap: round;
-  stroke-dasharray: 20;
-  stroke-dashoffset: 20;
-  animation: loader-write 2.4s cubic-bezier(0.45, 0, 0.25, 1) infinite;
-}
-.doc-overlay__mark-line:nth-of-type(2) { animation-delay: 0.22s; }
-.doc-overlay__mark-line:nth-of-type(3) { animation-delay: 0.44s; }
-@keyframes loader-write {
-  0% { stroke-dashoffset: 20; opacity: 1; }
-  35%, 72% { stroke-dashoffset: 0; opacity: 1; }
-  90%, 100% { stroke-dashoffset: 0; opacity: 0; }
-}
-.doc-overlay__dots { position: relative; display: flex; gap: 7px; }
-.doc-overlay__dots i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--loader-accent);
-  opacity: 0.35;
-  animation: loader-dot 1.4s ease-in-out infinite;
-}
-.doc-overlay__dots i:nth-child(2) { animation-delay: 0.18s; }
-.doc-overlay__dots i:nth-child(3) { animation-delay: 0.36s; }
-@keyframes loader-dot { 0%, 100% { opacity: 0.3; transform: scale(0.85); } 40% { opacity: 1; transform: scale(1.1); } }
 
 /* Eigene Ladeanzeige der Vorschau ausblenden – der Platzhalter übernimmt. */
 .doc-overlay__stage :deep(.pdf-preview__state--loading) { visibility: hidden; }
@@ -399,17 +319,8 @@ watch(() => props.modelValue, async (id, previous) => {
 .doc-overlay-enter-from, .doc-overlay-leave-to { opacity: 0; }
 
 @media (prefers-reduced-motion: reduce) {
-  .doc-overlay__stage.is-throwing { animation: none; }
-  .doc-overlay__loader, .doc-overlay__halo, .doc-overlay__mark, .doc-overlay__dots i { animation: none; }
-  .doc-overlay__mark-line { animation: none; stroke-dashoffset: 0; }
   .doc-overlay-enter-active, .doc-overlay-leave-active { transition: none; }
 }
-.doc-overlay.is-static .doc-overlay__stage.is-throwing { animation: none; }
-.doc-overlay.is-static .doc-overlay__loader,
-.doc-overlay.is-static .doc-overlay__halo,
-.doc-overlay.is-static .doc-overlay__mark,
-.doc-overlay.is-static .doc-overlay__dots i { animation: none; }
-.doc-overlay.is-static .doc-overlay__mark-line { animation: none; stroke-dashoffset: 0; }
 .doc-overlay.is-static.doc-overlay-enter-active,
 .doc-overlay.is-static.doc-overlay-leave-active { transition: none; }
 </style>
