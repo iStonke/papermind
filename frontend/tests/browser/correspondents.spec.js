@@ -1263,6 +1263,81 @@ test('open documents prefer existing correspondents found in the text and offer 
   await expect(similar).toHaveCount(0);
 });
 
+test('a successful assignment checks the card, flies the document to its correspondent and fills the progress', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await prepareWorkspace(page);
+  const utility = { id: utilityId, name: 'Stadtwerke Leipzig', kind: 'organization', aliases: [] };
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items: [utility] } }));
+  let unassigned = [
+    { document_id: 'bulk1', title: 'Abschlag Januar', sender: 'Stadtwerke Leipzig' },
+    { document_id: 'bulk2', title: 'Abschlag Februar', sender: 'Stadtwerke Leipzig' },
+  ];
+  await page.route('**/api/correspondents/unresolved?*', route => {
+    const hidden = new URL(route.request().url()).searchParams.get('hidden') === 'true';
+    return route.fulfill({ json: { items: hidden ? [] : unassigned } });
+  });
+  await page.route('**/api/documents/bulk*', route => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    const id = new URL(route.request().url()).pathname.split('/').at(-1);
+    unassigned = unassigned.filter(item => item.document_id !== id);
+    return route.fulfill({ json: {} });
+  });
+
+  await page.locator('.sidebar-item--correspondents').click();
+  const workspace = page.locator('.panel-correspondents');
+  await workspace.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true }).click();
+  const review = workspace.getByRole('region', { name: 'Dokumente ohne Korrespondenten', exact: true });
+  const target = workspace.locator(`[data-correspondent-id="${utilityId}"]`);
+  await expect(target).toBeVisible();
+  await expect(review.getByRole('progressbar')).toHaveCount(0);
+
+  const january = review.getByRole('listitem', { name: 'Abschlag Januar', exact: true });
+  await january.getByRole('button', { name: 'Zuordnen', exact: true }).click();
+  // Erfolg: Karte bestätigt, das Vorschaubild fliegt zur Zeile links, die aufleuchtet.
+  await expect(january).toHaveClass(/is-success/);
+  await expect(january.getByRole('button', { name: 'Zugeordnet' })).toBeVisible();
+  await expect(page.locator('.pm-assign-flight')).toHaveCount(1);
+  await expect.poll(() => target.evaluate(row => row.getAnimations().length)).toBeGreaterThan(0);
+  await expect(page.locator('.pm-assign-flight')).toHaveCount(0);
+  await expect(january).toHaveCount(0);
+  await expect(review.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
+
+  // Zuletzt: alles erledigt, der leere Zustand feiert kurz.
+  const february = review.getByRole('listitem', { name: 'Abschlag Februar', exact: true });
+  await february.getByRole('button', { name: 'Zuordnen', exact: true }).click();
+  await expect(february).toHaveCount(0);
+  await expect(review.locator('.assign__done--celebrate')).toBeVisible();
+  await expect(review.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
+});
+
+test('with reduced motion an assignment skips the flight', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await prepareWorkspace(page);
+  const utility = { id: utilityId, name: 'Stadtwerke Leipzig', kind: 'organization', aliases: [] };
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items: [utility] } }));
+  let unassigned = [{ document_id: 'bulk1', title: 'Abschlag Januar', sender: 'Stadtwerke Leipzig' }];
+  await page.route('**/api/correspondents/unresolved?*', route => route.fulfill({ json: { items: unassigned } }));
+  await page.route('**/api/documents/bulk*', route => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    unassigned = [];
+    return route.fulfill({ json: {} });
+  });
+  await page.locator('.sidebar-item--correspondents').click();
+  const workspace = page.locator('.panel-correspondents');
+  await workspace.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true }).click();
+  const review = workspace.getByRole('region', { name: 'Dokumente ohne Korrespondenten', exact: true });
+  const flights = [];
+  await page.exposeFunction('noteFlight', () => flights.push(1));
+  await page.evaluate(() => new MutationObserver(records => {
+    if (records.some(record => [...record.addedNodes].some(node => node.classList?.contains('pm-assign-flight')))) window.noteFlight();
+  }).observe(document.body, { childList: true, subtree: true }));
+  await review.getByRole('listitem', { name: 'Abschlag Januar', exact: true }).getByRole('button', { name: 'Zuordnen', exact: true }).click();
+  await expect(review.getByRole('listitem', { name: 'Abschlag Januar', exact: true })).toHaveCount(0);
+  expect(flights).toEqual([]);
+  await expect(review.locator('.assign__done--celebrate')).toHaveCount(0);
+});
+
 test('cleanup fills in short names and deletes empty entries', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 1440, height: 1000 });

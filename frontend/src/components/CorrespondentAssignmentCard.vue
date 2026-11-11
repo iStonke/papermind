@@ -11,7 +11,7 @@
   <li
     ref="cardEl"
     class="assign-card"
-    :class="{ 'is-pending': isPending, 'is-hidden': hidden }"
+    :class="{ 'is-pending': isPending && !succeeded, 'is-hidden': hidden, 'is-success': succeeded }"
     tabindex="-1"
     :data-document-id="item.document_id"
     :aria-label="title"
@@ -151,11 +151,11 @@
             type="submit"
             color="primary"
             variant="tonal"
-            prepend-icon="mdi-check"
-            :disabled="!canSubmit"
-            :loading="isPending && pendingAction !== 'ignore'"
+            :prepend-icon="succeeded ? 'mdi-check-circle' : 'mdi-check'"
+            :disabled="!canSubmit && !succeeded"
+            :loading="isPending && pendingAction !== 'ignore' && !succeeded"
             :title="`${submitLabel} (${shortcutLabel})`"
-          >{{ submitLabel }}</v-btn>
+          >{{ succeeded ? 'Zugeordnet' : submitLabel }}</v-btn>
         </div>
       </form>
     </div>
@@ -190,6 +190,8 @@ const props = defineProps({
   mentionedMemberId: { type: String, default: null },
   /** Ausgeblendete Fälle: nur Angaben und „Zurückholen“. */
   hidden: Boolean,
+  /** Gerade erfolgreich zugeordnet: kurzer Erfolgszustand vor dem Einklappen. */
+  succeeded: Boolean,
 });
 const emit = defineEmits(['submit', 'open-document', 'restore']);
 
@@ -307,6 +309,30 @@ defineExpose({ focus: () => cardEl.value?.focus({ preventScroll: true }), el: ca
 .assign-card:focus-visible,
 .assign-card:focus-within { border-color: color-mix(in srgb, var(--pm-text) 22%, transparent); }
 .assign-card.is-pending { opacity: 0.7; }
+/* Erfolg: Rahmen und Fläche leuchten kurz in der Zustandsfarbe, der Knopf wird zum Häkchen. */
+.assign-card.is-success {
+  border-color: color-mix(in srgb, var(--pm-accent) 70%, transparent);
+  background: color-mix(in srgb, var(--pm-accent) 8%, var(--pm-app-surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pm-accent) 16%, transparent);
+  transition: border-color 160ms ease, background-color 220ms ease, box-shadow 220ms ease;
+  pointer-events: none;
+}
+.assign-card.is-success .assign-card__submit.v-btn {
+  background: var(--pm-accent);
+  /* Vuetify setzt die Textfarbe des Tonal-Knopfs mit !important. */
+  color: var(--pm-accent-contrast, #fff) !important;
+  opacity: 1;
+  animation: assign-card-check 420ms cubic-bezier(.34, 1.56, .64, 1);
+}
+@keyframes assign-card-check {
+  0% { transform: scale(0.82); }
+  55% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+:global(.pm-no-animations) .assign-card.is-success .assign-card__submit.v-btn { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .assign-card.is-success .assign-card__submit.v-btn { animation: none; }
+}
 .assign-card.is-hidden { grid-template-columns: 52px minmax(0, 1fr); padding-block: 10px; }
 .assign-card.is-hidden .assign-card__thumb { width: 52px; height: 68px; }
 .assign-card.is-hidden .assign-card__head { align-items: center; }

@@ -123,6 +123,7 @@
                   'is-dragging': draggedId === node.id,
                 }"
                 role="treeitem"
+                :data-correspondent-id="node.id"
                 :aria-description="kindLabel(node.kind)"
                 :aria-selected="!isSpecialViewOpen && selectedId === node.id"
                 :aria-expanded="node.members.length ? isExpanded(node.id) : undefined"
@@ -173,6 +174,7 @@
                           'has-toggle': hasNestedMembers(node),
                         }"
                         role="treeitem"
+                        :data-correspondent-id="member.id"
                         :aria-description="kindLabel(member.kind)"
                         :aria-selected="!isSpecialViewOpen && selectedId === member.id"
                         :aria-expanded="member.members.length ? isExpanded(member.id) : undefined"
@@ -223,6 +225,7 @@
                                 'is-dragging': draggedId === person.id,
                               }"
                               role="treeitem"
+                              :data-correspondent-id="person.id"
                               :aria-description="kindLabel(person.kind)"
                               :aria-selected="!isSpecialViewOpen && selectedId === person.id"
                               :title="rowTitle(person, person.last_activity)"

@@ -13,10 +13,24 @@
   <section class="assign" :aria-label="texts.region" :aria-busy="isLoading">
     <slot name="back" />
     <header class="assign__head">
+      <!-- Fortschritt dieser Sitzung: füllt sich mit jedem erledigten Dokument. -->
+      <span
+        v-if="progress !== null"
+        class="assign__progress"
+        role="progressbar"
+        aria-label="Erledigt in dieser Sitzung"
+        :aria-valuenow="Math.round(progress * 100)"
+        aria-valuemin="0"
+        aria-valuemax="100"
+      ><span class="assign__progress-fill" :style="{ transform: `scaleX(${progress})` }" /></span>
       <span class="assign__icon" aria-hidden="true"><v-icon size="22">{{ texts.icon }}</v-icon></span>
       <div class="assign__heading">
         <h1 :id="titleId" ref="titleRef" tabindex="-1" class="assign__title">{{ texts.title }}</h1>
-        <p class="assign__subtitle">{{ subtitle }}</p>
+        <p class="assign__subtitle">
+          <Transition name="assign-tick" mode="out-in">
+            <span :key="subtitle">{{ subtitle }}</span>
+          </Transition>
+        </p>
       </div>
       <!-- Kopfaktionen wie im Profilkopf: umrandete Icon-Buttons, Zahl als Plakette. -->
       <div class="assign__head-actions">
@@ -89,6 +103,7 @@
         name="assign-card"
         class="assign__list"
         :aria-labelledby="titleId"
+        @leave="onCardLeave"
         @focusin="onFocusIn"
       >
         <CorrespondentAssignmentCard
@@ -100,6 +115,7 @@
           :pending-action="pending?.id === item.document_id ? pending.action : ''"
           :shortcut-label="shortcutLabel"
           :mentioned-member-id="mentionedMembers[item.document_id] || null"
+          :succeeded="succeededId === item.document_id"
           @open-document="previewId = $event"
           @submit="resolve"
         />
@@ -110,6 +126,7 @@
       </div>
       <PmEmptyState
         v-else-if="!loadError"
+        :class="{ 'assign__done--celebrate': celebrateDone }"
         icon="mdi-check-circle-outline"
         :title="texts.empty"
         subtitle="Neue Fälle erscheinen hier automatisch."
@@ -171,6 +188,8 @@ import { useSettingsStore } from '../stores/settings.js';
 import { notifyError, useNotifications } from '../stores/notifications.js';
 import { senderKey } from '../utils/senderKey.js';
 import { isSimilarityGuess, suggestCorrespondent } from '../utils/correspondentSuggestion.js';
+import { findFlightTarget, flyDocumentTo, pulseTarget } from '../utils/assignFlight.js';
+import { motionOff } from '../utils/expandPanel.js';
 
 const BULK = '__bulk';
 const BULK_PREVIEW = 8;
@@ -325,7 +344,14 @@ async function runBulk() {
   } finally {
     pending.value = null;
     bulkDialogOpen.value = false;
-    if (done.length) emit('resolved', done, true);
+    if (done.length) {
+      noteResolved(done.length);
+      if (!motionOff()) {
+        const targets = new Set(candidates.filter(entry => done.includes(entry.item.document_id)).map(entry => entry.correspondent.id));
+        for (const id of targets) pulseTarget(findFlightTarget(flightRoot(), id, store.findById));
+      }
+      emit('resolved', done, true);
+    }
   }
 }
 
@@ -414,6 +440,71 @@ watch(() => props.active, async (active) => {
   }
 }, { immediate: true });
 
+// ── Erfolg sichtbar machen: Häkchen auf der Karte, Ablage-Flug zur Zeile ──
+const succeededId = ref(null);
+const resolvedInSession = ref(0);
+const celebrateDone = ref(false);
+const progress = computed(() => {
+  if (showHidden.value || !resolvedInSession.value) return null;
+  return resolvedInSession.value / (resolvedInSession.value + props.items.length);
+});
+watch(() => props.active, (active) => {
+  if (active) return;
+  resolvedInSession.value = 0;
+  celebrateDone.value = false;
+});
+watch(() => props.items.length, (count) => {
+  if (count) celebrateDone.value = false;
+});
+const wait = ms => new Promise(resolve => { window.setTimeout(resolve, ms); });
+
+function flightRoot() {
+  return scrollRef.value?.closest('.panel-correspondents') || document;
+}
+
+/**
+ * Karte zeigt kurz „Zugeordnet“; ist der Korrespondent (oder seine Sammlung)
+ * links zu sehen, fliegt das Vorschaubild dorthin. Erfüllt, sobald die Karte
+ * einklappen darf – der Flug läuft unabhängig weiter.
+ */
+async function celebrate(id, correspondentId) {
+  if (motionOff()) return;
+  succeededId.value = id;
+  await nextTick();
+  const thumb = cardElement(id)?.querySelector('.assign-card__thumb');
+  const target = findFlightTarget(flightRoot(), correspondentId, store.findById);
+  if (thumb && target) {
+    await wait(140);
+    void flyDocumentTo(thumb, target);
+    await wait(360);
+  } else {
+    await wait(560);
+  }
+}
+
+/** Erledigte Karte klappt in der Höhe zusammen, die übrigen rücken nach. */
+function onCardLeave(el, done) {
+  if (motionOff() || typeof el.animate !== 'function') {
+    done();
+    return;
+  }
+  const height = el.offsetHeight;
+  const gap = parseFloat(getComputedStyle(el.parentElement || el).rowGap) || 0;
+  el.style.overflow = 'hidden';
+  const animation = el.animate([
+    { height: `${height}px`, opacity: 1, transform: 'scale(1)', marginBottom: '0px' },
+    { height: `${height}px`, opacity: 0, transform: 'scale(0.97)', marginBottom: '0px', offset: 0.35 },
+    { height: '0px', opacity: 0, transform: 'scale(0.97)', paddingTop: '0px', paddingBottom: '0px', borderTopWidth: '0px', borderBottomWidth: '0px', marginBottom: `${-gap}px` },
+  ], { duration: 380, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  animation.onfinish = done;
+  animation.oncancel = done;
+}
+
+function noteResolved(count) {
+  resolvedInSession.value += count;
+  if (count && count >= props.items.length) celebrateDone.value = !motionOff();
+}
+
 // ── Speichern ─────────────────────────────────────────────────────
 function senderMatches(correspondent, sender) {
   const key = senderKey(sender);
@@ -447,6 +538,7 @@ async function resolve({ key, item, correspondentId: chosenId, name, collectionI
       }
       await patchDocument(id, { correspondent_id: correspondentId });
       done.push(id);
+      await celebrate(id, correspondentId);
     }
     notifyResolved(key, key === 'assign' ? aliasOffer(correspondentId, item) : null);
   } catch (error) {
@@ -454,7 +546,9 @@ async function resolve({ key, item, correspondentId: chosenId, name, collectionI
   } finally {
     if (!done.length) focusIndexAfterResolve = -1;
     pending.value = null;
+    if (done.length) noteResolved(done.length);
     if (done.length) emit('resolved', done, key !== 'ignore');
+    succeededId.value = null;
     if (done.length && key === 'ignore') void loadHidden();
   }
 }
@@ -577,13 +671,60 @@ defineExpose({ focusTitle: () => titleRef.value?.focus() });
 .assign__link:disabled { opacity: .55; cursor: default; }
 .assign__link:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 1px; }
 
-.assign-card-leave-active { transition: opacity 180ms ease, transform 220ms cubic-bezier(.22, 1, .36, 1); }
-.assign-card-leave-to { opacity: 0; transform: translateX(12px); }
+/* Einklappen beim Erledigen per JS (onCardLeave); verschobene Karten gleiten nach. */
 .assign-card-move { transition: transform 240ms cubic-bezier(.22, 1, .36, 1); }
-:global(.pm-no-animations .assign-card-leave-active),
 :global(.pm-no-animations .assign-card-move) { transition: none; }
+
+.assign__head { position: relative; }
+.assign__progress {
+  position: absolute;
+  inset: auto 0 -1px 0;
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--pm-accent) 14%, transparent);
+}
+.assign__progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--pm-accent);
+  transform-origin: left center;
+  transition: transform 520ms cubic-bezier(.22, 1, .36, 1);
+}
+.assign__subtitle > span { display: inline-block; }
+.assign-tick-enter-active, .assign-tick-leave-active { transition: opacity 160ms ease, transform 200ms cubic-bezier(.22, 1, .36, 1); }
+.assign-tick-enter-from { opacity: 0; transform: translateY(6px); }
+.assign-tick-leave-to { opacity: 0; transform: translateY(-6px); }
+
+/* Abschluss: das Häkchen im leeren Zustand springt auf, ein Ring läuft aus. */
+.assign__done--celebrate :deep(.pm-empty-state__icon) { animation: assign-done-pop 620ms cubic-bezier(.34, 1.56, .64, 1) both; }
+.assign__done--celebrate :deep(.pm-empty-state__illustration)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 64px;
+  height: 64px;
+  border: 2px solid var(--pm-accent);
+  border-radius: 50%;
+  animation: assign-done-ring 900ms cubic-bezier(.22, 1, .36, 1) 120ms both;
+  pointer-events: none;
+}
+@keyframes assign-done-pop {
+  0% { transform: scale(0.4) rotate(-20deg); opacity: 0; }
+  60% { transform: scale(1.12) rotate(4deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); }
+}
+@keyframes assign-done-ring {
+  0% { transform: scale(0.6); opacity: 0.7; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+:global(.pm-no-animations .assign-tick-enter-active),
+:global(.pm-no-animations .assign-tick-leave-active),
+:global(.pm-no-animations .assign__progress-fill) { transition: none; }
 @media (prefers-reduced-motion: reduce) {
-  .assign-card-leave-active, .assign-card-move { transition: none; }
+  .assign-card-move, .assign-tick-enter-active, .assign-tick-leave-active, .assign__progress-fill { transition: none; }
+  .assign__done--celebrate :deep(.pm-empty-state__icon),
+  .assign__done--celebrate :deep(.pm-empty-state__illustration)::after { animation: none; }
 }
 @media (pointer: coarse) { .assign__link { min-height: 44px; } }
 </style>
