@@ -1489,7 +1489,7 @@ test('documents assigned to a collection can be refined to a member or kept', as
   await page.setViewportSize({ width: 1440, height: 1000 });
   await prepareWorkspace(page);
   const items = [
-    { id: 'bank', name: 'Bank', kind: 'collection', usage_count: 2, aliases: [] },
+    { id: 'bank', name: 'Bank', kind: 'collection', usage_count: 3, aliases: [] },
     { id: 'sparkasse', name: 'Förde Sparkasse', kind: 'organization', parent_id: 'bank', usage_count: 0, aliases: [] },
     { id: 'volksbank', name: 'Volksbank', kind: 'organization', parent_id: 'bank', usage_count: 0, aliases: [] },
   ];
@@ -1497,7 +1497,17 @@ test('documents assigned to a collection can be refined to a member or kept', as
   let collectionDocs = [
     { document_id: 'coll1', title: 'Kontoauszug März', correspondent_id: 'bank', correspondent_name: 'Bank' },
     { document_id: 'coll2', title: 'Allgemeine Bedingungen', correspondent_id: 'bank', correspondent_name: 'Bank' },
+    { document_id: 'coll3', title: 'Zahlungsbestätigung', correspondent_id: 'bank', correspondent_name: 'Bank' },
   ];
+  const created = [];
+  await page.route('**/api/correspondents', route => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    const payload = route.request().postDataJSON();
+    created.push(payload);
+    const correspondent = { id: 'new-bank', kind: null, aliases: [], ...payload };
+    items.push(correspondent);
+    return route.fulfill({ json: correspondent });
+  });
   await page.route('**/api/correspondents/collection-documents?*', route => route.fulfill({ json: { scanned: collectionDocs.length, unresolved: collectionDocs.length, include_deleted: false, items: collectionDocs } }));
   await page.route('**/api/documents/coll*/file?*', route => route.fulfill({ contentType: 'application/pdf', body: syntheticDocumentPdf() }));
   await page.route('**/api/correspondents/*/refinements?*', route => {
@@ -1524,7 +1534,7 @@ test('documents assigned to a collection can be refined to a member or kept', as
   await page.locator('.sidebar-item--correspondents').click();
   const workspace = page.locator('.panel-correspondents');
   const tile = workspace.getByRole('treeitem', { name: 'Genauer zuordnen', exact: true });
-  await expect(tile.locator('.corr-inbox__count')).toHaveText('2');
+  await expect(tile.locator('.corr-inbox__count')).toHaveText('3');
   await tile.click();
   const review = workspace.getByRole('region', { name: 'Dokumente an Sammlungen', exact: true });
   await expect(review.getByRole('heading', { name: 'Genauer zuordnen', level: 1 })).toBeVisible();
@@ -1538,6 +1548,18 @@ test('documents assigned to a collection can be refined to a member or kept', as
   await first.getByRole('button', { name: 'Zuordnen', exact: true }).click();
   await expect.poll(() => patched).toEqual([['coll1', 'sparkasse']]);
   await expect(first).toHaveCount(0);
+
+  const payment = review.getByRole('listitem', { name: 'Zahlungsbestätigung', exact: true });
+  const picker = payment.getByRole('combobox', { name: 'Korrespondent', exact: true });
+  await picker.fill('Volksbank');
+  await expect(page.getByRole('option').filter({ hasText: 'Volksbank' })).toHaveCount(1);
+  await picker.fill('Neue Direktbank');
+  await page.getByRole('option', { name: /„Neue Direktbank“ anlegen/ }).click();
+  await expect(payment.getByRole('textbox', { name: 'Name des Korrespondenten' })).toHaveValue('Neue Direktbank');
+  await payment.getByRole('button', { name: 'Anlegen und zuordnen', exact: true }).click();
+  await expect.poll(() => patched).toEqual([['coll1', 'sparkasse'], ['coll3', 'new-bank']]);
+  expect(created).toEqual([{ name: 'Neue Direktbank' }]);
+  await expect(payment).toHaveCount(0);
 
   // Without a mentioned member the collection stays selected and cannot be "assigned" again.
   const second = review.getByRole('listitem', { name: 'Allgemeine Bedingungen', exact: true });

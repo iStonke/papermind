@@ -520,7 +520,7 @@ function senderMatches(correspondent, sender) {
     .some(name => name && senderKey(name) === key);
 }
 
-async function resolve({ key, item, correspondentId: chosenId, name, collectionId }) {
+async function resolve({ key, item, correspondentId: chosenId, name, collectionId, withoutType }) {
   if (pending.value || props.isLoading) return;
   const id = item.document_id;
   focusIndexAfterResolve = sortedItems.value.findIndex(entry => entry.document_id === id);
@@ -534,11 +534,12 @@ async function resolve({ key, item, correspondentId: chosenId, name, collectionI
       done.push(id);
     } else {
       if (key === 'create') {
-        // Im Sammlungsmodus entsteht eine Organisation, die gleich zur Sammlung gehört.
-        const result = await store.createCorrespondentByName(name, isCollectionMode.value ? { kind: 'organization' } : {});
+        // Einträge ohne Typ können laut Korrespondentenhierarchie keine Sammlung als Elternteil haben.
+        const asCollectionMember = isCollectionMode.value && !withoutType;
+        const result = await store.createCorrespondentByName(name, asCollectionMember ? { kind: 'organization' } : {});
         if (!result?.id) return;
         correspondentId = result.id;
-        if (collectionId) await store.updateCorrespondent(correspondentId, { parent_id: collectionId }, { silent: true });
+        if (asCollectionMember && collectionId) await store.updateCorrespondent(correspondentId, { parent_id: collectionId }, { silent: true });
       }
       if (key === 'alias') {
         const result = await store.addAlias(correspondentId, item.sender);

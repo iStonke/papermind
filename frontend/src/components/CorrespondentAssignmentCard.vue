@@ -86,7 +86,7 @@
 
       <form v-if="!hidden" class="assign-card__editor" @submit.prevent="submit(submitAction)">
         <v-text-field
-          v-if="action === 'create'"
+          v-if="isCreating"
           ref="nameFieldRef"
           v-model="newName"
           label="Name des Korrespondenten"
@@ -104,7 +104,11 @@
           :correspondents="correspondentOptions"
           :correspondent-autofocus="action === 'alias'"
           :disabled="disabled"
+          @update:correspondent-search="correspondentSearch = $event"
         >
+          <template v-if="action === 'assign'" #correspondent-empty>
+            <v-list-item title="Kein Korrespondent gefunden" />
+          </template>
           <template #correspondent-suffix>
             <v-chip
               v-if="showsSuggestion"
@@ -171,8 +175,10 @@ import { useSettingsStore } from '../stores/settings.js';
 import { useCorrespondentStore } from '../stores/correspondents.js';
 import { formatDocumentDateInputFromIso } from '../utils/dates.js';
 import { normalizedSender, suggestCorrespondent, suggestionReason } from '../utils/correspondentSuggestion.js';
+import { correspondentSearchValues } from '../utils/correspondentHierarchy.js';
 
 const NEW_SENDER = 'unassigned:new-sender';
+const CREATE_FROM_SEARCH = 'unassigned:create-from-search:';
 const ACTION_LABELS = {
   assign: 'Zuordnen',
   alias: 'Alias übernehmen und zuordnen',
@@ -205,8 +211,10 @@ const thumbBroken = ref(false);
 const action = ref('assign');
 const selectedCorrespondentId = ref();
 const newName = ref('');
+const correspondentSearch = ref('');
 
 const isCollectionMode = computed(() => props.mode === 'collection');
+const isCreating = computed(() => action.value === 'create' || action.value === 'create-untyped');
 const isPending = computed(() => Boolean(props.pendingAction));
 const ignoreLabel = computed(() => (isCollectionMode.value ? 'Bei der Sammlung lassen' : 'Bewusst ohne Korrespondent'));
 const title = computed(() => props.item.title || props.item.original_filename || 'Ohne Titel');
@@ -237,19 +245,35 @@ const newSenderOption = computed(() => {
   if (!showSuggestions.value || action.value !== 'assign' || !detectedSender.value || suggestedCorrespondent.value) return null;
   return { title: detectedSender.value, value: NEW_SENDER, props: { subtitle: 'Neuen Korrespondenten anlegen' } };
 });
-const correspondentOptions = computed(() => (newSenderOption.value
-  ? [newSenderOption.value, ...store.correspondentOptions]
-  : store.correspondentOptions));
+const createFromSearchOption = computed(() => {
+  const name = correspondentSearch.value.trim().replace(/\s+/g, ' ');
+  if (action.value !== 'assign' || name.length < 2 || name.length > 120) return null;
+  const key = name.toLocaleLowerCase('de-DE');
+  if (store.correspondentOptions.some(entry => correspondentSearchValues(entry)
+    .some(value => value.toLocaleLowerCase('de-DE') === key))) return null;
+  return { title: `„${name}“ anlegen`, value: CREATE_FROM_SEARCH + name, props: { subtitle: 'Neuer Korrespondent ohne Typ' } };
+});
+const correspondentOptions = computed(() => [
+  ...(newSenderOption.value ? [newSenderOption.value] : []),
+  ...store.correspondentOptions,
+  ...(createFromSearchOption.value ? [createFromSearchOption.value] : []),
+]);
 const correspondentSelection = computed({
   get: () => (selectedCorrespondentId.value === undefined
     ? suggestedCorrespondent.value?.id ?? newSenderOption.value?.value ?? collectionId.value ?? null
     : selectedCorrespondentId.value),
-  set: (value) => { selectedCorrespondentId.value = value; },
+  set(value) {
+    if (value?.startsWith(CREATE_FROM_SEARCH)) {
+      void setAction('create-untyped', true, value.slice(CREATE_FROM_SEARCH.length));
+      return;
+    }
+    selectedCorrespondentId.value = value;
+  },
 });
 const showsSuggestion = computed(() => action.value === 'assign' && Boolean(correspondentSelection.value)
   && correspondentSelection.value === (suggestedCorrespondent.value?.id ?? newSenderOption.value?.value));
-const submitAction = computed(() => (correspondentSelection.value === NEW_SENDER ? 'create' : action.value));
-const nameToCreate = computed(() => (action.value === 'create' ? newName.value.trim() : detectedSender.value));
+const submitAction = computed(() => (isCreating.value || correspondentSelection.value === NEW_SENDER ? 'create' : action.value));
+const nameToCreate = computed(() => (isCreating.value ? newName.value.trim() : detectedSender.value));
 const submitLabel = computed(() => ACTION_LABELS[submitAction.value]);
 const canSubmit = computed(() => Boolean(!props.disabled
   && (submitAction.value === 'create'
@@ -257,11 +281,12 @@ const canSubmit = computed(() => Boolean(!props.disabled
     // Im Sammlungsmodus nur, wenn es wirklich genauer wird.
     : correspondentSelection.value && correspondentSelection.value !== collectionId.value)));
 
-async function setAction(nextAction, focus = false) {
+async function setAction(nextAction, focus = false, name = detectedSender.value) {
   action.value = nextAction;
   selectedCorrespondentId.value = nextAction === 'assign' ? undefined : null;
-  newName.value = detectedSender.value;
-  if (focus && nextAction === 'create') {
+  newName.value = name;
+  correspondentSearch.value = '';
+  if (focus && isCreating.value) {
     await nextTick();
     nameFieldRef.value?.focus?.();
   }
@@ -276,6 +301,7 @@ function submit(key) {
     correspondentId: correspondentSelection.value === NEW_SENDER ? null : correspondentSelection.value,
     name: nameToCreate.value,
     collectionId: collectionId.value,
+    withoutType: action.value === 'create-untyped',
   });
 }
 
