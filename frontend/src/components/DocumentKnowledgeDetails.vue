@@ -20,70 +20,72 @@
             <div v-show="showHelp" :id="`${titleId}-help`" class="document-knowledge__help" :aria-hidden="!showHelp"><aside class="document-knowledge__explanation"><strong>Was zeigt Wissen?</strong><p>Wissen zeigt die KI-Kurzfassung und erkannte Angaben. Die Skala zeigt, welche Dokumentfelder bereits ausgefüllt sind.</p></aside></div>
           </v-expand-transition>
         </header>
-        <p v-if="details.message" class="document-knowledge__state" :class="`document-knowledge__state--${details.state}`" role="status">{{ details.message }}</p>
-        <section v-if="details.summary" class="document-knowledge__section document-knowledge__summary-card">
-          <h4>Kurzfassung</h4><p class="document-knowledge__summary" tabindex="0" aria-label="Kurzfassung der KI-Auswertung">{{ details.summary }}</p>
-        </section>
-        <section class="document-knowledge__section document-knowledge__completeness">
-          <div class="document-knowledge__completeness-heading"><h4>Dokumentangaben</h4><span>{{ details.filledCount }} von {{ details.completeness.length }} vorhanden</span></div>
-          <div ref="completenessMeter" class="document-knowledge__segments" role="meter" tabindex="-1" aria-label="Vollständigkeit der Dokumentangaben"
-            :aria-valuemin="0" :aria-valuemax="details.completeness.length" :aria-valuenow="details.filledCount"
-            :aria-valuetext="`${details.filledCount} von ${details.completeness.length} Angaben vorhanden`">
-            <span v-for="field in details.completeness" :key="field.label" class="document-knowledge__segment"
-              :class="{ 'document-knowledge__segment--filled': field.filled }" :title="`${field.label}: ${field.filled ? 'vorhanden' : 'fehlt'}`" aria-hidden="true" />
-          </div>
-          <div v-if="!editing && (details.missing.length || busy)" class="document-knowledge__missing">
-            <h4 v-if="details.missing.length">Offene Angaben</h4>
-            <button ref="completionButton" type="button" class="document-knowledge__complete" :disabled="busy || completionDisabled" :aria-busy="busy"
-              :aria-label="completionLabel" :title="`Ergänzt ausschließlich leere Felder mit KI. Offen: ${details.missing.join(', ')}`" @click="complete">
-              <v-progress-circular v-if="busy" indeterminate size="12" width="2" aria-hidden="true" />
-              <v-icon v-else size="16" aria-hidden="true">mdi-creation</v-icon>{{ completionLabel }}
-            </button>
-          </div>
-          <p v-if="completionError" class="document-knowledge__completion-error" role="alert">{{ completionError }}</p>
-        </section>
-        <section class="document-knowledge__section">
-          <div class="document-knowledge__section-heading"><h4>Erkannte Angaben</h4>
-            <button v-if="saveChanges && !editing" ref="editButton" type="button" class="document-knowledge__edit" aria-label="Angaben bearbeiten"
-              :disabled="busy || completionDisabled || editingDisabled" title="Angaben korrigieren" @click="startEditing"><v-icon size="16" aria-hidden="true">mdi-pencil-outline</v-icon></button>
-          </div>
-          <form v-if="editing" class="document-knowledge__editor" aria-label="Angaben korrigieren" @submit.prevent="save" @keydown.esc.stop.prevent="cancelEditing">
-            <fieldset :disabled="saving">
-              <label :for="`${titleId}-type`">Dokumenttyp</label>
-              <input :id="`${titleId}-type`" ref="firstEditorField" v-model="draft.document_type" :list="`${titleId}-types`" maxlength="30" autocomplete="off" />
-              <datalist :id="`${titleId}-types`"><option v-for="type in documentTypes" :key="type" :value="type" /></datalist>
-              <label :for="`${titleId}-date`">Dokumentdatum</label><input :id="`${titleId}-date`" v-model="draft.document_date" type="date" max="9999-12-31" />
-              <label :for="`${titleId}-sender`">Korrespondent</label>
-              <select :id="`${titleId}-sender`" v-model="draft.correspondent_id"><option value="">Keine Zuordnung</option><option v-for="item in correspondents" :key="item.value" :value="item.value">{{ item.title }}</option></select>
-              <label :for="`${titleId}-recipient`">Empfänger</label><input :id="`${titleId}-recipient`" v-model="draft.recipient" maxlength="255" autocomplete="off" />
-              <div class="document-knowledge__money-editor">
-                <div><label :for="`${titleId}-amount`">Betrag</label><input :id="`${titleId}-amount`" v-model="draft.amount" inputmode="decimal" placeholder="0,00" autocomplete="off" /></div>
-                <div><label :for="`${titleId}-currency`">Währung</label><input :id="`${titleId}-currency`" v-model="draft.currency" maxlength="3" placeholder="EUR" autocomplete="off" /></div>
-              </div>
-            </fieldset>
-            <p class="document-knowledge__edit-hint">Korrekturen bleiben bei einer neuen KI-Auswertung erhalten.</p>
-            <p v-if="saveError" class="document-knowledge__completion-error" role="alert">{{ saveError }}</p>
-            <div class="document-knowledge__editor-actions"><button type="button" :disabled="saving" @click="cancelEditing">Abbrechen</button>
-              <button type="submit" class="document-knowledge__complete" :disabled="saving" :aria-busy="saving">{{ saving ? 'Wird gespeichert …' : 'Speichern' }}</button></div>
-          </form>
-          <template v-else>
-          <p v-if="details.compactPrimary" class="document-knowledge__compact-primary">{{ details.compactPrimary }}</p>
-          <p v-if="details.compactParties" class="document-knowledge__compact-parties" :title="details.compactParties">{{ details.compactParties }}</p>
-          <p v-if="!details.fields.length" class="document-knowledge__edit-hint">Noch keine Angaben vorhanden.</p>
-          <button v-if="details.fields.length" type="button" class="document-knowledge__disclosure" :aria-expanded="expanded" :aria-controls="`${titleId}-fields`" @click="expanded = !expanded">{{ expanded ? 'Weniger anzeigen' : 'Alle Angaben' }}<v-icon size="14" aria-hidden="true">{{ expanded ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon></button>
-          <dl v-if="expanded" :id="`${titleId}-fields`" class="document-knowledge__fields"><template v-for="field in details.fields" :key="field.label"><dt>{{ field.label }}</dt>
-            <dd :class="{ 'document-knowledge__amount': field.amount !== undefined }"><template v-if="field.amount !== undefined"><strong>{{ field.amount }}</strong><small v-if="field.currency">{{ field.currency }}</small></template><template v-else>{{ field.value }}</template></dd>
-          </template></dl>
-          <p v-if="saved" class="document-knowledge__saved" role="status">Angaben gespeichert.</p>
-          </template>
-        </section>
-        <section v-if="details.tags.length" class="document-knowledge__section">
-          <h4>Vorgeschlagene Tags</h4><div class="document-knowledge__tags"><span v-for="tag in details.tags" :key="tag">{{ tag }}</span></div>
-        </section>
-        <dl class="document-knowledge__facts">
-          <dt>Status</dt><dd><span class="document-knowledge__status" :class="`document-knowledge__status--${details.state}`">{{ details.status }}</span></dd>
-          <template v-if="details.processed"><dt>{{ details.processedLabel }}</dt><dd>{{ details.processed }}</dd></template>
-        </dl>
+        <div class="document-knowledge__body">
+          <p v-if="details.message" class="document-knowledge__state" :class="`document-knowledge__state--${details.state}`" role="status">{{ details.message }}</p>
+          <section v-if="details.summary" class="document-knowledge__section document-knowledge__summary-card">
+            <h4>Kurzfassung</h4><p class="document-knowledge__summary" tabindex="0" aria-label="Kurzfassung der KI-Auswertung">{{ details.summary }}</p>
+          </section>
+          <section class="document-knowledge__section document-knowledge__completeness">
+            <div class="document-knowledge__completeness-heading"><h4>Dokumentangaben</h4><span>{{ details.filledCount }} von {{ details.completeness.length }} vorhanden</span></div>
+            <div ref="completenessMeter" class="document-knowledge__segments" role="meter" tabindex="-1" aria-label="Vollständigkeit der Dokumentangaben"
+              :aria-valuemin="0" :aria-valuemax="details.completeness.length" :aria-valuenow="details.filledCount"
+              :aria-valuetext="`${details.filledCount} von ${details.completeness.length} Angaben vorhanden`">
+              <span v-for="field in details.completeness" :key="field.label" class="document-knowledge__segment"
+                :class="{ 'document-knowledge__segment--filled': field.filled }" :title="`${field.label}: ${field.filled ? 'vorhanden' : 'fehlt'}`" aria-hidden="true" />
+            </div>
+            <div v-if="!editing && (details.missing.length || busy)" class="document-knowledge__missing">
+              <h4 v-if="details.missing.length">Offene Angaben</h4>
+              <button ref="completionButton" type="button" class="document-knowledge__complete" :disabled="busy || completionDisabled" :aria-busy="busy"
+                :aria-label="completionLabel" :title="`Ergänzt ausschließlich leere Felder mit KI. Offen: ${details.missing.join(', ')}`" @click="complete">
+                <v-progress-circular v-if="busy" indeterminate size="12" width="2" aria-hidden="true" />
+                <v-icon v-else size="16" aria-hidden="true">mdi-creation</v-icon>{{ completionLabel }}
+              </button>
+            </div>
+            <p v-if="completionError" class="document-knowledge__completion-error" role="alert">{{ completionError }}</p>
+          </section>
+          <section class="document-knowledge__section">
+            <div class="document-knowledge__section-heading"><h4>Erkannte Angaben</h4>
+              <button v-if="saveChanges && !editing" ref="editButton" type="button" class="document-knowledge__edit" aria-label="Angaben bearbeiten"
+                :disabled="busy || completionDisabled || editingDisabled" title="Angaben korrigieren" @click="startEditing"><v-icon size="16" aria-hidden="true">mdi-pencil-outline</v-icon></button>
+            </div>
+            <form v-if="editing" class="document-knowledge__editor" aria-label="Angaben korrigieren" @submit.prevent="save" @keydown.esc.stop.prevent="cancelEditing">
+              <fieldset :disabled="saving">
+                <label :for="`${titleId}-type`">Dokumenttyp</label>
+                <input :id="`${titleId}-type`" ref="firstEditorField" v-model="draft.document_type" :list="`${titleId}-types`" maxlength="30" autocomplete="off" />
+                <datalist :id="`${titleId}-types`"><option v-for="type in documentTypes" :key="type" :value="type" /></datalist>
+                <label :for="`${titleId}-date`">Dokumentdatum</label><input :id="`${titleId}-date`" v-model="draft.document_date" type="date" max="9999-12-31" />
+                <label :for="`${titleId}-sender`">Korrespondent</label>
+                <select :id="`${titleId}-sender`" v-model="draft.correspondent_id"><option value="">Keine Zuordnung</option><option v-for="item in correspondents" :key="item.value" :value="item.value">{{ item.title }}</option></select>
+                <label :for="`${titleId}-recipient`">Empfänger</label><input :id="`${titleId}-recipient`" v-model="draft.recipient" maxlength="255" autocomplete="off" />
+                <div class="document-knowledge__money-editor">
+                  <div><label :for="`${titleId}-amount`">Betrag</label><input :id="`${titleId}-amount`" v-model="draft.amount" inputmode="decimal" placeholder="0,00" autocomplete="off" /></div>
+                  <div><label :for="`${titleId}-currency`">Währung</label><input :id="`${titleId}-currency`" v-model="draft.currency" maxlength="3" placeholder="EUR" autocomplete="off" /></div>
+                </div>
+              </fieldset>
+              <p class="document-knowledge__edit-hint">Korrekturen bleiben bei einer neuen KI-Auswertung erhalten.</p>
+              <p v-if="saveError" class="document-knowledge__completion-error" role="alert">{{ saveError }}</p>
+              <div class="document-knowledge__editor-actions"><button type="button" :disabled="saving" @click="cancelEditing">Abbrechen</button>
+                <button type="submit" class="document-knowledge__complete" :disabled="saving" :aria-busy="saving">{{ saving ? 'Wird gespeichert …' : 'Speichern' }}</button></div>
+            </form>
+            <template v-else>
+            <p v-if="details.compactPrimary" class="document-knowledge__compact-primary">{{ details.compactPrimary }}</p>
+            <p v-if="details.compactParties" class="document-knowledge__compact-parties" :title="details.compactParties">{{ details.compactParties }}</p>
+            <p v-if="!details.fields.length" class="document-knowledge__edit-hint">Noch keine Angaben vorhanden.</p>
+            <button v-if="details.fields.length" type="button" class="document-knowledge__disclosure" :aria-expanded="expanded" :aria-controls="`${titleId}-fields`" @click="expanded = !expanded">{{ expanded ? 'Weniger anzeigen' : 'Alle Angaben' }}<v-icon size="14" aria-hidden="true">{{ expanded ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon></button>
+            <dl v-if="expanded" :id="`${titleId}-fields`" class="document-knowledge__fields"><template v-for="field in details.fields" :key="field.label"><dt>{{ field.label }}</dt>
+              <dd :class="{ 'document-knowledge__amount': field.amount !== undefined }"><template v-if="field.amount !== undefined"><strong>{{ field.amount }}</strong><small v-if="field.currency">{{ field.currency }}</small></template><template v-else>{{ field.value }}</template></dd>
+            </template></dl>
+            <p v-if="saved" class="document-knowledge__saved" role="status">Angaben gespeichert.</p>
+            </template>
+          </section>
+          <section v-if="details.tags.length" class="document-knowledge__section">
+            <h4>Vorgeschlagene Tags</h4><div class="document-knowledge__tags"><span v-for="tag in details.tags" :key="tag">{{ tag }}</span></div>
+          </section>
+          <dl class="document-knowledge__facts">
+            <dt>Status</dt><dd><span class="document-knowledge__status" :class="`document-knowledge__status--${details.state}`">{{ details.status }}</span></dd>
+            <template v-if="details.processed"><dt>{{ details.processedLabel }}</dt><dd>{{ details.processed }}</dd></template>
+          </dl>
+        </div>
       </section>
     </v-menu>
   </span>
@@ -171,8 +173,16 @@ async function save() {
 .document-knowledge-trigger:focus-visible { outline:2px solid var(--pm-accent); outline-offset:4px; }
 :global(.pm-no-animations .document-knowledge-trigger::before) { transition:none; }
 @media(prefers-reduced-motion:reduce) { .document-knowledge-trigger::before { transition:none; } }
-.document-knowledge { width:380px; max-width:calc(100vw - 24px); max-height:calc(100dvh - 32px); overflow-y:auto; padding:20px; border:1px solid var(--pm-divider); border-radius:18px; background:var(--pm-app-surface-raised, #fff); color:var(--pm-text); box-shadow:0 14px 48px rgb(0 0 0 / .2); font-size:12px; line-height:1.5; }
-.document-knowledge__header { position:sticky; top:-20px; z-index:2; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-start; gap:0 12px; margin:-20px -20px 18px; padding:20px 20px 0; background:var(--pm-app-surface-raised, #fff); }
+.document-knowledge { width:380px; max-width:calc(100vw - 24px); max-height:calc(100dvh - 32px); display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--pm-divider); border-radius:18px; background:var(--pm-app-surface-raised, #fff); color:var(--pm-text); box-shadow:0 14px 48px rgb(0 0 0 / .2); font-size:12px; line-height:1.5; }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .document-knowledge {
+    background: color-mix(in srgb, var(--pm-app-surface-raised, #fff) 86%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+  }
+}
+.document-knowledge__header { flex:none; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-start; gap:0 12px; padding:20px 20px 0; }
+.document-knowledge__body { min-height:0; overflow-y:auto; padding:18px 20px 20px; }
 .document-knowledge__title-row { display:flex; align-items:center; gap:6px; }
 .document-knowledge__info { display:grid; place-items:center; width:28px; height:28px; border-radius:50%; color:var(--pm-muted); }
 .document-knowledge__info:hover, .document-knowledge__info--active { color:var(--pm-accent); background:color-mix(in srgb, var(--pm-accent) 8%, transparent); }
