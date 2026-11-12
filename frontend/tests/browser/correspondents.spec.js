@@ -704,8 +704,8 @@ test('the directory handles open document assignments and only offers short name
   const shortNameDialog = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'Kurzname bearbeiten' }) });
   await shortNameDialog.getByRole('textbox', { name: 'Kurzname' }).fill('SW Leipzig');
   await shortNameDialog.getByRole('button', { name: 'Speichern' }).click();
-  await expect(workspace.getByRole('button', { name: 'Kurzname bearbeiten: SW Leipzig' })).toBeVisible();
-  await expect(workspace.getByRole('heading', { name: 'SW Leipzig', exact: true })).toBeVisible();
+  await expect(workspace.getByRole('button', { name: 'Kurzname bearbeiten: SW Leipzig' })).toHaveText('SW Leipzig');
+  await expect(workspace.getByRole('heading', { name: 'Stadtwerke Leipzig', exact: true })).toBeVisible();
   await workspace.getByRole('textbox', { name: 'Korrespondenten durchsuchen' }).fill('SW Leipzig');
   await expect(workspace.getByRole('treeitem')).toHaveCount(1);
   await workspace.getByRole('textbox', { name: 'Korrespondenten durchsuchen' }).clear();
@@ -1533,7 +1533,8 @@ test('a collection uses the same short name in the tree, share band and member t
     await expect(section.getByText(club.name, { exact: true })).toHaveCount(0);
   }
   await legend.getByRole('button', { name: /KMTV/ }).click();
-  await expect(workspace.getByRole('heading', { name: 'KMTV', exact: true })).toBeVisible();
+  await expect(workspace.getByRole('heading', { name: club.name, exact: true })).toBeVisible();
+  await expect(workspace.getByRole('button', { name: 'Kurzname bearbeiten: KMTV' })).toHaveText('KMTV');
 });
 
 test('documents assigned to a collection can be refined to a member or kept', async ({ page }) => {

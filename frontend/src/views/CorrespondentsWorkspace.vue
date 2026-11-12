@@ -388,7 +388,7 @@
               @blur="commitRename"
             >
             <h1 v-else class="corr-profile__name">
-              <button ref="profileNameRef" type="button" class="corr-profile__name-btn" :title="`Vollständigen Namen bearbeiten: ${selected.name}`" @click="startRename">{{ rowLabel(selected) }}</button>
+              <button ref="profileNameRef" type="button" class="corr-profile__name-btn" :title="`Vollständigen Namen bearbeiten: ${selected.name}`" @click="startRename">{{ selected.name }}</button>
             </h1>
             <div class="corr-profile__meta corr-muted">
               <template v-if="profile">
@@ -420,11 +420,11 @@
                   :aria-expanded="isShortNameOpen"
                   :disabled="isSaving"
                   aria-haspopup="dialog"
-                  title="Kurzname bearbeiten"
+                  :title="selected.short_name || 'Kurzname hinzufügen'"
                   @click="openShortName"
                 >
                   <v-icon size="13" aria-hidden="true">mdi-pencil-outline</v-icon>
-                  <span class="corr-profile__short-name">Kurzname</span>
+                  <span class="corr-profile__short-name">{{ selected.short_name || 'Kurzname' }}</span>
                 </button>
               </span>
             </div>
