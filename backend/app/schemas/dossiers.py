@@ -212,6 +212,7 @@ class DossierDocumentSummary(BaseModel):
     document_date: date | None = None
     document_type: str | None = None
     correspondent_name: str | None = None
+    correspondent_short_name: str | None = None
     page_count: int | None = None
     is_deleted: bool = False
 

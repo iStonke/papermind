@@ -26,6 +26,8 @@ class DocumentSearchScopeTest(unittest.TestCase):
 
         self.assertIn("correspondents", sql)
         self.assertIn("documents.correspondent_id", sql)
+        self.assertIn("correspondents.name", sql)
+        self.assertIn("correspondents.short_name", sql)
 
     def test_tags_scope_searches_tags(self) -> None:
         compiled = self.service._build_scoped_search_filter("Bildung", DocumentSearchScope.tags)

@@ -198,16 +198,14 @@ test('correspondent search finds short names and, if enabled, aliases', async ()
   assert.equal(filter('Neuen Korrespondenten anlegen', 'aok', { raw: { title: 'Neuen', value: 'new' } }), false);
 });
 
-test('preferring short names changes the label and the name order, not collections', async () => {
+test('short names determine labels and name order; collections use their full name', async () => {
   const { correspondentDisplayName } = await import('../src/utils/correspondentHierarchy.js');
   const schufa = { id: 's', name: 'Schutzgemeinschaft für allgemeine Kreditsicherung', short_name: 'SCHUFA', kind: 'organization', members: [] };
   const aok = { id: 'a', name: 'Allgemeine Ortskrankenkasse', short_name: 'AOK', kind: 'organization', members: [] };
   const bmw = { id: 'b', name: 'Bayerische Motoren Werke AG', kind: 'organization', members: [] };
-  assert.equal(correspondentDisplayName(schufa, { preferShort: true }), 'SCHUFA');
-  assert.equal(correspondentDisplayName(schufa), schufa.name);
-  assert.equal(correspondentDisplayName({ name: 'Energie', short_name: 'Alt', kind: 'collection' }, { preferShort: true }), 'Energie');
-  assert.deepEqual(sortCorrespondentTree([schufa, bmw, aok], 'name', { preferShort: true }).map((n) => n.id), ['a', 'b', 's']);
+  assert.equal(correspondentDisplayName(schufa), 'SCHUFA');
+  assert.equal(correspondentDisplayName({ name: 'Energie', short_name: 'Alt', kind: 'collection' }), 'Energie');
   assert.deepEqual(sortCorrespondentTree([schufa, bmw, aok], 'name').map((n) => n.id), ['a', 'b', 's']);
   const zebra = { id: 'z', name: 'Zentralverband', short_name: 'ADAC', kind: 'organization', members: [] };
-  assert.deepEqual(sortCorrespondentTree([bmw, zebra], 'name', { preferShort: true }).map((n) => n.id), ['z', 'b']);
+  assert.deepEqual(sortCorrespondentTree([bmw, zebra], 'name').map((n) => n.id), ['z', 'b']);
 });

@@ -1752,5 +1752,7 @@ class DocumentService:
         detail.is_duplicate = document.duplicate_of_doc_id is not None
         if document.correspondent_id is not None:
             correspondent = self.db.get(Correspondent, document.correspondent_id)
-            detail.correspondent_name = correspondent.name if correspondent is not None else None
+            if correspondent is not None:
+                detail.correspondent_name = correspondent.name
+                detail.correspondent_short_name = correspondent.display_short_name
         return detail

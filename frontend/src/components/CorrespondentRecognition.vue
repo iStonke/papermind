@@ -70,6 +70,7 @@
 </template>
 
 <script setup>
+import { correspondentDisplayName } from '../utils/correspondentHierarchy.js';
 import { computed, nextTick, ref, watch } from 'vue';
 import { ClickOutside as vClickOutside } from 'vuetify/directives';
 import PmInfoHeading from './PmInfoHeading.vue';
@@ -94,7 +95,7 @@ const addButtonRef = ref(null);
 const hint = computed(() =>
   props.correspondent.kind === 'collection'
     ? 'Dokumente, in denen einer dieser Namen vorkommt, landen direkt in der Sammlung – für Absender ohne eigenen Eintrag.'
-    : `Dokumente, in denen einer dieser Namen vorkommt, werden „${props.correspondent.name}“ zugeordnet.`
+    : `Dokumente, in denen einer dieser Namen vorkommt, werden „${correspondentDisplayName(props.correspondent)}“ zugeordnet.`
 );
 
 watch(() => props.correspondent.id, () => closeNameEditor(false));
@@ -161,7 +162,8 @@ const removeAlias = (alias) => run(() => store.deleteAlias(props.correspondent.i
 .pm-recog__chip {
   gap: 2px;
   padding: 0 4px 0 11px;
-  background: var(--pm-v-card, var(--pm-app-surface-raised));
+  border-color: color-mix(in srgb, var(--pm-accent) 24%, var(--pm-divider));
+  background: color-mix(in srgb, var(--pm-accent) 9%, var(--pm-app-surface));
   color: var(--pm-text);
 }
 .pm-recog__chip.corr-alias-enter-active { transition: opacity var(--pm-duration-fast, 140ms) ease; }

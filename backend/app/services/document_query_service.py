@@ -235,13 +235,15 @@ class DocumentQueryService:
         correspondent_ids = {item.correspondent_id for item in items if item.correspondent_id is not None}
         if not correspondent_ids:
             return
-        stmt = select(Correspondent.id, Correspondent.name).where(Correspondent.id.in_(correspondent_ids))
+        stmt = select(Correspondent.id, Correspondent.name, Correspondent.display_short_name).where(
+            Correspondent.id.in_(correspondent_ids)
+        )
         if self.owner_id is not None:
             stmt = stmt.where(Correspondent.owner_id == self.owner_id)
-        names = dict(self.db.execute(stmt).all())
+        names = {cid: (name, short_name) for cid, name, short_name in self.db.execute(stmt).all()}
         for item in items:
             if item.correspondent_id is not None:
-                item.correspondent_name = names.get(item.correspondent_id)
+                item.correspondent_name, item.correspondent_short_name = names.get(item.correspondent_id, (None, None))
 
     def correspondent_rollup_condition(self, correspondent_id: uuid.UUID):
         """Dokumente des Eintrags und seiner zugeordneten Einträge (zwei Stufen:

@@ -29,9 +29,9 @@
             hide-details clearable :placeholder="pending.correspondent ? 'Wird ermittelt…' : 'Korrespondent wählen…'" :disabled="disabled" :loading="correspondentLoading"
             :menu-props="menuProps" :autofocus="correspondentAutofocus" @update:model-value="emit('update:correspondent', $event)" @blur="emit('correspondent-blur')" @focus="emit('correspondent-focus')">
             <template #item="{ props: itemProps, item }"><v-list-item v-bind="itemProps" :title="undefined" :prepend-icon="undefined">
-              <template #title>{{ item.raw?.name || item.title }}{{ item.raw?.kind === 'collection' ? ' · Sammlung' : '' }}</template>
+              <template #title><span :title="item.raw?.name">{{ metadataCorrespondentLabel(item) }}</span></template>
             </v-list-item></template>
-            <template #selection="{ item }"><span class="pm-metadata-selection" :title="item.raw?.name || item.title">{{ item.raw?.short_name || item.raw?.name || item.title }}{{ item.raw?.kind === 'collection' ? ' · Sammlung' : '' }}</span></template>
+            <template #selection="{ item }"><span class="pm-metadata-selection" :title="item.raw?.name || item.title">{{ metadataCorrespondentLabel(item) }}</span></template>
             <template #no-data><slot name="correspondent-empty"><v-list-item title="Kein Korrespondent gefunden" subtitle="Neue Einträge im Bereich „Korrespondenten“ anlegen" /></slot></template>
             <template #append-item><slot name="correspondent-append" /></template>
           </v-autocomplete>
@@ -54,6 +54,7 @@
 import { computed, nextTick, ref, useId, watch } from 'vue';
 import { useSettingsStore } from '../stores/settings.js';
 import { createCorrespondentItemFilter } from '../utils/correspondentFilter.js';
+import { correspondentDisplayName } from '../utils/correspondentHierarchy.js';
 const props = defineProps({ fieldKeys: { type: Array, default: null }, name: String, date: String, category: String, correspondent: [String, Object], note: String,
   categories: { type: Array, default: () => [] }, correspondents: { type: Array, default: () => [] },
   errors: { type: Object, default: () => ({}) }, sources: { type: Object, default: () => ({}) },
@@ -68,6 +69,10 @@ const id = useId();
 const settingsStore = useSettingsStore();
 // Auch Kurzname und (je nach Einstellung) Aliase finden den Korrespondenten.
 const correspondentFilter = createCorrespondentItemFilter(() => settingsStore.settings?.ui?.correspondent_search_aliases !== false);
+function metadataCorrespondentLabel(item) {
+  const label = correspondentDisplayName(item.raw) || item.title;
+  return item.raw?.kind === 'collection' ? `${label} · Sammlung` : label;
+}
 const search = ref('');
 watch(() => props.correspondentSearch, value => { if (value !== undefined) search.value = value; }, { immediate:true });
 const allFields = [{ key: 'name', label: 'Dokumentname' }, { key: 'date', label: 'Dokumentdatum' },

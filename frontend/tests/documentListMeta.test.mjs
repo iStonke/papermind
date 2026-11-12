@@ -25,6 +25,21 @@ test('document card prefers the canonical correspondent short name', () => {
   assert.equal(name, 'VBL');
 });
 
+test('document responses provide the short name before the correspondent directory loads', () => {
+  assert.equal(resolveDocumentCorrespondent({
+    correspondent_name: 'Kieler Männer-Turnverein',
+    correspondent_short_name: 'KMTV',
+  }), 'KMTV');
+});
+
+test('a cleared short name in the directory takes precedence over a cached document label', () => {
+  assert.equal(resolveDocumentCorrespondent({
+    correspondent_id: 'club',
+    correspondent_name: 'Kieler Männer-Turnverein',
+    correspondent_short_name: 'KMTV',
+  }, () => ({ short_name: null })), 'Kieler Männer-Turnverein');
+});
+
 test('document card resolves a stored correspondent id when a cached list item has no name', () => {
   const correspondents = new Map([
     ['corr-vbl', { id: 'corr-vbl', name: 'VBL' }],

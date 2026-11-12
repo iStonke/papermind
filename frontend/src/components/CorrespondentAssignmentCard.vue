@@ -136,9 +136,9 @@
                 class="assign-card__similar-chip"
                 :disabled="disabled"
                 :title="entry.name"
-                :aria-label="`Vorhandenen Korrespondenten wählen: ${entry.name}`"
+                :aria-label="`Vorhandenen Korrespondenten wählen: ${correspondentDisplayName(entry)}`"
                 @click="correspondentSelection = entry.id"
-              >{{ entry.short_name || entry.name }}</button>
+              >{{ correspondentDisplayName(entry) }}</button>
             </div>
             <CorrespondentRefineHint
               :document-id="item.document_id"
@@ -167,6 +167,7 @@
 </template>
 
 <script setup>
+import { resolveDocumentCorrespondent } from '../workspaces/documents/documentListMeta.js';
 import { computed, nextTick, ref, watch } from 'vue';
 import DocumentMetadataFields from './DocumentMetadataFields.vue';
 import CorrespondentRefineHint from './CorrespondentRefineHint.vue';
@@ -175,7 +176,7 @@ import { useSettingsStore } from '../stores/settings.js';
 import { useCorrespondentStore } from '../stores/correspondents.js';
 import { formatDocumentDateInputFromIso } from '../utils/dates.js';
 import { normalizedSender, suggestCorrespondent, suggestionReason } from '../utils/correspondentSuggestion.js';
-import { correspondentSearchValues } from '../utils/correspondentHierarchy.js';
+import { correspondentDisplayName, correspondentSearchValues } from '../utils/correspondentHierarchy.js';
 
 const NEW_SENDER = 'unassigned:new-sender';
 const CREATE_FROM_SEARCH = 'unassigned:create-from-search:';
@@ -221,7 +222,7 @@ const title = computed(() => props.item.title || props.item.original_filename ||
 const documentDate = computed(() => formatDocumentDateInputFromIso(props.item.document_date));
 const collectionId = computed(() => (isCollectionMode.value ? props.item.correspondent_id || null : null));
 const collectionName = computed(() => (isCollectionMode.value
-  ? props.item.correspondent_name || store.findById(collectionId.value)?.name || ''
+  ? resolveDocumentCorrespondent(props.item, store.findById, { showParent: false })
   : ''));
 const detectedSender = computed(() => normalizedSender(props.item));
 

@@ -1,3 +1,4 @@
+import { resolveDocumentCorrespondent } from '../workspaces/documents/documentListMeta.js';
 import { formatDateTime, formatDocumentDateInputFromIso } from './dates.js';
 
 const text = value => typeof value === 'string' ? value.trim() : '';
@@ -9,7 +10,7 @@ export function knowledgeValues(document = {}) {
   return {
     document_type: effective('document_type', document.category || document.ai_document_type) || '',
     document_date: effective('document_date', document.ai_document_date) || '',
-    sender: document.correspondent_id ? text(document.correspondent_name) : manual.includes('correspondent_id') ? '' : text(document.ai_sender),
+    sender: document.correspondent_id ? resolveDocumentCorrespondent(document) : manual.includes('correspondent_id') ? '' : text(document.ai_sender),
     correspondent_id: document.correspondent_id || '',
     recipient: effective('recipient', document.ai_recipient) || '',
     amount: effective('amount', document.ai_amount) ?? null,

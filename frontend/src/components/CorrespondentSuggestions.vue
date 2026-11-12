@@ -12,16 +12,16 @@
           <li v-for="(match, index) in visibleMatches" :key="match.correspondent.id" class="corr-suggestions__item" :style="{ '--row-index': index }">
             <v-icon class="corr-suggestions__icon" size="18" aria-hidden="true">{{ kindIcon(match.correspondent.kind) }}</v-icon>
             <span class="corr-suggestions__text">
-              <span class="corr-suggestions__name">{{ match.correspondent.name }}</span>
+              <span class="corr-suggestions__name">{{ correspondentDisplayName(match.correspondent) }}</span>
               <span class="corr-suggestions__meta">{{ metaLine(match) }}</span>
             </span>
             <span class="corr-suggestions__actions">
               <button type="button" class="corr-suggestions__action" :disabled="busy || updating"
-                :aria-label="`${match.correspondent.name} verwenden`" @click="emit('use', match.correspondent.id)">Verwenden</button>
+                :aria-label="`${correspondentDisplayName(match.correspondent)} verwenden`" @click="emit('use', match.correspondent.id)">Verwenden</button>
               <template v-if="!exact">
                 <span class="corr-suggestions__sep" aria-hidden="true">·</span>
                 <button type="button" class="corr-suggestions__action" :disabled="busy || updating"
-                  :aria-label="`Als Alias zu ${match.correspondent.name} hinzufügen`" @click="emit('alias', match.correspondent.id)">Als Alias</button>
+                  :aria-label="`Als Alias zu ${correspondentDisplayName(match.correspondent)} hinzufügen`" @click="emit('alias', match.correspondent.id)">Als Alias</button>
               </template>
             </span>
           </li>
@@ -31,6 +31,7 @@
   </Transition>
 </template>
 <script setup>
+import { correspondentDisplayName } from '../utils/correspondentHierarchy.js';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { correspondentKindIcon, correspondentKindLabel } from '../utils/correspondentHierarchy.js';
 

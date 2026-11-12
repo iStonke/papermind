@@ -37,7 +37,7 @@
           <v-icon size="18" class="link-dialog__item-icon">mdi-file-document-outline</v-icon>
           <span class="link-dialog__item-text">
             <span class="link-dialog__item-title">{{ titleOf(doc) }}</span>
-            <span v-if="doc.correspondent_name" class="link-dialog__item-sub">{{ doc.correspondent_name }}</span>
+            <span v-if="resolveDocumentCorrespondent(doc)" class="link-dialog__item-sub">{{ resolveDocumentCorrespondent(doc) }}</span>
           </span>
         </button>
       </div>
@@ -46,6 +46,7 @@
 </template>
 
 <script setup>
+import { resolveDocumentCorrespondent } from '../workspaces/documents/documentListMeta.js';
 import { vListReveal } from '../directives/listReveal.js';
 import { ref, watch } from 'vue';
 

@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, func, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, case, func, text
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -66,6 +67,21 @@ class Correspondent(Base):
     def parent_name(self) -> str | None:
         """Name der zugehörigen Organisation (für die Serialisierung)."""
         return self.parent.name if self.parent is not None else None
+
+    @hybrid_property
+    def display_short_name(self) -> str | None:
+        if self.kind == "collection":
+            return None
+        return (self.short_name or "").strip() or None
+
+    @display_short_name.inplace.expression
+    @classmethod
+    def _display_short_name_expression(cls):
+        return case((cls.kind.is_distinct_from("collection"), func.nullif(func.trim(cls.short_name), "")))
+
+    @property
+    def parent_short_name(self) -> str | None:
+        return self.parent.display_short_name if self.parent is not None else None
 
     aliases: Mapped[list["CorrespondentAlias"]] = relationship(
         "CorrespondentAlias",

@@ -56,7 +56,10 @@ async function prepareWorkspace(page, { failUtilityOnce = false, themeMode = 'li
     if (path === '/api/auth/me') return loggedIn ? json(user) : route.fulfill({ status: 401, json: {} });
     if (path === '/api/auth/refresh' || path === '/api/auth/renew') return loggedIn ? json(tokens()) : route.fulfill({ status: 401, json: {} });
     if (path === '/api/auth/file-token') return json({ token: 'file-token', expires_in: 300 });
-    if (path === '/api/settings') return json({ ui: { start_view: 'all', drawer_remember_state: true, theme_mode: themeMode }, retention: { enabled: false } });
+    if (path === '/api/settings') return json({
+      ui: { start_view: 'all', drawer_remember_state: true, theme_mode: themeMode, correspondent_prefer_short_name: false },
+      retention: { enabled: false },
+    });
     if (path === '/api/documents') {
       requests.push(Object.fromEntries(params));
       let matches = documents.filter(doc => {
@@ -149,7 +152,7 @@ test('document type view has complete counts, pagination, animated groups and co
   )).toBe(true);
   await expect(certificates.locator('.doc-groups__document')).toHaveCount(50);
   await expect(certificates.locator('.doc-groups__title').first()).toHaveText('Beitragsbescheinigung 52');
-  await expect(certificates.locator('.doc-groups__type').first()).toHaveText('Kieler Männer-Turnverein');
+  await expect(certificates.locator('.doc-groups__type').first()).toHaveText('KMTV');
   await certificates.getByRole('button', { name: 'Weitere Dokumente laden', exact: true }).click();
   await expect(certificates.locator('.doc-groups__document')).toHaveCount(52);
   expect(requests.some(request => request.document_type === 'Bescheinigung' && request.offset === '50')).toBe(true);
@@ -572,7 +575,9 @@ test('alias and note placeholders expand to solid borders, and saved notes keep 
   await savedNote.evaluate(note => Promise.all(note.getAnimations().map(animation => animation.finished)));
   expect((await savedNote.boundingBox()).width).toBeLessThan(availableWidth);
 
-  await savedNote.click();
+  await expectResize('.corr-note--full-width', ['width'], () => savedNote.click(), true);
+  await noteInput.evaluate(input => Promise.all(input.getAnimations().map(animation => animation.finished)));
+  expect((await noteInput.boundingBox()).width).toBeCloseTo(availableWidth, 0);
   await noteInput.clear();
   await noteHeading.click();
   await expect(noteButton).toHaveCSS('border-top-style', 'dashed');
@@ -688,13 +693,19 @@ test('the directory handles open document assignments and only offers short name
   await expect(profileMeta).toHaveCSS('margin-top', drawerSpacing.marginTop);
   await expect(profileMeta.getByText('0 Dokumente', { exact: true })).toHaveCSS('padding-inline-end', drawerSpacing.inset);
   const affiliations = workspace.getByRole('region', { name: 'Zugehörigkeiten', exact: true });
-  await expect(affiliations.getByRole('button', { name: 'Zugehörigkeit hinzufügen', exact: true })).toBeVisible();
+  const emptyAffiliation = affiliations.getByRole('button', { name: 'Zugehörigkeit hinzufügen', exact: true });
+  const addAlias = workspace.getByRole('button', { name: 'Alias hinzufügen', exact: true });
+  await expect(emptyAffiliation).toHaveCSS('border-radius', '999px');
+  await expect(emptyAffiliation).toHaveCSS('border-top-style', 'dashed');
+  expect((await emptyAffiliation.boundingBox()).height).toBe((await addAlias.boundingBox()).height);
+  expect((await emptyAffiliation.boundingBox()).width).toBeLessThan((await affiliations.boundingBox()).width);
   await expect(affiliations.getByText('Noch keine Zugehörigkeiten.')).toHaveCount(0);
   await workspace.getByRole('button', { name: 'Kurzname hinzufügen', exact: true }).click();
   const shortNameDialog = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'Kurzname bearbeiten' }) });
   await shortNameDialog.getByRole('textbox', { name: 'Kurzname' }).fill('SW Leipzig');
   await shortNameDialog.getByRole('button', { name: 'Speichern' }).click();
   await expect(workspace.getByRole('button', { name: 'Kurzname bearbeiten: SW Leipzig' })).toBeVisible();
+  await expect(workspace.getByRole('heading', { name: 'SW Leipzig', exact: true })).toBeVisible();
   await workspace.getByRole('textbox', { name: 'Korrespondenten durchsuchen' }).fill('SW Leipzig');
   await expect(workspace.getByRole('treeitem')).toHaveCount(1);
   await workspace.getByRole('textbox', { name: 'Korrespondenten durchsuchen' }).clear();
@@ -706,7 +717,7 @@ test('the directory handles open document assignments and only offers short name
   await members.getByRole('button', { name: 'Mitglied hinzufügen', exact: true }).click();
   await expect(members.getByText('Noch keine Mitglieder.')).toHaveCount(0);
   const connectionMenu = page.getByRole('dialog', { name: 'Verbindung hinzufügen' });
-  await expect(connectionMenu.getByRole('button', { name: /Stadtwerke Leipzig/ })).toBeVisible();
+  await expect(connectionMenu.getByRole('button', { name: /SW Leipzig/ })).toBeVisible();
   await expect(connectionMenu.getByRole('button', { name: /Unsortierter Kontakt/ })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(connectionMenu).toBeHidden();
@@ -729,14 +740,22 @@ test('the directory handles open document assignments and only offers short name
   await expect(classification).toHaveCount(0);
   await affiliations.getByRole('button', { name: 'Zugehörigkeit hinzufügen', exact: true }).click();
   await connectionMenu.getByRole('button', { name: 'Richtung tauschen' }).click();
-  await expect(connectionMenu.getByRole('button', { name: /Stadtwerke Leipzig/ })).toHaveCount(0);
+  await expect(connectionMenu.getByRole('button', { name: /SW Leipzig/ })).toHaveCount(0);
   await connectionMenu.getByRole('button', { name: /Energie/ }).click();
   const collectionTile = affiliations.getByRole('button', { name: /^Energie/ });
   await expect(collectionTile).toBeVisible();
   expect(classificationUpdates).toEqual([{ kind: 'organization' }, { parent_id: 'energy' }]);
   const addAffiliation = affiliations.getByRole('button', { name: 'Zugehörigkeit hinzufügen', exact: true });
   await expect(addAffiliation).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  expect((await addAffiliation.boundingBox()).y).toBeGreaterThan((await collectionTile.boundingBox()).y);
+  await expect(addAffiliation).toHaveCSS('border-radius', '8px');
+  const [addBounds, tileBounds] = await Promise.all([
+    addAffiliation.boundingBox(),
+    affiliations.getByRole('listitem').filter({ has: page.getByRole('button', { name: /^Energie/ }) }).boundingBox(),
+  ]);
+  expect(addBounds.y).toBeCloseTo(tileBounds.y, 1);
+  expect(addBounds.x).toBeGreaterThan(tileBounds.x + tileBounds.width);
+  expect(addBounds.width).toBeCloseTo(tileBounds.width, 1);
+  expect(addBounds.height).toBeCloseTo(tileBounds.height, 1);
 
   await collectionTile.click();
   // Neues Mitglied ohne Dokumente: Kachel sichtbar, aber nicht aufklappbar.
@@ -776,7 +795,7 @@ test('the directory handles open document assignments and only offers short name
   await page.getByRole('option').filter({ hasText: 'Energie' }).click();
   await expect(suggestionChip).toHaveCount(0);
   await correspondent.fill('Stadtwerke');
-  await page.getByRole('option').filter({ hasText: 'Stadtwerke Leipzig' }).click();
+  await page.getByRole('option').filter({ hasText: 'SW Leipzig' }).click();
   await expect(suggestionChip).toBeVisible();
 
   await garantie.getByRole('button', { name: 'Weitere Aktionen für Garantiebeleg' }).click();
@@ -1437,7 +1456,7 @@ test('choosing a collection or organisation offers the more specific members of 
   await page.getByRole('option').filter({ hasText: 'Bank · Sammlung' }).click();
   const hint = drawer.getByRole('group', { name: 'Sammlung – genauer:' });
   await expect(hint.getByRole('button')).toHaveCount(2);
-  await expect(hint.getByRole('button').first()).toHaveAccessibleName('Genauer zuordnen: Förde Sparkasse AöR (im Dokument genannt)');
+  await expect(hint.getByRole('button').first()).toHaveAccessibleName('Genauer zuordnen: Förde Sparkasse (im Dokument genannt)');
   await hint.getByRole('button').first().click();
   await expect(drawer.locator('.pm-metadata-value')).toContainText('Förde Sparkasse');
   await expect(hint).toHaveCount(0);
@@ -1469,11 +1488,11 @@ test('correspondent pickers find entries by their short name', async ({ page }) 
   await workspace.getByRole('treeitem', { name: 'Ohne Korrespondent', exact: true }).click();
   const drawer = workspace.getByRole('listitem', { name: 'Beitragsbescheid', exact: true });
   await drawer.getByRole('combobox', { name: 'Korrespondent', exact: true }).fill('AOK');
-  await expect(page.getByRole('option').filter({ hasText: 'Allgemeine Ortskrankenkasse Nordwest' })).toBeVisible();
-  await expect(page.getByRole('option').filter({ hasText: 'Techniker Krankenkasse' })).toHaveCount(0);
+  await expect(page.getByRole('option').filter({ hasText: 'AOK' })).toBeVisible();
+  await expect(page.getByRole('option').filter({ hasText: 'TK' })).toHaveCount(0);
   await page.keyboard.press('Escape');
 
-  // With "Kurznamen bevorzugen" (default) the list shows the short name, the full name as tooltip.
+  // The list shows the short name, with the full name as a tooltip.
   const tkRow = workspace.getByRole('tree').getByText('TK', { exact: true });
   await expect(tkRow).toHaveAttribute('title', 'Techniker Krankenkasse');
   await expect(workspace.getByRole('tree').getByText('Techniker Krankenkasse', { exact: true })).toHaveCount(0);
@@ -1482,7 +1501,39 @@ test('correspondent pickers find entries by their short name', async ({ page }) 
   await workspace.getByRole('button', { name: 'Zusammenführen …', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('combobox', { name: 'Zusammenführen mit' }).fill('aok');
-  await expect(page.getByRole('option').filter({ hasText: 'Allgemeine Ortskrankenkasse Nordwest' })).toBeVisible();
+  await expect(page.getByRole('option').filter({ hasText: 'AOK' })).toBeVisible();
+});
+
+test('a collection uses the same short name in the tree, share band and member tile', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await prepareWorkspace(page);
+  const collection = { id: 'fitness', name: 'Fitnessstudio', kind: 'collection' };
+  const club = { id: clubId, name: 'Kieler Männer-Turnverein', short_name: 'KMTV', kind: 'organization', parent_id: collection.id };
+  const gym = { id: 'gym', name: 'Kieser Training', kind: 'organization', parent_id: collection.id };
+  await page.route('**/api/correspondents?include_count=true', route => route.fulfill({ json: { items: [collection, club, gym] } }));
+  await page.route('**/api/correspondents/fitness/profile', route => route.fulfill({ json: {
+    correspondent: collection, document_count: 2, own_document_count: 0,
+    activity: [
+      { correspondent_id: club.id, document_date: '2026-09-01' },
+      { correspondent_id: gym.id, document_date: '2026-09-02' },
+    ],
+  } }));
+
+  await page.locator('.sidebar-item--correspondents').click();
+  const workspace = page.locator('.panel-correspondents');
+  const tree = workspace.getByRole('tree');
+  await tree.getByRole('button', { name: 'Mitglieder ausklappen' }).click();
+  await tree.getByText('Fitnessstudio', { exact: true }).click();
+  await expect(tree.getByText('KMTV', { exact: true })).toBeVisible();
+  const legend = workspace.getByRole('list', { name: 'Anteil je Mitglied' });
+  const tiles = workspace.getByRole('list', { name: 'Mitglieder von Fitnessstudio' });
+  for (const section of [legend, tiles]) {
+    await expect(section.getByText('KMTV', { exact: true })).toBeVisible();
+    await expect(section.getByText('Kieser Training', { exact: true })).toBeVisible();
+    await expect(section.getByText(club.name, { exact: true })).toHaveCount(0);
+  }
+  await legend.getByRole('button', { name: /KMTV/ }).click();
+  await expect(workspace.getByRole('heading', { name: 'KMTV', exact: true })).toBeVisible();
 });
 
 test('documents assigned to a collection can be refined to a member or kept', async ({ page }) => {

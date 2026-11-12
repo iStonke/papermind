@@ -358,6 +358,8 @@ defineExpose({ toggleMember, openKey });
 .cmt {
   position: relative;
   min-width: 0;
+  /* Platz für Deckblätter, Abstände und zwei Textzeilen. */
+  block-size: calc(140px + 2.34rem);
   margin-bottom: var(--cmt-gap);
   border: 1px solid var(--pm-list-divider);
   border-radius: 12px;

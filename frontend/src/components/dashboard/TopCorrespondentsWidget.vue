@@ -9,7 +9,7 @@
     <div v-if="topCorrespondents.length" ref="rankListEl" v-list-reveal="{ selector: '.dash-rank__row' }" class="dash-rank__list">
       <div v-for="(c, i) in visibleTopCorrespondents" :key="c.name" class="dash-rank__row">
         <div class="dash-rank__meta">
-          <span class="dash-rank__name">{{ c.name }}</span>
+          <span class="dash-rank__name" :title="c.name">{{ correspondentDisplayName(c) }}</span>
           <span class="dash-rank__count">{{ formatInt(c.count) }}</span>
         </div>
         <div class="dash-rank__track">
@@ -29,6 +29,7 @@ import { vListReveal } from '../../directives/listReveal.js';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDashboardStore } from '../../stores/dashboard.js';
+import { correspondentDisplayName } from '../../utils/correspondentHierarchy.js';
 import { formatInt, rampColor } from './dashboardShared.js';
 import './dashboard.css';
 

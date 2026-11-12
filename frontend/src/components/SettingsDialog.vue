@@ -3408,7 +3408,6 @@ function applyTheme(mode) {
 }
 
 const correspondentSettings = [
-  { key: 'correspondent_prefer_short_name', label: 'Kurznamen bevorzugen', description: 'Zeigt in Dokumentlisten den Kurznamen, wenn einer hinterlegt ist. Sonst erscheint der vollständige Name.' },
   { key: 'correspondent_show_parent', label: 'Zugehörigkeit in Listen anzeigen', description: 'Zeigt die übergeordnete Organisation oder Sammlung vor dem Namen.' },
   { key: 'correspondent_search_aliases', label: 'Aliase in der Korrespondentensuche berücksichtigen', description: 'Findet Korrespondenten auch über hinterlegte alternative Schreibweisen.' },
   { key: 'correspondent_show_suggestions', label: 'Vorschläge bei der Zuordnung anzeigen', description: 'Schlägt bei Dokumenten ohne Korrespondenten eine Zuordnung anhand des erkannten Absenders vor.' },

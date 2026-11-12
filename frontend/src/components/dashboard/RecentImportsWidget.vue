@@ -28,7 +28,7 @@
         </span>
         <span class="dash-doc__text">
           <span class="dash-doc__title">{{ doc.title }}</span>
-          <span class="dash-doc__corr">{{ doc.correspondent || 'Ohne Korrespondent' }}</span>
+          <span class="dash-doc__corr">{{ correspondentDisplayName({ name: doc.correspondent, short_name: doc.correspondent_short_name }) || 'Ohne Korrespondent' }}</span>
           <span class="dash-doc__date">{{ formatDate(doc.date) }}</span>
         </span>
       </button>
@@ -38,6 +38,7 @@
 </template>
 
 <script setup>
+import { correspondentDisplayName } from '../../utils/correspondentHierarchy.js';
 import { vListReveal } from '../../directives/listReveal.js';
 import { reactive } from 'vue';
 import { storeToRefs } from 'pinia';

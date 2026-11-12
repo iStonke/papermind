@@ -103,7 +103,7 @@ import { useCorrespondentStore } from '../stores/correspondents';
 import { useNotesStore } from '../stores/notes';
 import { useSettingsStore } from '../stores/settings';
 import { buildCommands } from './commandPalette/commands';
-import { correspondentSearchValues } from '../utils/correspondentHierarchy.js';
+import { correspondentDisplayName, correspondentSearchValues } from '../utils/correspondentHierarchy.js';
 import { escapeHtml, parsePrefix, buildGroups, reconcileSelection } from './commandPalette/matching';
 
 const props = defineProps({
@@ -278,11 +278,11 @@ function dynamicEntries() {
       id: `corr-${correspondent.id}`,
       group: 'correspondent',
       icon: 'mdi-card-account-details-outline',
-      label: correspondent.name,
+      label: correspondentDisplayName(correspondent),
       // Kurzname und – je nach Einstellung – Aliase finden den Eintrag ebenfalls.
       keywords: correspondentSearchValues(correspondent, {
         aliases: settingsStore.settings?.ui?.correspondent_search_aliases !== false,
-      }).filter((value) => value !== correspondent.name),
+      }).filter((value) => value !== correspondentDisplayName(correspondent)),
       run: () => uiStore.requestWorkspace('correspondentFilter', correspondent.id),
     });
   }

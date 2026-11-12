@@ -222,6 +222,7 @@ class DocumentSummary(ORMModel):
     category: str | None = None
     correspondent_id: uuid.UUID | None = None
     correspondent_name: str | None = None
+    correspondent_short_name: str | None = None
     status: DocumentStatus
     ocr_status: DocumentOCRStatus
     ocr_quality_status: DocumentOCRQualityStatus | None = None
@@ -259,6 +260,7 @@ class DocumentDetail(ORMModel):
     category: str | None = None
     correspondent_id: uuid.UUID | None = None
     correspondent_name: str | None = None
+    correspondent_short_name: str | None = None
     status: DocumentStatus
     ocr_status: DocumentOCRStatus
     ocr_quality_status: DocumentOCRQualityStatus | None = None

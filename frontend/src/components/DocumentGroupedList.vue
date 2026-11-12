@@ -50,8 +50,7 @@
             </span>
             <span class="doc-groups__identity">
               <span class="doc-groups__name">{{ group.label }}</span>
-              <span v-if="group.name && group.short_name && settingsStore.settings.ui.correspondent_prefer_short_name && group.name !== group.label" class="doc-groups__full-name">{{ group.name }}</span>
-              <span v-else-if="group.unassigned" class="doc-groups__full-name">{{ isDocumentTypeGrouping ? 'Typ noch nicht zugeordnet' : 'Absender noch nicht zugeordnet' }}</span>
+              <span v-if="group.unassigned" class="doc-groups__full-name">{{ isDocumentTypeGrouping ? 'Typ noch nicht zugeordnet' : 'Absender noch nicht zugeordnet' }}</span>
               <span v-if="group.kindLabel" class="doc-groups__kind">
                 <v-icon size="14" aria-hidden="true">{{ group.kindIcon }}</v-icon>
                 {{ group.kindLabel }}<template v-if="group.memberCount"> · {{ group.memberCount }} über Mitglieder</template>
@@ -176,7 +175,6 @@ const rawGroups = ref([]);
 const settingsStore = useSettingsStore();
 const correspondentStore = useCorrespondentStore();
 const correspondentLabel = document => resolveDocumentCorrespondent(document, correspondentStore.findById, {
-  preferShort: settingsStore.settings.ui.correspondent_prefer_short_name,
   showParent: settingsStore.settings.ui.correspondent_show_parent ?? false,
 });
 const groups = computed(() => isDocumentTypeGrouping.value
@@ -185,6 +183,7 @@ const groups = computed(() => isDocumentTypeGrouping.value
     correspondent_id: group.correspondent_id,
     correspondent_name: group.name,
     correspondent_short_name: group.short_name,
+    correspondent_kind: group.kind,
   })));
 watch([isDocumentTypeGrouping, () => settingsStore.settings.ui.correspondent_show_parent], ([byType, showParent]) => {
   if (byType || showParent) void correspondentStore.ensureLoaded();

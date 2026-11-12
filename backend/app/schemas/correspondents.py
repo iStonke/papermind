@@ -147,6 +147,7 @@ class CorrespondentRead(ORMModel):
     kind: str | None = None
     parent_id: uuid.UUID | None = None
     parent_name: str | None = None
+    parent_short_name: str | None = None
     created_at: datetime
     aliases: list[CorrespondentAliasRead] = Field(default_factory=list)
     matchers: list[CorrespondentMatcherRead] = Field(default_factory=list)
@@ -238,6 +239,7 @@ class CorrespondentRelationRead(BaseModel):
     role: str
     other_id: uuid.UUID
     other_name: str
+    other_short_name: str | None = None
     other_kind: str | None = None
     document_count: int = 0
     first_document_date: date | None = None

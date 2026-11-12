@@ -13,7 +13,11 @@
       Dokumente konnten nicht geladen werden.
       <button type="button" class="cdg__link" @click="emit('retry')">Erneut versuchen</button>
     </p>
-    <p v-else-if="!loading && !documents.length" class="cdg__state">{{ emptyText }}</p>
+    <template v-else-if="!loading && !documents.length">
+      <slot name="empty">
+        <p class="cdg__state">{{ emptyText }}</p>
+      </slot>
+    </template>
 
     <ul
       v-if="documents.length || loading"

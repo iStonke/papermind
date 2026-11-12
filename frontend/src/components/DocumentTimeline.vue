@@ -72,6 +72,7 @@
 </template>
 
 <script setup>
+import { resolveDocumentCorrespondent } from '../workspaces/documents/documentListMeta.js';
 import { vListReveal } from '../directives/listReveal.js';
 import { computed, reactive, ref } from 'vue';
 import { documentThumbnailUrl } from '../api/documents.js';
@@ -156,10 +157,7 @@ function docType(doc) {
 }
 
 function docCorr(doc) {
-  const c = doc.correspondent;
-  return String(
-    doc.correspondent_name || doc.correspondent_short_name || c?.short_name || c?.name || ''
-  ).trim();
+  return resolveDocumentCorrespondent(doc);
 }
 </script>
 

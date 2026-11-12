@@ -191,6 +191,7 @@
 </template>
 
 <script setup>
+import { resolveDocumentCorrespondent } from '../workspaces/documents/documentListMeta.js';
 import { vListReveal } from '../directives/listReveal.js';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { listDocuments } from '../api/documents.js';
@@ -270,10 +271,7 @@ function documentTitle(document) {
 }
 
 function documentMeta(document) {
-  const correspondent = String(
-    document?.correspondent_name || document?.correspondent_short_name
-      || document?.correspondent?.short_name || document?.correspondent?.name || '',
-  ).trim();
+  const correspondent = resolveDocumentCorrespondent(document);
   const type = String(document?.document_type || document?.category || '').trim();
   const date = parseDate(document?.document_date);
   return [correspondent, type, date && shortDate.format(date)].filter(Boolean).join(' · ');

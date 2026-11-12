@@ -31,6 +31,7 @@ class DashboardYearPoint(BaseModel):
 
 class DashboardCorrespondent(BaseModel):
     name: str
+    short_name: str | None = None
     count: int = 0
 
 
@@ -68,6 +69,7 @@ class DashboardRecentItem(BaseModel):
     id: str
     title: str
     correspondent: str | None = None
+    correspondent_short_name: str | None = None
     date: str | None = None  # ISO date/datetime
 
 

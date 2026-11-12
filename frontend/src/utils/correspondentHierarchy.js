@@ -30,19 +30,20 @@ const sortName = (c) => stripLegalForm(c?.name || '');
 const byName = (a, b) => collator.compare(sortName(a), sortName(b)) || collator.compare(String(a?.name || ''), String(b?.name || ''));
 
 /**
- * Angezeigter Name: mit „Kurznamen bevorzugen“ der Kurzname, sofern vorhanden
- * (Sammlungen haben keinen), sonst der vollständige Name.
+ * Angezeigter Name: Kurzname, falls vorhanden. Sammlungen haben keinen.
  */
-export function correspondentDisplayName(correspondent, { preferShort = false } = {}) {
+export function correspondentDisplayName(correspondent) {
   const shortName = correspondent?.kind === 'collection' ? '' : String(correspondent?.short_name || '').trim();
-  return (preferShort && shortName) || String(correspondent?.name || '').trim();
+  return shortName || String(correspondent?.name || '').trim();
 }
 
-/** Organisationsname einer Person (aus parent_name oder per Lookup), sonst ''. */
+/** Anzeigename des übergeordneten Eintrags, sonst ''. */
 export function correspondentParentName(correspondent, findById = null) {
   if (!correspondent?.parent_id) return '';
-  if (correspondent.parent_name) return correspondent.parent_name;
-  return findById?.(correspondent.parent_id)?.name || '';
+  return correspondentDisplayName(findById?.(correspondent.parent_id) ?? {
+    name: correspondent.parent_name,
+    short_name: correspondent.parent_short_name,
+  });
 }
 
 /**
@@ -51,7 +52,7 @@ export function correspondentParentName(correspondent, findById = null) {
  * können.
  */
 export function formatCorrespondent(correspondent, findById = null) {
-  const name = String(correspondent?.name || '').trim();
+  const name = correspondentDisplayName(correspondent);
   // Nur Personen tragen ihre Organisation im Namen; eine Sammlung ist
   // Gruppierung und kein Absender („Schule A“, nicht „Schule · Schule A“).
   const parentKind = correspondent?.parent_id ? findById?.(correspondent.parent_id)?.kind : null;
@@ -187,10 +188,10 @@ export const CORRESPONDENT_SORT_OPTIONS = Object.freeze([
 ]);
 
 /** Sortiert alle Ebenen nach demselben Schlüssel; nach Namen so, wie er angezeigt wird. */
-export function sortCorrespondentTree(tree, sort = 'name', { preferShort = false } = {}) {
-  const byLabel = preferShort
-    ? (a, b) => collator.compare(stripLegalForm(correspondentDisplayName(a, { preferShort })), stripLegalForm(correspondentDisplayName(b, { preferShort }))) || byName(a, b)
-    : byName;
+export function sortCorrespondentTree(tree, sort = 'name') {
+  const byLabel = (a, b) => collator.compare(
+    stripLegalForm(correspondentDisplayName(a)), stripLegalForm(correspondentDisplayName(b))
+  ) || byName(a, b);
   const compare = {
     documents: (a, b) => documentCountOf(b) - documentCountOf(a) || byLabel(a, b),
     recent: (a, b) => String(lastActivityOf(b) || '').localeCompare(String(lastActivityOf(a) || '')) || byLabel(a, b),

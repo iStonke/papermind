@@ -19,6 +19,7 @@ import {
 } from '../api/correspondents.js';
 import {
   buildCorrespondentTree,
+  correspondentDisplayName,
   correspondentKindIcon,
   formatCorrespondent,
 } from '../utils/correspondentHierarchy.js';
@@ -54,7 +55,7 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
   const correspondentOptions = computed(() =>
     correspondents.value
       .map((c) => ({
-        title: c.kind === 'collection' ? `${c.name} · Sammlung` : formatCorrespondent(c, findById).label,
+        title: c.kind === 'collection' ? `${correspondentDisplayName(c)} · Sammlung` : formatCorrespondent(c, findById).label,
         value: c.id,
         name: c.name,
         kind: c.kind,
@@ -68,7 +69,7 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
         const aCollection = a.kind === 'collection';
         const bCollection = b.kind === 'collection';
         if (aCollection !== bCollection) return aCollection ? -1 : 1;
-        return a.name.localeCompare(b.name, 'de-DE');
+        return a.title.localeCompare(b.title, 'de-DE');
       })
   );
 

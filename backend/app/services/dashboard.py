@@ -243,14 +243,21 @@ class DashboardService:
     # ── Top-Korrespondenten ─────────────────────────────────────────────────
     def _top_correspondents(self, active, limit: int = 12) -> list[DashboardCorrespondent]:
         rows = self.db.execute(
-            select(Correspondent.name, func.count(Document.id).label("count"))
+            select(
+                Correspondent.name,
+                Correspondent.display_short_name.label("short_name"),
+                func.count(Document.id).label("count"),
+            )
             .join(Correspondent, Correspondent.id == Document.correspondent_id)
             .where(active)
-            .group_by(Correspondent.name)
+            .group_by(Correspondent.name, Correspondent.short_name, Correspondent.kind)
             .order_by(func.count(Document.id).desc(), Correspondent.name.asc())
             .limit(limit)
         ).all()
-        return [DashboardCorrespondent(name=row.name, count=int(row.count or 0)) for row in rows]
+        return [
+            DashboardCorrespondent(name=row.name, short_name=row.short_name, count=int(row.count or 0))
+            for row in rows
+        ]
 
     # ── Tag-Verteilung ──────────────────────────────────────────────────────
     def _tag_distribution(self, active, limit: int = 6):
@@ -423,6 +430,7 @@ class DashboardService:
                 Document.document_date,
                 Document.created_at,
                 Correspondent.name.label("correspondent"),
+                Correspondent.display_short_name.label("correspondent_short_name"),
             )
             .outerjoin(Correspondent, Correspondent.id == Document.correspondent_id)
             .where(active)
@@ -439,6 +447,7 @@ class DashboardService:
                     id=str(row.id),
                     title=title,
                     correspondent=row.correspondent,
+                    correspondent_short_name=row.correspondent_short_name,
                     date=when.isoformat() if when else None,
                 )
             )

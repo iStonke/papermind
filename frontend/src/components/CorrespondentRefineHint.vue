@@ -10,18 +10,19 @@
         class="refine-hint__chip"
         :class="{ 'is-mentioned': item.mentioned }"
         :disabled="disabled"
-        :title="item.mentioned ? `${item.name} – im Dokument genannt` : item.name"
-        :aria-label="`Genauer zuordnen: ${item.name}${item.mentioned ? ' (im Dokument genannt)' : ''}`"
+        :title="item.mentioned ? `${correspondentDisplayName(item)} – im Dokument genannt` : correspondentDisplayName(item)"
+        :aria-label="`Genauer zuordnen: ${correspondentDisplayName(item)}${item.mentioned ? ' (im Dokument genannt)' : ''}`"
         @click="emit('apply', item.id)"
       >
         <v-icon size="14" aria-hidden="true">{{ item.mentioned ? 'mdi-text-search' : kindIcon(item.kind) }}</v-icon>
-        {{ item.short_name || item.name }}
+        {{ correspondentDisplayName(item) }}
       </button>
     </div>
   </Transition>
 </template>
 
 <script setup>
+import { correspondentDisplayName } from '../utils/correspondentHierarchy.js';
 import { computed, ref, watch } from 'vue';
 import { getCorrespondentRefinements } from '../api/correspondents.js';
 import { useCorrespondentStore } from '../stores/correspondents.js';
@@ -47,7 +48,7 @@ const visibleItems = computed(() => {
   if (kind.value === 'collection') {
     const known = items.value.length
       ? items.value
-      : members.value.map(member => ({ ...member, mentioned: false })).sort((a, b) => a.name.localeCompare(b.name, 'de-DE'));
+      : members.value.map(member => ({ ...member, mentioned: false })).sort((a, b) => correspondentDisplayName(a).localeCompare(correspondentDisplayName(b), 'de-DE'));
     return known.slice(0, MAX_CHIPS);
   }
   if (kind.value === 'organization') return items.value.filter(item => item.mentioned).slice(0, MAX_CHIPS);

@@ -90,6 +90,12 @@ def _clip_with_ellipsis(value: str, max_len: int) -> str:
     return f"{normalized[: max_len - 1].rstrip()}…"
 
 
+def _correspondent_short_name(meta: dict[str, object]) -> str:
+    correspondent = meta.get("correspondent")
+    short_name = correspondent.get("short_name") if isinstance(correspondent, dict) else meta.get("correspondent_short_name")
+    return str(short_name or "").strip()
+
+
 def build_legacy_filename_from_meta(meta: dict[str, object]) -> str:
     """Fallback ohne Template: Betreff zuerst, kein Dokumenttyp, Leerzeichen-getrennt.
 
@@ -97,13 +103,14 @@ def build_legacy_filename_from_meta(meta: dict[str, object]) -> str:
     steckt – sonst bleibt er das separat gepflegte Feld.
     """
     subject = _normalize_subject(str(meta.get("subject") or ""))
-    issuer = _normalize_issuer(str(meta.get("issuer") or ""))
+    raw_issuer = _normalize_issuer(str(meta.get("issuer") or ""))
+    issuer = _correspondent_short_name(meta) or raw_issuer
     amount_value = _safe_float(meta.get("amount"))
 
     parts: list[str] = []
     if subject:
         parts.append(subject)
-    if issuer and not (subject and issuer.casefold() in subject.casefold()):
+    if issuer and not any(name and name.casefold() in subject.casefold() for name in (issuer, raw_issuer)):
         parts.append(issuer)
     if not parts:
         parts.append("Dokument")
@@ -181,8 +188,8 @@ class NamingTemplateService:
         if canonical == "correspondent":
             correspondent = meta.get("correspondent")
             if isinstance(correspondent, dict):
-                return correspondent.get("short_name") or correspondent.get("name")
-            return meta.get("correspondent_short_name") or meta.get("correspondent_name") or meta.get("issuer")
+                return _correspondent_short_name(meta) or correspondent.get("name")
+            return _correspondent_short_name(meta) or meta.get("correspondent_name") or meta.get("issuer")
         if canonical == "year":
             parsed = self._parse_date(meta.get("date"))
             return parsed.year if parsed else meta.get("year")

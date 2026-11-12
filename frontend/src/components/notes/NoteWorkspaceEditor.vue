@@ -729,6 +729,7 @@
 </template>
 
 <script setup>
+import { resolveDocumentCorrespondent } from '../../workspaces/documents/documentListMeta.js';
 import { normalizeSpeechOptions } from '../../utils/speechSettings.js';
 import { wordCountLabel } from '../../utils/noteWordCount.js';
 import NoteStatsPopover from './NoteStatsPopover.vue';
@@ -739,7 +740,7 @@ import { authedUrl, getBaseUrl } from '../../api/client.js';
 import { getAICredentialStatus } from '../../api/aiCredentials.js';
 import { createNoteAudioExport } from '../../api/jobs.js';
 import { useSettingsStore } from '../../stores/settings.js';
-import { correspondentSearchValues } from '../../utils/correspondentHierarchy.js';
+import { correspondentDisplayName, correspondentSearchValues } from '../../utils/correspondentHierarchy.js';
 import { buildNotesPreferencesPatch } from '../../utils/settingsApi.js';
 import { useUiStore } from '../../stores/ui.js';
 import { isNoteEmpty, useNotesStore } from '../../stores/notes.js';
@@ -904,7 +905,7 @@ const linkTargets = computed(() => ([
   ...slashDocuments.value,
   ...(correspondentStore.correspondents || []).map((c) => ({
     id: c.id,
-    label: c.name,
+    label: correspondentDisplayName(c),
     type: 'correspondent',
     hint: c.kind === 'person' ? 'Person' : 'Organisation',
     keywords: correspondentSearchValues(c, { aliases: settingsStore.settings?.ui?.correspondent_search_aliases !== false }),
@@ -2031,7 +2032,7 @@ function assignDocument(document) {
       id: document.id,
       title: documentLabel(document),
       pageCount: document.page_count || null,
-      correspondent: document.correspondent_name || '',
+      correspondent: resolveDocumentCorrespondent(document, correspondentStore.findById, { showParent: false }),
       documentDate: document.document_date || '',
     },
   });

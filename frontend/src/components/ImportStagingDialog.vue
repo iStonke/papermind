@@ -857,7 +857,7 @@ const proposalNeedsCorrespondent = computed(() => {
 });
 function proposalText(field) {
   const value = metadataProposals.value[field]?.value;
-  if (field === 'correspondent') return correspondentStore.findById(normalizeCorrespondentInput(value))?.name || String(value || '');
+  if (field === 'correspondent') return correspondentStore.displayLabel(normalizeCorrespondentInput(value), String(value || ''));
   return Array.isArray(value) ? value.join(', ') : String(value || '');
 }
 function writeChosenMetadata(doc, field, value, origin) {

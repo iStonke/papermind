@@ -50,11 +50,11 @@
               :model-value="pickedEmpties.has(entry.id)"
               :disabled="busy"
               density="compact"
-              :aria-label="`${entry.name} löschen`"
+              :aria-label="`${correspondentDisplayName(entry)} löschen`"
               @update:model-value="toggle(pickedEmpties, entry.id, $event)"
             />
             <span class="corr-cleanup__text">
-              <span class="corr-cleanup__name">{{ entry.name }}</span>
+              <span class="corr-cleanup__name">{{ correspondentDisplayName(entry) }}</span>
               <span class="corr-cleanup__meta">{{ kindLabel(entry.kind) }}<template v-if="entry.aliases?.length"> · {{ countLabel(entry.aliases.length, 'Alias', 'Aliase') }}</template></span>
             </span>
           </li>
@@ -83,7 +83,7 @@ import { computed, ref, watch } from 'vue';
 import BaseDialog from './BaseDialog.vue';
 import { useCorrespondentStore } from '../stores/correspondents.js';
 import { mapApiError } from '../stores/notifications.js';
-import { correspondentKindLabel } from '../utils/correspondentHierarchy.js';
+import { correspondentDisplayName, correspondentKindLabel } from '../utils/correspondentHierarchy.js';
 import { findCleanupSuggestions } from '../utils/correspondentCleanup.js';
 
 const props = defineProps({ modelValue: Boolean });
@@ -152,7 +152,7 @@ async function deleteEmpties() {
     try {
       await store.deleteCorrespondent(entry.id);
     } catch (err) {
-      failures.push(mapApiError(err, `„${entry.name}“ konnte nicht gelöscht werden.`));
+      failures.push(mapApiError(err, `„${correspondentDisplayName(entry)}“ konnte nicht gelöscht werden.`));
     }
   }
   running.value = '';

@@ -874,6 +874,7 @@
 </template>
 
 <script setup>
+import { resolveDocumentCorrespondent } from '../workspaces/documents/documentListMeta.js';
 import { vListReveal } from '../directives/listReveal.js';
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, resolveComponent, watch } from 'vue';
 import { storeToRefs } from 'pinia';
@@ -1173,7 +1174,7 @@ const DossierItemCard = defineComponent({
       }
       if (it.item_type === 'document') {
         const title = dossierDocumentCardTitle(it.document);
-        const source = it.document?.correspondent_name || it.document?.document_type || 'Dokument';
+        const source = resolveDocumentCorrespondent(it.document) || it.document?.document_type || 'Dokument';
         const pageLabel = dossierDocumentPageLabel(it.document);
         return h('div', { class: cls }, [
           h('div', { class: ['dsr-card__thumb', 'dsr-thumb', { 'dsr-thumb--loaded': thumbLoaded.value, 'dsr-thumb--error': thumbError.value }] }, [

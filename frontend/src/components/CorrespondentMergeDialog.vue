@@ -2,7 +2,7 @@
   <BaseDialog
     :model-value="modelValue"
     title="Zusammenführen"
-    :header-subtitle="correspondent?.name"
+    :header-subtitle="correspondentDisplayName(correspondent)"
     icon="mdi-source-merge"
     variant="destructive"
     primary-text="Zusammenführen"
@@ -54,7 +54,7 @@
               :disabled="busy"
               @click="keepId = entry.id"
             >
-              <span class="corr-merge__option-name">{{ entry.name }}</span>
+              <span class="corr-merge__option-name" :title="entry.name">{{ correspondentDisplayName(entry) }}</span>
               <span class="corr-merge__option-meta">{{ documentsLabel(entry) }}</span>
             </button>
           </div>
@@ -63,7 +63,7 @@
         <ul class="corr-merge__summary" aria-label="Was passiert">
           <li v-for="line in summary" :key="line">{{ line }}</li>
         </ul>
-        <p class="corr-merge__warning">„{{ source.name }}“ wird danach gelöscht. Das lässt sich nicht rückgängig machen.</p>
+        <p class="corr-merge__warning">„{{ correspondentDisplayName(source) }}“ wird danach gelöscht. Das lässt sich nicht rückgängig machen.</p>
       </template>
       <p v-if="error" class="corr-merge__error" role="alert">{{ error }}</p>
     </div>
@@ -74,7 +74,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import BaseDialog from './BaseDialog.vue';
 import { useCorrespondentStore } from '../stores/correspondents.js';
-import { correspondentKindIcon, correspondentKindLabel } from '../utils/correspondentHierarchy.js';
+import { correspondentDisplayName, correspondentKindIcon, correspondentKindLabel } from '../utils/correspondentHierarchy.js';
 import { canMergeCorrespondents, findDuplicateCandidates, preferredMergeTarget } from '../utils/correspondentDuplicates.js';
 import { mapApiError } from '../stores/notifications.js';
 import { useSettingsStore } from '../stores/settings.js';
@@ -145,12 +145,12 @@ const summary = computed(() => {
   const members = store.membersOf(from.id).length;
   return [
     documents
-      ? `${count(documents, 'Dokument', 'Dokumente')} von „${from.name}“ ${documents === 1 ? 'wird' : 'werden'} „${into.name}“ zugeordnet.`
-      : `„${from.name}“ hat keine Dokumente.`,
+      ? `${count(documents, 'Dokument', 'Dokumente')} von „${correspondentDisplayName(from)}“ ${documents === 1 ? 'wird' : 'werden'} „${correspondentDisplayName(into)}“ zugeordnet.`
+      : `„${correspondentDisplayName(from)}“ hat keine Dokumente.`,
     `„${from.name}“ wird als Alias gespeichert, damit diese Schreibweise weiter erkannt wird.`,
     aliases ? `${count(aliases, 'weiterer Alias', 'weitere Aliase')} und die Erkennungsregeln werden übernommen.` : '',
-    members ? `${count(members, 'zugeordneter Eintrag wechselt', 'zugeordnete Einträge wechseln')} zu „${into.name}“.` : '',
-    (from.notes || '').trim() ? `Die Notiz von „${from.name}“ wird angehängt.` : '',
+    members ? `${count(members, 'zugeordneter Eintrag wechselt', 'zugeordnete Einträge wechseln')} zu „${correspondentDisplayName(into)}“.` : '',
+    (from.notes || '').trim() ? `Die Notiz von „${correspondentDisplayName(from)}“ wird angehängt.` : '',
     'Verbindungen und Verweise in Notizen zeigen danach auf den verbleibenden Eintrag.',
   ].filter(Boolean);
 });

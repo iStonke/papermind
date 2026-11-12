@@ -388,7 +388,7 @@
               @blur="commitRename"
             >
             <h1 v-else class="corr-profile__name">
-              <button ref="profileNameRef" type="button" class="corr-profile__name-btn" title="Namen bearbeiten" @click="startRename">{{ selected.name }}</button>
+              <button ref="profileNameRef" type="button" class="corr-profile__name-btn" :title="`Vollständigen Namen bearbeiten: ${selected.name}`" @click="startRename">{{ rowLabel(selected) }}</button>
             </h1>
             <div class="corr-profile__meta corr-muted">
               <template v-if="profile">
@@ -424,7 +424,7 @@
                   @click="openShortName"
                 >
                   <v-icon size="13" aria-hidden="true">mdi-pencil-outline</v-icon>
-                  <span class="corr-profile__short-name">{{ selected.short_name || 'Kurzname' }}</span>
+                  <span class="corr-profile__short-name">Kurzname</span>
                 </button>
               </span>
             </div>
@@ -482,7 +482,7 @@
                   ref="memberTilesRef"
                   :key="selected.id"
                   :collection-id="selected.id"
-                  :collection-name="selected.name"
+                  :collection-name="rowLabel(selected)"
                   :summaries="collectionSummaries"
                   :disabled="isSaving"
                   @open-change="openMemberId = $event"
@@ -535,11 +535,19 @@
                 :total="documentsResultTotal"
                 :loading-more="isLoadingMoreDocuments"
                 :load-more-failed="moreDocumentsFailed"
-                :label="`Dokumente von ${selected.name}`"
-                empty-text="Zugeordnete Dokumente erscheinen hier."
+                :label="`Dokumente von ${rowLabel(selected)}`"
                 show-type
                 @load-more="loadMoreDocuments"
-              />
+              >
+                <template #empty>
+                  <p class="corr-empty corr-docs-empty">
+                    <span class="corr-docs-empty__badge" aria-hidden="true">
+                      <v-icon size="16">mdi-file-document-outline</v-icon>
+                    </span>
+                    Keine Dokumente zugeordnet
+                  </p>
+                </template>
+              </CorrespondentDocumentGrid>
             </section>
 
             <section class="corr-profile-data" aria-label="Profildaten">
@@ -564,10 +572,10 @@
                   <template v-if="selected.kind || structureConnections.length">
                     <CorrespondentProfileRow
                       v-if="selectedParent"
-                      :name="selectedParent.name"
+                      :name="rowLabel(selectedParent)"
                       :icon="kindIcon(selectedParent.kind)"
                       :subtitle="kindLabel(selectedParent.kind)"
-                      :remove-label="`Zuordnung zu ${selectedParent.name} lösen`"
+                      :remove-label="`Zuordnung zu ${rowLabel(selectedParent)} lösen`"
                       :tile="showStructureTiles"
                       :disabled="isSaving"
                       @open="selectFromProfile(selectedParent.id)"
@@ -576,11 +584,11 @@
                     <CorrespondentProfileRow
                       v-for="member in selectedMembers"
                       :key="member.id"
-                      :name="member.name"
+                      :name="rowLabel(member)"
                       :icon="kindIcon(member.kind)"
                       :subtitle="kindLabel(member.kind)"
                       :count-label="memberCounts.has(member.id) ? documentCountLabel(memberCounts.get(member.id)) : ''"
-                      :remove-label="`Zuordnung von ${member.name} lösen`"
+                      :remove-label="`Zuordnung von ${rowLabel(member)} lösen`"
                       :tile="showStructureTiles"
                       :disabled="isSaving"
                       @open="selectFromProfile(member.id)"
@@ -623,7 +631,13 @@
                       :disabled="isSaving"
                     >
                       <template #activator="{ props: menuProps }">
-                        <button v-bind="menuProps" type="button" class="corr-placeholder" :disabled="isSaving">
+                        <button
+                          v-bind="menuProps"
+                          type="button"
+                          class="corr-placeholder"
+                          :class="{ 'corr-placeholder--affiliation-chip': !showStructureTiles }"
+                          :disabled="isSaving"
+                        >
                           <v-icon size="16" aria-hidden="true">mdi-plus</v-icon>
                           {{ isCollection ? 'Mitglied hinzufügen' : 'Zugehörigkeit hinzufügen' }}
                         </button>
@@ -670,6 +684,7 @@
                   ref="noteInputRef"
                   v-model="noteValue"
                   class="corr-note corr-note--input"
+                  :class="{ 'corr-note--full-width': selected.notes }"
                   cols="28"
                   rows="3"
                   maxlength="2000"
@@ -735,7 +750,7 @@
       :model-value="isKindDialogOpen"
       :title="selected.kind ? 'Typ ändern' : 'Typ festlegen'"
       :aria-label="selected.kind ? 'Typ ändern' : 'Typ festlegen'"
-      :header-subtitle="selected.name"
+      :header-subtitle="rowLabel(selected)"
       primary-text="Typ übernehmen"
       :primary-disabled="!canApplyKind"
       :loading="isSaving"
@@ -787,7 +802,7 @@
         @submit="applyKind"
       />
       <p v-if="kindLosesParent" class="corr-kind-notice" role="status">
-        Die Zuordnung zu <strong>{{ selectedParent?.name || selected.parent_name || 'einem übergeordneten Eintrag' }}</strong> wird beim Wechsel gelöst.
+        Die Zuordnung zu <strong>{{ correspondentParentName(selected, correspondentStore.findById) || 'einem übergeordneten Eintrag' }}</strong> wird beim Wechsel gelöst.
       </p>
       <p v-if="kindError" class="corr-kind-error" role="alert">{{ kindError }}</p>
     </BaseDialog>
@@ -796,7 +811,7 @@
     <BaseDialog
       v-model="isShortNameOpen"
       title="Kurzname bearbeiten"
-      description="Der optionale Kurzname kann in Dokumentlisten und Dateinamen erscheinen."
+      description="Der Kurzname wird in PaperMind und in Dateinamen verwendet, wenn er hinterlegt ist."
       primary-text="Speichern"
       :loading="isSaving"
       :persistent="isSaving"
@@ -906,7 +921,7 @@
           v-model="createParentId"
           :disabled="isCreating"
           :items="createParentOptions"
-          item-title="name"
+          :item-title="rowLabel"
           item-value="id"
           label="Gehört zu"
           no-data-text="Keine passenden Einträge"
@@ -965,6 +980,7 @@ import {
   memberSummaryLabel,
   sortCorrespondentTree,
   correspondentDisplayName,
+  correspondentParentName,
 } from '../utils/correspondentHierarchy.js';
 import { collectionMemberSummaries } from '../utils/correspondentProfileStats.js';
 import CollectionMemberTiles from '../components/CollectionMemberTiles.vue';
@@ -1226,12 +1242,9 @@ const visibleTree = computed(() =>
       activity: activityFilter.value,
     }),
     sortBy.value,
-    { preferShort: preferShortNames.value },
   )
 );
-// „Kurznamen bevorzugen“ gilt auch hier: Kurzname in der Zeile, voller Name als Tooltip.
-const preferShortNames = computed(() => settingsStore.settings?.ui?.correspondent_prefer_short_name !== false);
-const rowLabel = (correspondent) => correspondentDisplayName(correspondent, { preferShort: preferShortNames.value });
+const rowLabel = correspondentDisplayName;
 const rowFullName = (correspondent) => {
   const label = rowLabel(correspondent);
   return label !== correspondent.name ? correspondent.name : undefined;
@@ -1244,7 +1257,7 @@ const directoryEmptyState = computed(() => correspondentStore.correspondents.len
     title: 'Noch keine Korrespondenten',
     subtitle: 'Lege über das Plus eine Person, Organisation oder Sammlung an.',
   });
-const byName = (a, b) => a.name.localeCompare(b.name, 'de-DE');
+const byName = (a, b) => rowLabel(a).localeCompare(rowLabel(b), 'de-DE');
 /** Mögliche übergeordnete Einträge für einen Typ: Person → Organisation/Sammlung, Organisation → Sammlung. */
 const parentCandidatesFor = (kind) =>
   correspondentStore.correspondents
@@ -1260,12 +1273,11 @@ const structureTitle = computed(() => {
 });
 const isProfileSwitching = computed(() => Boolean(props.selectedId) && displayedProfileId.value !== props.selectedId);
 const selected = computed(() => correspondentStore.findById(displayedProfileId.value));
-const showStructureTiles = computed(() => Boolean(selected.value?.kind));
 const selectedParent = computed(() =>
   selected.value?.parent_id ? correspondentStore.findById(selected.value.parent_id) : null
 );
 const selectedMembers = computed(() =>
-  correspondentStore.membersOf(displayedProfileId.value).slice().sort((a, b) => a.name.localeCompare(b.name, 'de-DE'))
+  correspondentStore.membersOf(displayedProfileId.value).sort(byName)
 );
 
 // Zusammenführen: wahrscheinliche Doppel im Profil anbieten, Ziel/Quelle im Dialog wählen.
@@ -1394,7 +1406,7 @@ const profileActionTitle = computed(() => {
 const profileActionDescription = computed(() => {
   const action = pendingProfileAction.value;
   if (!action) return '';
-  const name = action.correspondent.name;
+  const name = rowLabel(action.correspondent);
   if (isUnlinkAction.value) {
     return `Alle direkten Dokumentzuordnungen zu „${name}“ werden gelöst. Die Dokumente bleiben erhalten.`;
   }
@@ -1738,11 +1750,16 @@ const memberCounts = computed(() => new Map((profile.value?.members || []).map((
 const relations = computed(() => profile.value?.relations || []);
 const connectionItems = computed(() => relations.value.map((relation) => {
   const role = CORRESPONDENT_CONNECTION_ROLES.find((item) => item.value === relation.role);
+  const other = correspondentStore.findById(relation.other_id) ?? {
+    name: relation.other_name,
+    short_name: relation.other_short_name,
+    kind: relation.other_kind,
+  };
   return {
     key: relation.id,
     id: relation.other_id,
-    name: relation.other_name,
-    kind: relation.other_kind ?? correspondentStore.findById(relation.other_id)?.kind,
+    name: rowLabel(other),
+    kind: other.kind,
     label: [
       role?.label,
       relation.role === 'predecessor' && yearSpan(relation.first_document_date, relation.last_document_date),
@@ -1751,6 +1768,8 @@ const connectionItems = computed(() => relations.value.map((relation) => {
   };
 }));
 const structureConnections = computed(() => isCollection.value ? [] : connectionItems.value);
+const showStructureTiles = computed(() => Boolean(selected.value?.kind
+  && (selectedParent.value || selectedMembers.value.length || structureConnections.value.length)));
 
 const connectKinds = computed(() => connectionKindOptions(selected.value, relations.value));
 
@@ -1758,7 +1777,7 @@ function findConnectCandidates(role, query) {
   const linkedRelations = role === 'member'
     ? [...relations.value, ...selectedMembers.value.map(member => ({ role, other_id: member.id }))]
     : relations.value;
-  return findConnectionCandidates(selected.value, role, correspondentStore.correspondents, linkedRelations, query);
+  return findConnectionCandidates(selected.value, role, correspondentStore.correspondents, linkedRelations, query).sort(byName);
 }
 
 async function connectTo(candidate, role) {
@@ -2664,18 +2683,20 @@ onMounted(() => {
 .corr-empty { margin: 0; font-size: 0.84rem; line-height: 1.45; }
 .corr-sheet {
   --corr-section-content-gap: 8px;
+  --corr-sheet-gap: 18px;
+  --corr-profile-divider-spacing: 26px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 18px;
+  gap: var(--corr-sheet-gap);
   max-width: 820px;
 }
 .corr-profile-data {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 16px;
-  padding: 14px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--pm-app-surface) 96%, var(--pm-text));
+  margin-block-start: calc(var(--corr-profile-divider-spacing) - var(--corr-sheet-gap));
+  border-block-start: 1px solid color-mix(in srgb, var(--pm-list-divider) 65%, transparent);
+  padding-block-start: var(--corr-profile-divider-spacing);
 }
 .corr-section-head,
 .corr-section-info :deep(.pm-info-heading__row) {
@@ -2706,9 +2727,11 @@ onMounted(() => {
 .corr-structure--tiles {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 286px), 1fr));
+  grid-auto-rows: minmax(62px, 1fr);
   gap: 10px;
 }
-.corr-structure--tiles > .corr-structure__add-action { grid-column: 1 / -1; }
+.corr-structure--tiles > .corr-structure__add-action { display: grid; }
+.corr-structure--tiles .corr-structure__add-action > .corr-placeholder { width: 100%; }
 .corr-collection { container-type: inline-size; }
 .corr-collection__band { margin-bottom: 14px; }
 
@@ -2731,8 +2754,11 @@ onMounted(() => {
   overflow-wrap: anywhere;
 }
 .corr-note { white-space: pre-wrap; cursor: text; }
+button.corr-note:where(:not(.corr-note--empty)) {
+  border-color: color-mix(in srgb, var(--pm-divider) 65%, transparent);
+  background: color-mix(in srgb, var(--pm-accent) 5%, var(--pm-app-surface));
+}
 .corr-note:hover, .corr-placeholder:hover { border-color: color-mix(in srgb, var(--pm-accent) 45%, var(--pm-divider)); }
-button.corr-note:not(.corr-note--empty) { background: var(--pm-v-card, var(--pm-app-surface-raised)); }
 .corr-placeholder {
   display: flex;
   align-items: center;
@@ -2741,6 +2767,12 @@ button.corr-note:not(.corr-note--empty) { background: var(--pm-v-card, var(--pm-
   border-color: color-mix(in srgb, var(--pm-muted) 45%, var(--pm-divider));
   color: var(--pm-muted);
   cursor: pointer;
+}
+.corr-placeholder--affiliation-chip {
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
 }
 .corr-placeholder.corr-placeholder--collection {
   flex-direction: column;
@@ -2769,6 +2801,16 @@ button.corr-note:not(.corr-note--empty) { background: var(--pm-v-card, var(--pm-
 }
 .corr-placeholder__title { color: var(--pm-text); font-weight: 600; }
 .corr-placeholder__hint { color: var(--pm-muted); font-size: 0.75rem; }
+.corr-docs-empty { display: flex; align-items: center; gap: 10px; color: var(--pm-muted); }
+.corr-docs-empty__badge {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  height: 30px;
+  border: 1px solid var(--pm-divider);
+  border-radius: 8px;
+  color: var(--pm-accent-text);
+}
 .corr-note--input {
   width: auto;
   min-width: min(28ch, 100%);
@@ -2778,6 +2820,7 @@ button.corr-note:not(.corr-note--empty) { background: var(--pm-v-card, var(--pm-
   field-sizing: content;
   min-height: 76px;
 }
+.corr-note--full-width { width: 100%; }
 
 @media (max-width: 860px) {
   .corr { grid-template-columns: minmax(0, 1fr); }

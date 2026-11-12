@@ -249,6 +249,7 @@
 </template>
 
 <script setup>
+import { correspondentDisplayName } from '../utils/correspondentHierarchy.js';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { authHeaders } from '../api/client.js';
 import BaseDialog from './BaseDialog.vue';
@@ -483,7 +484,7 @@ const correspondentOptions = computed(() => {
   for (const correspondent of props.correspondents || []) {
     const entry = typeof correspondent === 'string' ? { name: correspondent } : correspondent;
     const name = String(entry?.name || entry?.title || '').trim();
-    if (name && !byName.has(name)) byName.set(name, { ...entry, name, title: name, value: name });
+    if (name && !byName.has(name)) byName.set(name, { ...entry, name, title: correspondentDisplayName(entry) || name, value: name });
   }
   return [...byName.values()].sort((a, b) => a.title.localeCompare(b.title, 'de-DE', { sensitivity: 'base' }));
 });

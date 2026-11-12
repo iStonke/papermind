@@ -48,7 +48,7 @@
                 </span>
                 <span class="tag-card__text">
                   <span class="tag-card__title">{{ docTitle(doc) }}</span>
-                  <span class="tag-card__meta">{{ doc.correspondent_name || 'Ohne Korrespondent' }}</span>
+                  <span class="tag-card__meta">{{ resolveDocumentCorrespondent(doc) || 'Ohne Korrespondent' }}</span>
                   <span class="tag-card__meta tag-card__meta--muted">{{ formatDate(doc.document_date) }}</span>
                 </span>
               </button>
@@ -82,6 +82,7 @@
 </template>
 
 <script setup>
+import { resolveDocumentCorrespondent } from '../workspaces/documents/documentListMeta.js';
 import { vListReveal } from '../directives/listReveal.js';
 import { reactive, ref, watch } from 'vue';
 import { listDocuments, documentThumbnailUrl } from '../api/documents.js';

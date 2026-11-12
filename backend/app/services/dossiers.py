@@ -798,27 +798,28 @@ class DossierService:
         correspondent_ids = {doc.correspondent_id for doc in documents if doc.correspondent_id}
         correspondent_names = {}
         if correspondent_ids:
-            correspondent_names = dict(
-                self.db.execute(
-                    select(Correspondent.id, Correspondent.name).where(
-                        Correspondent.id.in_(correspondent_ids),
-                        Correspondent.owner_id == self.owner_id,
-                    )
-                ).all()
+            rows = self.db.execute(
+                select(Correspondent.id, Correspondent.name, Correspondent.display_short_name).where(
+                    Correspondent.id.in_(correspondent_ids),
+                    Correspondent.owner_id == self.owner_id,
+                )
             )
-        return {
-            document.id: DossierDocumentSummary(
+            correspondent_names = {cid: (name, short_name) for cid, name, short_name in rows}
+        summaries = {}
+        for document in documents:
+            name, short_name = correspondent_names.get(document.correspondent_id, (None, None))
+            summaries[document.id] = DossierDocumentSummary(
                 id=document.id,
                 title=document.display_name or document.original_filename,
                 original_filename=document.original_filename,
                 document_date=document.document_date,
                 document_type=document.document_type,
-                correspondent_name=correspondent_names.get(document.correspondent_id),
+                correspondent_name=name,
+                correspondent_short_name=short_name,
                 page_count=document.page_count,
                 is_deleted=document.is_deleted,
             )
-            for document in documents
-        }
+        return summaries
 
     def item_models(self, items: list[DossierItem]) -> list[DossierItemRead]:
         documents = self._document_summaries({item.document_id for item in items if item.document_id})

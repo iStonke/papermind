@@ -1417,7 +1417,7 @@
                   Schließen
                 </button>
                 <DocumentFlipPreview ref="documentFlipRef" @before-turn="previewSwapRef?.settleEntrance()" @change="documentBackVisible = $event" @lock-change="documentBackLocked = $event" :document-key="selectedDocumentId" :title="previewDocumentTitle"
-                  :correspondent="previewDocument?.correspondent_name || ''" :page-count="previewDocumentPageCount"
+                  :correspondent="documentCorrespondentLabel(previewDocument)" :page-count="previewDocumentPageCount"
                   :page="panePreviewRef?.currentPage || 1" :enabled="Boolean(selectedDocumentId)">
                   <PreviewSwap ref="previewSwapRef" :transition-key="previewRenderKey">
                     <PdfPreview
@@ -1674,6 +1674,8 @@
 </template>
 
 <script setup>
+import { resolveDocumentCorrespondent } from '../workspaces/documents/documentListMeta.js';
+import { correspondentParentName } from '../utils/correspondentHierarchy.js';
 const documentPreviewWidth = ref(43);
 let previewResizeStart = null;
 function startPreviewResize(event) {
@@ -2315,7 +2317,7 @@ function selectedDocumentLinkTarget() {
     id: String(docId),
     title: detail.display_name || detail.original_filename || 'Dokument',
     pageCount: detail.page_count || null,
-    correspondent: detail.correspondent_name || '',
+    correspondent: documentCorrespondentLabel(detail),
     documentDate: detail.document_date || '',
   };
 }
@@ -2613,7 +2615,7 @@ const readerMetaParts = computed(() => {
   return [
     detail.document_type || detail.category,
     formatDocumentDateInputFromIso(detail.document_date),
-    detail.correspondent_name,
+    documentCorrespondentLabel(detail),
   ].map((part) => String(part || '').trim()).filter(Boolean);
 });
 
@@ -4663,6 +4665,10 @@ onBeforeUnmount(() => {
   clearSidebarRailTimers();
 });
 
+const documentCorrespondentLabel = (document) => resolveDocumentCorrespondent(
+  document, correspondentStore.findById, { showParent: false }
+);
+
 // Aktiver Korrespondentenfilter mit Hierarchie-Kontext für das Suchfeld.
 const activeCorrespondentFilter = computed(() => {
   const id = documentListQuery.correspondentId;
@@ -4675,7 +4681,7 @@ const activeCorrespondentFilter = computed(() => {
     memberCount,
     includesMembers: memberCount > 0 && documentListQuery.correspondentMembers,
     parentId: correspondent?.parent_id || null,
-    parentName: correspondent?.parent_id ? correspondentStore.findById(correspondent.parent_id)?.name || '' : '',
+    parentName: correspondentParentName(correspondent, correspondentStore.findById),
   };
 });
 
@@ -5927,7 +5933,7 @@ const correspondentDrawerItems = computed(() => {
   const items = correspondentStore.correspondentOptions.map((o) => ({ ...o }));
   const currentId = metadataCorrespondentId.value;
   if (currentId && !items.some((o) => o.value === currentId)) {
-    const name = selectedDocumentDetail.value?.correspondent_name || 'Korrespondent';
+    const name = documentCorrespondentLabel(selectedDocumentDetail.value) || 'Korrespondent';
     items.unshift({ title: name, value: currentId });
   }
   return items;

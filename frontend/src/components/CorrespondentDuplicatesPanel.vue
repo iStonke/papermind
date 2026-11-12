@@ -49,12 +49,12 @@
                 type="button"
                 class="dupes__entry"
                 :class="{ 'dupes__entry--second': index === 1 }"
-                :aria-label="`${entry.name} öffnen`"
+                :aria-label="`${correspondentDisplayName(entry)} öffnen`"
                 @click="emit('open', entry.id)"
               >
                 <v-icon class="dupes__entry-icon" size="18" aria-hidden="true">{{ kindIcon(entry.kind) }}</v-icon>
                 <span class="dupes__entry-text">
-                  <span class="dupes__entry-name">{{ entry.name }}</span>
+                  <span class="dupes__entry-name" :title="entry.name">{{ correspondentDisplayName(entry) }}</span>
                   <span class="dupes__entry-meta">{{ meta(entry) }}</span>
                 </span>
               </button>
@@ -69,7 +69,7 @@
                   size="small"
                   prepend-icon="mdi-undo"
                   :disabled="busyKey === pair.key"
-                  :aria-label="`${pair.a.name} und ${pair.b.name} wieder anzeigen`"
+                  :aria-label="`${correspondentDisplayName(pair.a)} und ${correspondentDisplayName(pair.b)} wieder anzeigen`"
                   @click="emit('restore', pair.key)"
                 >Wieder anzeigen</v-btn>
               </span>
@@ -95,12 +95,12 @@
               type="button"
               class="dupes__entry"
               :class="{ 'dupes__entry--second': index === 1 }"
-              :aria-label="`${entry.name} öffnen`"
+              :aria-label="`${correspondentDisplayName(entry)} öffnen`"
               @click="emit('open', entry.id)"
             >
               <v-icon class="dupes__entry-icon" size="18" aria-hidden="true">{{ kindIcon(entry.kind) }}</v-icon>
               <span class="dupes__entry-text">
-                <span class="dupes__entry-name">{{ entry.name }}</span>
+                <span class="dupes__entry-name" :title="entry.name">{{ correspondentDisplayName(entry) }}</span>
                 <span class="dupes__entry-meta">{{ meta(entry) }}</span>
               </span>
             </button>
@@ -113,7 +113,7 @@
                 type="button"
                 class="dupes__dismiss"
                 :disabled="busyKey === pair.key"
-                :aria-label="`${pair.a.name} und ${pair.b.name}: kein Doppel`"
+                :aria-label="`${correspondentDisplayName(pair.a)} und ${correspondentDisplayName(pair.b)}: kein Doppel`"
                 @click="emit('dismiss', pair.key)"
               >Kein Doppel</button>
               <v-btn
@@ -122,7 +122,7 @@
                 color="primary"
                 size="small"
                 prepend-icon="mdi-source-merge"
-                :aria-label="`${pair.a.name} und ${pair.b.name} zusammenführen`"
+                :aria-label="`${correspondentDisplayName(pair.a)} und ${correspondentDisplayName(pair.b)} zusammenführen`"
                 @click="emit('merge', { subjectId: pair.a.id, otherId: pair.b.id })"
               >Zusammenführen …</v-btn>
             </span>
@@ -136,7 +136,7 @@
 <script setup>
 import { computed, nextTick, ref } from 'vue';
 import PmEmptyState from './PmEmptyState.vue';
-import { correspondentKindIcon, correspondentKindLabel } from '../utils/correspondentHierarchy.js';
+import { correspondentDisplayName, correspondentKindIcon, correspondentKindLabel } from '../utils/correspondentHierarchy.js';
 
 const props = defineProps({
   pairs: { type: Array, required: true },

@@ -18,7 +18,7 @@
         >{{ kind.label }}</button>
       </div>
       <div class="corr-connect__hint">
-        <span class="corr-muted">{{ connectRoleMeta?.hint(correspondent.name, correspondent.kind) }}</span>
+        <span class="corr-muted">{{ connectRoleMeta?.hint(correspondentDisplayName(correspondent), correspondent.kind) }}</span>
         <button
           v-if="connectKind?.roles.length > 1"
           type="button"
@@ -43,8 +43,8 @@
       <ul class="corr-connect__results">
         <li v-for="candidate in connectCandidates.slice(0, 7)" :key="candidate.id">
           <button type="button" class="corr-connect__result" :disabled="disabled" @click="submitConnection(candidate)">
-            <span class="corr-pill__avatar" aria-hidden="true">{{ candidateInitials(candidate.name) }}</span>
-            <span class="corr-connect__name">{{ candidate.name }}</span>
+            <span class="corr-pill__avatar" aria-hidden="true">{{ candidateInitials(correspondentDisplayName(candidate)) }}</span>
+            <span class="corr-connect__name">{{ correspondentDisplayName(candidate) }}</span>
             <span class="corr-muted corr-connect__kind">{{ correspondentKindLabel(candidate.kind) }}</span>
           </button>
         </li>
@@ -57,7 +57,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { CORRESPONDENT_CONNECTION_ROLES, correspondentKindLabel } from '../utils/correspondentHierarchy.js';
+import { CORRESPONDENT_CONNECTION_ROLES, correspondentDisplayName, correspondentKindLabel } from '../utils/correspondentHierarchy.js';
 
 const props = defineProps({
   correspondent: { type: Object, required: true },

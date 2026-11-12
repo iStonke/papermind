@@ -298,6 +298,9 @@ class WikiSearchService:
                 select(WikiPage).where(WikiPage.owner_id == self.owner_id, WikiPage.id.in_(claim_page_ids))
             ).scalars()
         }
+        from app.services.wiki import correspondent_wiki_titles
+
+        titles = correspondent_wiki_titles(self.db, self.owner_id, pages_by_id.values())
         page_rows_by_id = {row["id"]: row for row in selected_pages}
         best_page_vector = max(
             (float(row.get("vector_score") or 0.0) for row in selected_pages),
@@ -389,7 +392,7 @@ class WikiSearchService:
             if not valid_evidence:
                 continue
             page = pages_by_id.get(claim.page_id)
-            page_title = page.title if page else "Wissensseite"
+            page_title = titles.get(claim.page_id) or (page.title if page else "Wissensseite")
             rendered = (
                 f"[Wiki-Claim {claim.id} | Seite: {page_title} | Status: {claim.status}]\n"
                 f"{claim.text}\n"
@@ -420,7 +423,7 @@ class WikiSearchService:
         trace_pages = [
             {
                 "page_id": str(row["id"]),
-                "title": row["title"],
+                "title": titles.get(row["id"], row["title"]),
                 "kind": row["kind"],
                 "status": row["status"],
                 "revision_id": str(row["current_revision_id"]) if row.get("current_revision_id") else None,

@@ -1,3 +1,5 @@
+import { correspondentDisplayName } from './correspondentHierarchy.js';
+
 /**
  * Auswertungen für das Korrespondenten-Profil: Verteilung über Jahre, Monate
  * und Dokumenttypen sowie Rhythmus und Jahreszeit. Grundlage ist
@@ -209,7 +211,7 @@ export function collectionMemberSummaries(activity, members, {
       years: years.map((year) => ({ year, count: perYear.get(year) || 0 })),
     };
   };
-  const rows = (members || []).map((m) => ({ id: m.id, name: m.name, kind: m.kind, ...summarize(groups.get(m.id)) }));
+  const rows = (members || []).map((m) => ({ id: m.id, name: correspondentDisplayName(m), kind: m.kind, ...summarize(groups.get(m.id)) }));
   rows.sort((a, b) => (a.first && b.first ? a.first - b.first : a.first ? -1 : b.first ? 1 : a.name.localeCompare(b.name, 'de-DE')));
   return { rows, direct: summarize(directEntries) };
 }

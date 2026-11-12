@@ -1,3 +1,5 @@
+import { correspondentDisplayName } from '../../utils/correspondentHierarchy.js';
+
 const collator = new Intl.Collator('de-DE', { sensitivity: 'base', numeric: true });
 const CORRESPONDENT_TYPES = {
   organization: { label: 'Organisation', icon: 'mdi-domain' },
@@ -5,7 +7,7 @@ const CORRESPONDENT_TYPES = {
   collection: { label: 'Sammlung', icon: 'mdi-shape-outline' },
 };
 
-export function prepareCorrespondentGroups(groups, labelFor = group => group.short_name || group.name) {
+export function prepareCorrespondentGroups(groups, labelFor = correspondentDisplayName) {
   return (Array.isArray(groups) ? groups : []).map(group => ({
     ...group,
     key: group.correspondent_id || 'unassigned',

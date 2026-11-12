@@ -14,7 +14,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Iterable
 
-from sqlalchemy import and_, case, func, literal, or_, select, text
+from sqlalchemy import String, and_, case, cast, func, literal, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.services.document_knowledge import knowledge_value
@@ -76,6 +76,25 @@ WIKI_PROMPT_VERSION = "source-claims-v1"
 AGGREGATE_RECENT_CLAIM_LIMIT = 40
 _CONTRACT_MARKERS = ("vertrag", "police", "versicherung", "darlehen", "miete", "abonnement", "abo")
 _ACTIVE_CLAIM_STATUSES = ("active", "disputed")
+
+
+def correspondent_wiki_titles(db: Session, owner_id: uuid.UUID, pages: Iterable[WikiPage]) -> dict[uuid.UUID, str]:
+    page_correspondents = {}
+    for page in pages:
+        if page.kind == "entity" and page.slug.startswith("korrespondent-"):
+            try:
+                page_correspondents[page.id] = uuid.UUID(page.slug.removeprefix("korrespondent-"))
+            except ValueError:
+                continue
+    if not page_correspondents:
+        return {}
+    names = dict(db.execute(
+        select(Correspondent.id, func.coalesce(Correspondent.display_short_name, Correspondent.name)).where(
+            Correspondent.owner_id == owner_id,
+            Correspondent.id.in_(set(page_correspondents.values())),
+        )
+    ).all())
+    return {page_id: names[cid] for page_id, cid in page_correspondents.items() if cid in names}
 
 
 def _slugify(value: object | None, *, fallback: str = "wissen") -> str:
@@ -1089,8 +1108,17 @@ class WikiService:
         normalized_q = compact_text(q)
         if normalized_q:
             pattern = f"%{normalized_q}%"
-            stmt = stmt.where(or_(WikiPage.title.ilike(pattern), WikiPage.search_text.ilike(pattern)))
-            count_stmt = count_stmt.where(or_(WikiPage.title.ilike(pattern), WikiPage.search_text.ilike(pattern)))
+            correspondent_slugs = select(literal("korrespondent-") + cast(Correspondent.id, String)).where(
+                Correspondent.owner_id == self.owner_id,
+                or_(Correspondent.name.ilike(pattern), Correspondent.display_short_name.ilike(pattern)),
+            )
+            matches_query = or_(
+                WikiPage.title.ilike(pattern),
+                WikiPage.search_text.ilike(pattern),
+                and_(WikiPage.kind == "entity", WikiPage.slug.in_(correspondent_slugs)),
+            )
+            stmt = stmt.where(matches_query)
+            count_stmt = count_stmt.where(matches_query)
         total = int(self.db.scalar(count_stmt) or 0)
         pages = list(
             self.db.execute(
@@ -1100,8 +1128,9 @@ class WikiService:
             ).scalars()
         )
         counts = self._page_counts([page.id for page in pages])
+        titles = correspondent_wiki_titles(self.db, self.owner_id, pages)
         return WikiPageListResponse(
-            items=[self._page_list_item(page, counts.get(page.id)) for page in pages],
+            items=[self._page_list_item(page, counts.get(page.id), title=titles.get(page.id)) for page in pages],
             total=total,
         )
 
@@ -1111,13 +1140,14 @@ class WikiService:
         counts: dict[str, int] | None = None,
         *,
         score: float | None = None,
+        title: str | None = None,
     ) -> WikiPageListItem:
         counts = counts or {"active": 0, "review": 0, "conflict": 0, "sources": 0}
         snippet = compact_text(page.search_text, 220) or None
         return WikiPageListItem(
             id=page.id,
             slug=page.slug,
-            title=page.title,
+            title=title or page.title,
             kind=page.kind,
             status=page.status,
             source_document_id=page.source_document_id,
@@ -1204,7 +1234,8 @@ class WikiService:
             .order_by(WikiPage.title.asc())
         ).all()
         counts = self._page_counts([page.id]).get(page.id)
-        base = self._page_list_item(page, counts).model_dump()
+        titles = correspondent_wiki_titles(self.db, self.owner_id, [page, *(linked for _, linked in link_rows)])
+        base = self._page_list_item(page, counts, title=titles.get(page.id)).model_dump()
         return WikiPageDetail(
             **base,
             markdown=current.markdown if current else "",
@@ -1219,7 +1250,7 @@ class WikiService:
                     relation=link.relation,
                     status=link.status,
                     linked_page_id=linked.id,
-                    linked_page_title=linked.title,
+                    linked_page_title=titles.get(linked.id, linked.title),
                     linked_page_kind=linked.kind,
                 )
                 for link, linked in link_rows

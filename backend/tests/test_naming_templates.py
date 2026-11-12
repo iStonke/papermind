@@ -45,6 +45,15 @@ class NamingTemplateServiceTest(unittest.TestCase):
 
         self.assertEqual(service.build_filename(meta), "Wiker Auto-Service Bremsen 30.09.2013")
 
+    def test_legacy_fallback_uses_resolved_short_name(self) -> None:
+        meta = {
+            "issuer": "Kieler Männer-Turnverein",
+            "subject": "Mitgliedschaft",
+            "correspondent": {"name": "Kieler Männer-Turnverein", "short_name": "KMTV"},
+        }
+
+        self.assertEqual(NamingTemplateService().build_filename(meta), "Mitgliedschaft KMTV")
+
     def test_month_placeholder_renders_german_name(self) -> None:
         service = NamingTemplateService(_TemplateDb("{betreff} {monat} {jahr}"))
         meta = {

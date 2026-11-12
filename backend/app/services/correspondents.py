@@ -671,6 +671,7 @@ class CorrespondentService:
                     role=self._role_of(relation, correspondent_id),
                     other_id=other_id,
                     other_name=other.name,
+                    other_short_name=other.display_short_name,
                     other_kind=other.kind,
                     document_count=count,
                     first_document_date=first,

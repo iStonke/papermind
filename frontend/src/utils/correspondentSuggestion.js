@@ -1,3 +1,4 @@
+import { correspondentDisplayName } from './correspondentHierarchy.js';
 /**
  * Vorschlag für die Zuordnung eines offenen Dokuments (Karte und Sammelaktion
  * „Alle Vorschläge übernehmen“ nutzen dieselbe Regel) – vorhandene
@@ -35,13 +36,14 @@ export function suggestCorrespondent(item, store, { mentionedMemberId = null, co
 export function suggestionReason(item, correspondent) {
   if (!correspondent) return '';
   const matchedBy = item?.suggestion?.correspondent_id === correspondent.id ? item.suggestion.matched_by : 'name';
+  const label = correspondentDisplayName(correspondent);
   return {
-    text: `${correspondent.name} wird im Dokument genannt`,
-    surname: `${correspondent.name} – Name im Dokument genannt`,
-    member: `${correspondent.name} wird im Dokument genannt`,
-    matcher: `${correspondent.name} – passt zu einer Suchregel`,
-    similar: `${correspondent.name} – Name ähnlich zum erkannten Absender`,
-  }[matchedBy] || `${correspondent.name} passt zum erkannten Absender`;
+    text: `${label} wird im Dokument genannt`,
+    surname: `${label} – Name im Dokument genannt`,
+    member: `${label} wird im Dokument genannt`,
+    matcher: `${label} – passt zu einer Suchregel`,
+    similar: `${label} – Name ähnlich zum erkannten Absender`,
+  }[matchedBy] || `${label} passt zum erkannten Absender`;
 }
 
 /** Vorschlag nur aus Namensähnlichkeit (in der Sammelaktion markiert). */

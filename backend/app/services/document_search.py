@@ -39,7 +39,13 @@ def build_scoped_search_filter(normalized_query: str, search_scope: DocumentSear
     if search_scope == DocumentSearchScope.document_type:
         return func.coalesce(Document.document_type, "").ilike(like_value, escape="\\")
     if search_scope == DocumentSearchScope.correspondent:
-        return select(Correspondent.id).where(Correspondent.id == Document.correspondent_id, Correspondent.name.ilike(like_value, escape="\\")).exists()
+        return select(Correspondent.id).where(
+            Correspondent.id == Document.correspondent_id,
+            or_(
+                Correspondent.name.ilike(like_value, escape="\\"),
+                Correspondent.display_short_name.ilike(like_value, escape="\\"),
+            ),
+        ).exists()
     if search_scope == DocumentSearchScope.tags:
         return select(document_tags.c.document_id).join(Tag, Tag.id == document_tags.c.tag_id).where(document_tags.c.document_id == Document.id, Tag.name.ilike(like_value, escape="\\")).exists()
     if search_scope == DocumentSearchScope.year:

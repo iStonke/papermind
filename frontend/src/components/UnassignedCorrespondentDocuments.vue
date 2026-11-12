@@ -157,7 +157,7 @@
         <li v-for="entry in bulkCandidates.slice(0, BULK_PREVIEW)" :key="entry.item.document_id">
           <span class="assign__bulk-doc">{{ titleOf(entry.item) }}</span>
           <v-icon size="14" aria-hidden="true">mdi-arrow-right</v-icon>
-          <span class="assign__bulk-target">{{ entry.correspondent.name }}</span>
+          <span class="assign__bulk-target">{{ correspondentDisplayName(entry.correspondent) }}</span>
           <span v-if="entry.guess" class="assign__bulk-guess" title="Vorschlag aus Namensähnlichkeit – bitte kurz prüfen">ähnlich</span>
         </li>
         <li v-if="bulkCandidates.length > BULK_PREVIEW" class="assign__bulk-more">
@@ -169,6 +169,7 @@
 </template>
 
 <script setup>
+import { correspondentDisplayName } from '../utils/correspondentHierarchy.js';
 import { computed, nextTick, ref, useId, watch } from 'vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import CorrespondentAssignmentCard from './CorrespondentAssignmentCard.vue';
@@ -568,7 +569,7 @@ function aliasOffer(correspondentId, item) {
   const sender = item.sender?.trim().replace(/\s+/g, ' ');
   if (!correspondent || !sender || sender.length < 2 || senderMatches(correspondent, sender)) return null;
   return {
-    message: `„${sender}“ als Schreibweise von ${correspondent.name} merken?`,
+    message: `„${sender}“ als Schreibweise von ${correspondentDisplayName(correspondent)} merken?`,
     action: {
       label: 'Als Alias merken',
       errorMessage: 'Alias konnte nicht gespeichert werden.',
